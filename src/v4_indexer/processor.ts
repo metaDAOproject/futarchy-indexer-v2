@@ -1,5 +1,5 @@
-import { AddLiquidityEvent, AmmEvent, ConditionalVaultEvent, CreateAmmEvent, getVaultAddr, InitializeConditionalVaultEvent, InitializeQuestionEvent, SwapEvent, PriceMath, SplitTokensEvent, MergeTokensEvent, RemoveLiquidityEvent } from "@metadaoproject/futarchy/v0.4";
-import { schema, db, eq, and } from "@metadaoproject/indexer-db";
+import { AddLiquidityEvent, AmmEvent, ConditionalVaultEvent, CreateAmmEvent, getVaultAddr, InitializeConditionalVaultEvent, InitializeQuestionEvent, SwapEvent, PriceMath, SplitTokensEvent, MergeTokensEvent, RemoveLiquidityEvent, ResolveQuestionEvent } from "@metadaoproject/futarchy/v0.4";
+import { schema, db, eq, and, or } from "@metadaoproject/indexer-db";
 import { PublicKey } from "@solana/web3.js";
 import type { VersionedTransactionResponse } from "@solana/web3.js";
 import { PricesType, V04SwapType } from "@metadaoproject/indexer-db/lib/schema";
@@ -65,11 +65,7 @@ async function handleCreateAmmEvent(event: CreateAmmEvent) {
     }).onConflictDoNothing();
 
   } catch (error) {
-    logger.error(
-      error instanceof Error
-        ? `Error in handleCreateAmmEvent: ${error.message}`
-        : "Unknown error in handleCreateAmmEvent"
-    );
+    logger.error(error, "Error in handleCreateAmmEvent");
   }
 }
 
@@ -98,11 +94,7 @@ async function handleAddLiquidityEvent(event: AddLiquidityEvent) {
     logger.info("Updated AMM", event.common.amm.toString());
 
   } catch (error) {
-    logger.error(
-      error instanceof Error
-        ? `Error in handleAddLiquidityEvent: ${error.message}`
-        : "Unknown error in handleAddLiquidityEvent"
-    );
+    logger.error(error, "Error in handleAddLiquidityEvent");
   }
 }
 
@@ -132,11 +124,7 @@ async function handleRemoveLiquidityEvent(event: RemoveLiquidityEvent) {
     logger.info("Updated AMM", event.common.amm.toString());
 
   } catch (error) {
-    logger.error(
-      error instanceof Error
-        ? `Error in handleRemoveLiquidityEvent: ${error.message}`
-        : "Unknown error in handleRemoveLiquidityEvent"
-    );
+    logger.error(error, "Error in handleRemoveLiquidityEvent");
   }
 }
 
@@ -182,11 +170,7 @@ async function handleSwapEvent(event: SwapEvent, signature: string, transactionR
     }).where(eq(schema.v0_4_amms.ammAddr, event.common.amm.toString()));
 
   } catch (error) {
-    logger.error(
-      error instanceof Error
-        ? `Error in handleSwapEvent: ${error.message}`
-        : "Unknown error in handleSwapEvent"
-    );
+    logger.error(error, "Error in handleSwapEvent");
   }
 }
 
@@ -221,11 +205,7 @@ async function handleSplitEvent(event: SplitTokensEvent, signature: string, tran
       .onConflictDoNothing();
     
   } catch (error) {
-    logger.error(
-      error instanceof Error
-        ? `Error in handleSplitEvent: ${error.message}`
-        : "Unknown error in handleSplitEvent"
-    );
+    logger.error(error, "Error in handleSplitEvent");
   }
 }
 
@@ -241,11 +221,7 @@ async function handleMergeEvent(event: MergeTokensEvent, signature: string, tran
     }).onConflictDoNothing();
     
   } catch (error) {
-    logger.error(
-      error instanceof Error
-        ? `Error in handleMergeEvent: ${error.message}`
-        : "Unknown error in handleMergeEvent"
-    );
+    logger.error(error, "Error in handleMergeEvent");
   }
 }
 
@@ -284,9 +260,15 @@ export async function processVaultEvent(event: { name: string; data: Conditional
     case "MergeTokensEvent":
       await handleMergeEvent(event.data as MergeTokensEvent, signature, transactionResponse);
       break;
+    case "ResolveQuestionEvent":
+      await handleResolveQuestionEvent(event.data as ResolveQuestionEvent, signature, transactionResponse);
+      break;
     default:
       logger.info("Unknown Vault event", event.name);
   }
+
+  
+
 }
 
 async function handleInitializeQuestionEvent(event: InitializeQuestionEvent) {
@@ -303,11 +285,37 @@ async function handleInitializeQuestionEvent(event: InitializeQuestionEvent) {
     }).onConflictDoNothing();
     
   } catch (error) {
-    logger.error(
-      error instanceof Error
-        ? `Error in handleInitializeQuestionEvent: ${error.message}`
-        : "Unknown error in handleInitializeQuestionEvent"
+    logger.error(error, "Error in handleInitializeQuestionEvent");
+  }
+}
+
+async function handleResolveQuestionEvent(event: ResolveQuestionEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+  try {
+    logger.info("Resolving question", event.question.toString());
+
+    let payoutDenominator = 0;
+    for (const numerator of event.payoutNumerators) {
+      payoutDenominator += numerator;
+    }
+    await db.update(schema.v0_4_questions).set({
+      isResolved: true,
+      payoutNumerators: event.payoutNumerators,
+      payoutDenominator: BigInt(payoutDenominator),
+    }).where(eq(schema.v0_4_questions.questionAddr, event.question.toString()));
+
+    //update v4 metric decisions
+    //completed at = now
+    await db.update(schema.v0_4_metric_decisions).set({
+      completedAt: new Date(),
+    }).where(
+      or(
+        eq(schema.v0_4_metric_decisions.outcomeQuestionAddr, event.question.toString()),
+        eq(schema.v0_4_metric_decisions.metricQuestionAddr, event.question.toString())
+      )
     );
+
+  } catch (error) {
+    logger.error(error, "Error in handleResolveQuestionEvent");
   }
 }
 
@@ -325,11 +333,7 @@ async function handleInitializeConditionalVaultEvent(event: InitializeConditiona
     });
     
   } catch (error) {
-    logger.error(
-      error instanceof Error
-        ? `Error in handleInitializeConditionalVaultEvent: ${error.message}`
-        : "Unknown error in handleInitializeConditionalVaultEvent"
-    );
+    logger.error(error, "Error in handleInitializeConditionalVaultEvent");
   }
 }
 
@@ -347,6 +351,7 @@ async function doesQuestionExist(db: DBConnection, event: InitializeConditionalV
   //     questionId: event.questionId,
   //   });
   // }
+  
 }
 
 async function insertTokenAccountIfNotExists(db: DBConnection, event: InitializeConditionalVaultEvent) {
@@ -441,8 +446,8 @@ async function insertPriceIfNotDuplicate(db: DBConnection, amm: any[], event: Ad
   } catch (error) {
     logger.error(
       error instanceof Error
-        ? `Error in insertPriceIfNotDuplicate: ${error.message}`
-        : "Unknown error in insertPriceIfNotDuplicate"
+        ? new Error(`Error in insertPriceIfNotDuplicate: ${error.message}`)
+        : new Error("Unknown error in insertPriceIfNotDuplicate")
     );
   }
 }

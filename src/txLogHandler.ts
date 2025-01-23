@@ -13,10 +13,25 @@ const logger = log.child({
   module: "transaction-log-handler"
 });
 
+export class LogResult {
+  name: string;
+  error: Error | undefined;
+  lastRun: Date;
+  
+
+  constructor(name: string,error: Error | undefined, lastRun: Date) {
+    this.name = name;
+    this.error = error;
+    this.lastRun = lastRun;
+  }
+}
+
+export const mapLogHealth = new Map<string, LogResult>();
 
 //subscribes to logs for a given account
 async function subscribe(accountPubKey: PublicKey) {
   connection.onLogs(accountPubKey, async (logs: Logs, ctx: Context) => { //TODO: maybe add commitment "confirmed" (rpc docs doesnt say if this is default)
+    let err: Error | undefined = undefined
     try {
       // wait here because we need to fetch the txn from RPC
       // and often we get no response if we try right after recieving the logs notification
@@ -24,14 +39,16 @@ async function subscribe(accountPubKey: PublicKey) {
       await new Promise((resolve) => setTimeout(resolve, 500));
       processLogs(logs, ctx,  accountPubKey); //trigger processing of logs
     } catch (error) {
-      logger.error(error,`Error processing logs for account ${accountPubKey.toString()}` );
+      logger.error(error, `Error processing logs for account ${accountPubKey.toString()}`);
+      err = error as Error;
     }
+
+    mapLogHealth.set(accountPubKey.toString(), new LogResult(accountPubKey.toString(), err, new Date()));
   });
 }
 
 //asynchronously subscribes to logs for all programs
 export async function subscribeAll() {
-  const driftProgramId = new PublicKey("dRiftyHA39MWEi3m9aunc5MzRF1JYuBsbn6VPcn33UH");
   const programIds = [
     V4_AMM_PROGRAM_ID,
     V4_AUTOCRAT_PROGRAM_ID,
@@ -39,9 +56,12 @@ export async function subscribeAll() {
     V3_AMM_PROGRAM_ID,
     V3_AUTOCRAT_PROGRAM_ID,
     V3_CONDITIONAL_VAULT_PROGRAM_ID,
-   // driftProgramId
+    // driftProgramId
   ];
   console.log("Subscribing to logs");
+  for (const programId of programIds) {
+    mapLogHealth.set(programId.toString(), new LogResult(programId.toString(), undefined, new Date(1970, 0, 1)));
+  }
   Promise.all(programIds.map(async (programId) => subscribe(programId)));
 }
 

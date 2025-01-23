@@ -16,17 +16,24 @@ const logger = log.child({
 });
 
 export class MarketTransaction implements PersistableTransaction {
-  protected marketAcct: PublicKey;
-  constructor(marketAcct: PublicKey) {
-    this.marketAcct = marketAcct;
+  protected marketAccts: PublicKey[];
+  constructor(marketAccts: PublicKey[]) {
+    this.marketAccts = marketAccts;
   }
   async persist(): Promise<boolean> {
-    const accountInfo = await connection.getAccountInfoAndContext(this.marketAcct);
-    if (!accountInfo || !accountInfo.value) {
-      logger.error("no account info found", this.marketAcct);
-      return false;
+    for (const marketAcct of this.marketAccts) {
+      try {
+        const accountInfo = await connection.getAccountInfoAndContext(marketAcct);
+        if (!accountInfo || !accountInfo.value) {
+          logger.error("no account info found", marketAcct);
+          return false;
+        }
+        await this.indexAmmMarketAccountWithContext(accountInfo.value, marketAcct, accountInfo.context);
+      } catch (e) {
+        logger.error(e, "error indexing market account");
+        return false;
+      }
     }
-    this.indexAmmMarketAccountWithContext(accountInfo.value, this.marketAcct, accountInfo.context);
 
     return true;
   }
@@ -137,10 +144,6 @@ export class MarketTransaction implements PersistableTransaction {
           .onConflictDoNothing()
           .returning({ marketAcct: schema.twaps.marketAcct });
 
-
-        if (twapUpsertResult === undefined || twapUpsertResult.length === 0) {
-          logger.warn("failed to upsert twap", newTwap);
-        }
       } catch (e) {
         logger.error("error upserting twap", e);
         return false;

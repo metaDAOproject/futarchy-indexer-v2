@@ -14,7 +14,7 @@ const logger = log.child({
 
 const limit = pLimit(20);
 
-export async function backfillTransactions(): Promise<Error | null> {
+export async function backfillTransactions(): Promise<{message:string, error: Error|undefined}> {
 
   const startTime = performance.now()
 
@@ -22,9 +22,10 @@ export async function backfillTransactions(): Promise<Error | null> {
   await processTransactions(hist);
 
   const endTime = performance.now()
-  logger.info(`Backfilling transactions ${(endTime - startTime) / 1000} seconds`);
+  const message = `Backfilling ${hist.length} transactions complete - took ${(endTime - startTime) / 1000} seconds`;
+  logger.info(message);
 
-  return null;
+  return {message: message, error: undefined};
 }
 
 async function processTransactions(transactions: ConfirmedSignatureInfo[]) {
@@ -43,11 +44,15 @@ async function processTx(tx: ConfirmedSignatureInfo) {
     } else {
       //logger.info(tx, "successfully persisted pt");
 
-      //save that we have checked up to this slot
-      await db.update(schema.transactionWatchers).set({
-        latestTxSig: tx.signature,          
-        checkedUpToSlot: tx.slot.toString()
-      }).where(eq(schema.transactionWatchers.acct, AMM_KEY.toString()));
+      try {
+        //save that we have checked up to this slot
+        await db.update(schema.transactionWatchers).set({
+          latestTxSig: tx.signature,          
+          checkedUpToSlot: tx.slot.toString()
+        }).where(eq(schema.transactionWatchers.acct, AMM_KEY.toString()));
+      } catch (e) {
+        logger.error(e, "Error updating the transaction watcher");
+      }
     }
   }
 

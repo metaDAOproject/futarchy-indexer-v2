@@ -56,7 +56,7 @@ export class SwapTransaction implements PersistableTransaction {
       const orderInsertRes = await db.insert(schema.orders)
         .values(this.ordersRecord)
         .onConflictDoNothing()
-        .returning({ txSig: schema.takes.orderTxSig });
+        .returning({ txSig: schema.orders.orderTxSig });
         
       if (orderInsertRes.length > 0) {
         console.log( "successfully inserted swap order record", orderInsertRes[0].txSig );

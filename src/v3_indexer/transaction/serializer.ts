@@ -202,15 +202,20 @@ async function parseInstructions(
     }
     const programAccount = accounts[curOuter.programIdIndex].pubkey;
     const idl = await getIdlForProgram(programAccount);
-    const outerIxWithDisplay = getIxWithDisplay(
-      {
-        ...curOuter,
+    let outerIxWithDisplay = null;
+    try {
+      outerIxWithDisplay = getIxWithDisplay(
+        {
+          ...curOuter,
         data: Buffer.from(curOuter.data),
         accounts: curOuter.accountKeyIndexes,
       },
       idl,
-      accounts
-    );
+        accounts
+      );
+    } catch (e) {
+      logger.warn(e, "error with getIxWithDisplay");
+    }
 
     const outerName = outerIxWithDisplay?.instruction.name ?? "unknown";
     const outerArgs = outerIxWithDisplay?.instructionDisplay?.args ?? [];
@@ -337,19 +342,19 @@ function getIxWithDisplay(
   try {
     coder = new BorshInstructionCoder(idl);
   } catch (e) {
-    logger.error(e, "error with initializing coder");
+    logger.warn(e, "error with initializing coder");
     return null;
   }
 
   if (!coder) {
-    logger.error("no coder can't continue");
+    logger.warn("no coder can't continue");
     return null;
   }
 
   try {
     decodedIx = coder.decode(Buffer.from(instruction.data));
   } catch (e) {
-    logger.error(e, "error with coder decoding of instruction:");
+    logger.warn(e, "error with coder decoding of instruction:");
     return null;
   }
 
@@ -383,7 +388,7 @@ function getIxWithDisplay(
       instructionDisplay: ixDisplay,
     };
   } catch (e) {
-    logger.error(e, "error with coder formatting of decodedIx:");
+    logger.warn(e, "error with coder formatting of decodedIx:");
     return null;
   }
 }
@@ -418,12 +423,7 @@ export async function getTransaction(signature: string): Promise<Transaction|boo
     logger.warn(`${signature} no tx response for signature`);
     return null;
   }
-  for (const msg of txResponse.meta?.logMessages ?? []) {
-    if (msg.includes("Instruction: CrankThatTwap")) {
-      console.log(`skipping tx - crank that twap ${signature}`);
-      return true;
-    }
-  }
+  
   const accountsRaw = await resolveAccounts(txResponse);
   if (!accountsRaw) {
     logger.warn(`${signature} no accounts response for signature`);
@@ -431,16 +431,9 @@ export async function getTransaction(signature: string): Promise<Transaction|boo
   }
   
   const accounts: Account[] = [];
-  // Index to token balance
+  
   const preTokenBalances = getTokenBalances(txResponse.meta?.preTokenBalances ?? [], accountsRaw);
-  if (preTokenBalances.size == 0) {
-    return null;
-  }
-
   const postTokenBalances = getTokenBalances(txResponse.meta?.postTokenBalances ?? [], accountsRaw );
-  if (postTokenBalances.size == 0) {
-    return null;
-  }
 
   for (let i = 0; i < accountsRaw.length; ++i) {
     const cur = accountsRaw.get(i);
@@ -472,7 +465,6 @@ export async function getTransaction(signature: string): Promise<Transaction|boo
     logger.warn("no instructions");
     return null;
   }
-  
 
   const parseResult = SerializableTransaction.safeParse({
     blockTime: txResponse.blockTime,

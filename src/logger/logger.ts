@@ -8,7 +8,7 @@ const LOG_LEVEL = process.env.LOG_LEVEL ?? "error";
 const transports = [];
 const telegramTransport = {
   target: 'pino-telegram-webhook',
-  level: LOG_LEVEL,
+  level: "error",
 
   options: {
     chatId: TELEGRAM_ALERT_CHAT_ID,
@@ -23,9 +23,13 @@ const telegramTransport = {
 };
 const prettyTransport = {
   target: 'pino-pretty',
+  level:LOG_LEVEL,
   options: {
     colorize: true,
-    ignore: "pid,hostname"
+    ignore: "pid,hostname",
+    timestamp: true,
+    singleLine: true,
+    sync: true
   }
 }
 let level = LOG_LEVEL;

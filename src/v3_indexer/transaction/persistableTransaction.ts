@@ -33,6 +33,18 @@ class FakePersistableTransaction implements PersistableTransaction {
 export async function ptFromSignatureAndSlot(signature: string, slot:number): Promise<PersistableTransaction | null > {
 
   try {
+
+    //first lets see if we have this in the db
+    const dbTx = await db.select({txSig: schema.transactions.txSig})
+      .from(schema.transactions)
+      .where(eq(schema.transactions.txSig, signature))
+      .execute();
+    
+    if (dbTx.length > 0) {
+      logger.info(`${signature} already in db`);
+      return null;
+    }
+
     const tx = await getTransaction(signature);
     if (tx === true) {
       //this is a crank and a hack to make the other code cleaner
@@ -45,66 +57,22 @@ export async function ptFromSignatureAndSlot(signature: string, slot:number): Pr
 
     const swapIx = tx.instructions.find((ix) => ix.name === "swap");
     if (swapIx) {
-      // sometimes we mint cond tokens for the user right before we do the swap ix
-      const mintIx = tx.instructions?.find(
-        (i) => i.name === "mintConditionalTokens"
-      );
-      // What if there's more than one?
-      const mergeIx = tx.instructions?.find((i) => i.name === "mergeConditionalTokensForUnderlyingTokens");
-      
-      if (mergeIx && mintIx) {
-        logger.error("ARB TRANSACTION DETECTED")
-        return null;
-      }
-      ///
-      const marketAcct = swapIx.accountsWithData.find((a) => a.name === "amm");
-      if (!marketAcct) {
-        logger.info(signature, "no market account found");
-        return null;
-      }
-    
-      //get market account and index price and twap async
-      //logger.info("builder::buildOrderFromSwapIx::indexing price and twap for market", marketAcct.pubkey);
-      const marketAcctPubKey = new PublicKey(marketAcct.pubkey);
-    
-      //persist the market of this transaction
-      const marketTransaction = new MarketTransaction(marketAcctPubKey);
-      marketTransaction.persist();
-
-      const blockTime =  new Date(tx.blockTime * 1000);
-      // now we are upserting price/twap in the buildOrderFromSwapIx function
-      const result = await buildOrderFromSwapIx(swapIx, tx, mintIx, marketAcct.pubkey, blockTime);
-      if (!result) {
-        logger.error(signature, "no swap order or swap take found");
-        return null;
-      }
-      const {swapOrder, swapTake} = result;
-
-      const transactionRecord: TransactionRecord = {
-        txSig: signature,
-        slot: slot.toString(),
-        blockTime: blockTime,
-        failed: tx.err !== undefined,
-        payload: serialize(tx),
-        serializerLogicVersion: SERIALIZED_TRANSACTION_LOGIC_VERSION,
-        mainIxType: getMainIxTypeFromTransaction(tx),
-      };
-
-      return new SwapTransaction(swapOrder, swapTake, transactionRecord);
-   
+      return await createSwapTransaction(tx, swapIx, signature, slot);   
     } else {
       // handle non-swap transactions (add/remove liquidity, crank, etc)
       // find market account from instructions
-      let marketAcct: PublicKey | undefined;
+      
+      let marketAccts: PublicKey[] = [];
       for (const ix of tx.instructions) {
         const candidate = ix.accountsWithData.find((a) => a.name === "amm");
         if (candidate) {
-          marketAcct = new PublicKey(candidate.pubkey);
-          break;
+          const marketAcct = new PublicKey(candidate.pubkey);
+          marketAccts.push(marketAcct);
         }
       }
-      if (marketAcct) {
-        const marketTransaction = new MarketTransaction(marketAcct);
+      
+      if (marketAccts.length > 0) {
+        const marketTransaction = new MarketTransaction(marketAccts);
         return marketTransaction;
       } else {
         logger.info(signature,"no market account found for non swap txn");
@@ -122,6 +90,50 @@ export async function ptFromSignatureAndSlot(signature: string, slot:number): Pr
   return null;
 }
 
+async function createSwapTransaction(
+  tx: Transaction, 
+  swapIx: Instruction, 
+  signature: string, 
+  slot: number
+): Promise<SwapTransaction | null> {
+  const mintIx = tx.instructions?.find(i => i.name === "mintConditionalTokens");
+  const mergeIx = tx.instructions?.find(i => i.name === "mergeConditionalTokensForUnderlyingTokens");
+  
+  if (mergeIx && mintIx) {
+    logger.error(new Error("ARB TRANSACTION DETECTED"));
+    return null;
+  }
+
+  const marketAcct = swapIx.accountsWithData.find(a => a.name === "amm");
+  if (!marketAcct) {
+    logger.info(signature, "no market account found");
+    return null;
+  }
+
+  const marketAcctPubKey = new PublicKey(marketAcct.pubkey);
+  const marketTransaction = new MarketTransaction([marketAcctPubKey]);
+  await marketTransaction.persist();
+
+  const blockTime = new Date(tx.blockTime * 1000);
+  const result = await buildOrderFromSwapIx(swapIx, tx, mintIx, marketAcct.pubkey, blockTime);
+  if (!result) {
+    logger.warn(`${signature} no swap order or swap take found`);
+    return null;
+  }
+
+  const {swapOrder, swapTake} = result;
+  const transactionRecord: TransactionRecord = {
+    txSig: signature,
+    slot: slot.toString(),
+    blockTime: blockTime,
+    failed: tx.err !== undefined,
+    payload: serialize(tx),
+    serializerLogicVersion: SERIALIZED_TRANSACTION_LOGIC_VERSION,
+    mainIxType: getMainIxTypeFromTransaction(tx),
+  };
+
+  return new SwapTransaction(swapOrder, swapTake, transactionRecord);
+}
 
 async function buildOrderFromSwapIx(swapIx: Instruction, tx: Transaction, mintIx: Instruction | undefined, marketAcct: string, blockTime:Date):
   Promise<{ swapOrder: OrdersRecord; swapTake: TakesRecord } | null> {
@@ -207,7 +219,7 @@ async function buildOrderFromSwapIx(swapIx: Instruction, tx: Transaction, mintIx
     quoteAmount.toString() === "0" &&
     baseAmount.toString() === "0"
   ) {
-    funcLog.error(`failed swap ${tx.signatures[0]}`);
+    funcLog.error(new Error(`failed swap ${tx.signatures[0]} with no quote or base amount`));
     return null;
   }
 
@@ -216,7 +228,7 @@ async function buildOrderFromSwapIx(swapIx: Instruction, tx: Transaction, mintIx
   // default is input / output (buying a token with USDC or whatever)
   const { baseToken, quoteToken } = await getMarketTokens(marketAcct);
   if (!baseToken || !quoteToken) {
-    logger.error("no base or quote token found for market", marketAcct);
+    logger.error(new Error(`no base or quote token found for market ${marketAcct}`));
     return null;
   }
 
@@ -233,7 +245,7 @@ async function buildOrderFromSwapIx(swapIx: Instruction, tx: Transaction, mintIx
         quoteToken.decimals
       );
     } catch (e) {
-      logger.error("error getting price", e);
+      logger.warn(e, "error getting price");
       return null;
     }
   }
@@ -287,7 +299,7 @@ async function getMarketTokens(marketAcctPubKey: string): Promise<{baseToken: To
     .execute();
     
   if (marketAcctRecord.length === 0) {
-    logger.error(`no market acct record found for ${marketAcctPubKey}` );
+    logger.error( new Error(`no market acct record found for ${marketAcctPubKey}`) );
     return { baseToken: null, quoteToken: null};
   }
   const baseToken = await db.select()
@@ -296,7 +308,7 @@ async function getMarketTokens(marketAcctPubKey: string): Promise<{baseToken: To
     .execute();
     
   if (baseToken.length === 0) {
-    logger.error(`No base token found for market ${marketAcctPubKey}`, );
+    logger.error( new Error(`No base token found for market ${marketAcctPubKey}`) );
     return {baseToken: null, quoteToken: null};
   }
   const quoteToken = await db.select()
@@ -305,7 +317,7 @@ async function getMarketTokens(marketAcctPubKey: string): Promise<{baseToken: To
     .limit(1)
     .execute();
   if (baseToken.length === 0) {
-    logger.error(`No quote token found for market ${marketAcctPubKey}`, );
+    logger.error( new Error(`No quote token found for market ${marketAcctPubKey}`) );
     return {baseToken: null, quoteToken: null};
   }
 

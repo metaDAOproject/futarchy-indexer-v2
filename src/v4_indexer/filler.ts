@@ -3,6 +3,9 @@ import { AMM_PROGRAM_ID as V4_AMM_PROGRAM_ID, AUTOCRAT_PROGRAM_ID as V4_AUTOCRAT
 import { db, schema, eq, asc } from "@metadaoproject/indexer-db";
 import { log } from "../logger/logger";
 import { index } from "./indexer";
+import pLimit from "p-limit";
+
+const limit = pLimit(10);
 
 const RPC_ENDPOINT = process.env.RPC_ENDPOINT;
 
@@ -47,10 +50,13 @@ const backfillHistoricalSignatures = async (
     await insertSignatures(signatures, programId);
 
     //trigger indexing
-    Promise.all(signatures.map(async (signature: ConfirmedSignatureInfo) => {
-      await index(signature.signature, programId);
-    }));
-
+    const tasks = [];
+    for (const signature of signatures) {
+        const task = limit(() => index(signature.signature, programId));
+        tasks.push(task);
+    }
+    await Promise.all(tasks);
+    
     backfilledSignatures = backfilledSignatures.concat(signatures);
     oldestSignature = signatures[signatures.length - 1].signature;
 
@@ -80,9 +86,12 @@ const insertNewSignatures = async (programId: PublicKey) => {
 
     //trigger indexing
     //TODO: maybe only index if signature doesnt exist in signatures table (which would mean it wasnt indexed yet)
-    Promise.all(signatures.map(async (signature: ConfirmedSignatureInfo) => {
-      await index(signature.signature, programId);
-    }));
+    const tasks = [];
+    for (const signature of signatures) {
+        const task = limit(() => index(signature.signature, programId));
+        tasks.push(task);
+    }
+    await Promise.all(tasks);
 
     allSignatures = allSignatures.concat(signatures);
     if (!oldestSignatureInserted) setLatestTxSigProcessed(signatures[0].signature); //since getSignaturesForAddress is a backwards walk, this should be the latest signature
@@ -116,17 +125,24 @@ const insertSignatures = async (signatures: ConfirmedSignatureInfo[], queriedAdd
 //set latestProcessedSlot in db
 async function setLatestProcessedSlot(slot: number) {
   
-  await db.update(schema.indexers)
+  try {
+    await db.update(schema.indexers)
       .set({ latestSlotProcessed: slot.toString() })
       .where(eq(schema.indexers.name, "v0_4_amm_indexer"))
       .execute();
-    
+  } catch (e) {
+    logger.error(e, "Error setting the latest processed slot");
+  }
   
 }
 
 //set latestTxSigProcessed
 async function setLatestTxSigProcessed(signature: string) {
-  await db.update(schema.indexers).set({ latestTxSigProcessed: signature }).where(eq(schema.indexers.name, "v0_4_amm_indexer")).execute();
+  try {
+    await db.update(schema.indexers).set({ latestTxSigProcessed: signature }).where(eq(schema.indexers.name, "v0_4_amm_indexer")).execute();
+  } catch (e) {
+    logger.error(e, "Error setting the latest processed signature");
+  }
 }
 
 //get latestTxSigProcessed
@@ -141,32 +157,44 @@ async function getLatestTxSigProcessed() {
 
 const programIds = [V4_CONDITIONAL_VAULT_PROGRAM_ID, V4_AMM_PROGRAM_ID, V4_AUTOCRAT_PROGRAM_ID];
 
-export async function backfill(): Promise<Error | undefined> {
-  const errors = await Promise.all(programIds.map(async (programId) => {
+export async function backfill(): Promise<{message:string, error: Error | undefined}> {
+  const results = await Promise.all(programIds.map(async (programId) => {
+    let message = "";
     try {
       const backfilledSignatures = await backfillHistoricalSignatures(programId);
-      logger.info(`backfilled ${backfilledSignatures.length} signatures for ${programId.toString()}`);
-      return null;
+      message = `backfilled ${backfilledSignatures.length} signatures for ${programId.toString()}`;
+      logger.info(message);
+      return {message: message, error: undefined};
     } catch (error) {
       logger.error(
         error instanceof Error ? 
         `Error in backfill for ${programId.toString()}: ${error.message}` : 
         `Unknown error in backfill for ${programId.toString()}`
       );
-      return error;
+      return {message: "An Error occurred", error: error};
     }
   }));
-  const errorMessage = errors.filter(Boolean).join('');
-  return errorMessage ? new Error(errorMessage) : undefined;
+  let errorMessage = "";
+  let message = "";
+  for (const result of results) {
+    if (result.error) {
+      errorMessage += result.error.toString() + '<br>';
+    }
+    if (result.message) {
+      message += result.message + '<br>';
+    }
+  }
+  
+  return { message: message, error: errorMessage ? new Error(errorMessage) : undefined };
 }
 
-export async function frontfill(): Promise<Error | undefined> {
-  const errors = await Promise.all(programIds.map(async (programId) => {
+export async function frontfill(): Promise<{message:string, error: Error|undefined}> {
+  const results = await Promise.all(programIds.map(async (programId) => {
     try {
       
       const newSignatures = await insertNewSignatures(programId);
       logger.info(`inserted up to ${newSignatures.length} new signatures for ${programId.toString()}`);
-      return null;
+      return {message: `inserted up to ${newSignatures.length} new signatures for ${programId.toString()}`};
       
     } catch (error) {
       logger.error(
@@ -174,9 +202,18 @@ export async function frontfill(): Promise<Error | undefined> {
         `Error in backfill for ${programId.toString()}: ${error.message}` : 
         `Unknown error in backfill for ${programId.toString()}`
       );
-      return error;
+      return {message: "An Error occurred", error: error};
     }
   }));
-  const errorMessage = errors.filter(Boolean).join('');
-  return errorMessage ? new Error(errorMessage) : undefined;
+  let errorMessage = "";
+  let message = "";
+  for (const result of results) {
+    if (result.error) {
+      errorMessage += result.error.toString() + '<br>';
+    }
+    if (result.message) {
+      message += result.message + '<br>';
+    }
+  }
+  return { message: message, error: errorMessage ? new Error(errorMessage) : undefined };
 }

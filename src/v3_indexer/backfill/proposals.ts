@@ -26,7 +26,7 @@ const limit = pLimit(20);
  * 
  * Proposals that are missing from the database are added to the backfill list to get old historical data
  */
-export async function backfillProposals(): Promise<Error | null> {
+export async function backfillProposals(): Promise<{message:string, error: Error|undefined}> {
 
   const startTime = performance.now();
   logger.info("Backfilling proposals");
@@ -45,13 +45,13 @@ export async function backfillProposals(): Promise<Error | null> {
   );
 
   if (!protocolV0_3) {
-    return new Error("Protocol V0.3 not found");
+    return {message: "Protocol V0.3 not found", error: new Error("Protocol V0.3 not found")};
   }
 
   //get the proposals from the chain
   const onChainProposals = await protocolV0_3.autocrat.account.proposal.all();
   if (!onChainProposals || onChainProposals.length === 0) {
-    return new Error("Failed to fetch on-chain proposals");
+    return {message: "Failed to fetch on-chain proposals", error: new Error("Failed to fetch on-chain proposals")};
   }
   logger.info(`Found ${onChainProposals.length} proposals on chain`);
 
@@ -72,7 +72,14 @@ export async function backfillProposals(): Promise<Error | null> {
   }
 
   //if there are no proposals to insert, then we are done
-  if (!proposalsToInsert.length && !proposalsToUpdate.length) return null;
+  if (!proposalsToInsert.length && !proposalsToUpdate.length) {
+    const message = `No proposals to insert or update`;
+    logger.info(message);
+    return {message: message, error: undefined};
+  } 
+
+  let message = `Inserting ${proposalsToInsert.length} proposals`;
+  message += `\nUpdating ${proposalsToUpdate.length} proposals`;
 
   logger.info(`Inserting ${proposalsToInsert.length} proposals`);
   logger.info(`Updating ${proposalsToUpdate.length} proposals`);
@@ -83,8 +90,10 @@ export async function backfillProposals(): Promise<Error | null> {
   await processProposals(proposalsToUpdate, updateProposal);
 
   const endTime = performance.now()
+  message += `<br>Backfilling proposals complete - took ${(endTime - startTime) / 1000} seconds`;
   logger.info(`Backfilling proposals complete - took ${(endTime - startTime) / 1000} seconds`);
-  return null;
+
+  return {message: message, error: undefined};
 }
 
 
@@ -234,37 +243,41 @@ async function updateProposal(proposal: ProposalAccountWithKey, currentSlot: BN)
   const endedAt = getProposalEndTime(currentSlot, proposal.account.slotEnqueued, new BN(dbDao.slotsPerProposal?.toString() ?? '0'));
 
   const currentTime = new Date();
-  await db.update(schema.proposals)
-    .set({
-      status,
-      endedAt: endedAt,
-      completedAt: status !== ProposalStatus.Pending ? currentTime : null,
-      updatedAt: sql`NOW()`
-    })
-    .where(
-      eq(schema.proposals.proposalAcct, proposal.publicKey.toString())
-    );
-
-
-  if (vaultStatus) {
-    await db.update(schema.conditionalVaults)
-      .set({ status: vaultStatus })
+  try {
+    await db.update(schema.proposals)
+      .set({
+        status,
+        endedAt: endedAt,
+        completedAt: status !== ProposalStatus.Pending ? currentTime : null,
+        updatedAt: sql`NOW()`
+      })
       .where(
-        or(
-          eq(
-            schema.conditionalVaults.condVaultAcct,
-            proposal.account.quoteVault.toString()
-          ),
-          eq(
-            schema.conditionalVaults.condVaultAcct,
-            proposal.account.baseVault.toString()
-          )
-        )
-    );
-    await calculateUserPerformance(proposal);
+        eq(schema.proposals.proposalAcct, proposal.publicKey.toString())
+      );
 
+
+    if (vaultStatus) {
+      await db.update(schema.conditionalVaults)
+        .set({ status: vaultStatus })
+        .where(
+          or(
+            eq(
+              schema.conditionalVaults.condVaultAcct,
+              proposal.account.quoteVault.toString()
+            ),
+            eq(
+              schema.conditionalVaults.condVaultAcct,
+              proposal.account.baseVault.toString()
+            )
+          )
+      );
+      await calculateUserPerformance(proposal);
+
+    }
+    await updateMarketsWithProposal(proposal);
+  } catch (e) {
+    logger.error(e, "Error updating the proposal");
   }
-  await updateMarketsWithProposal(proposal);
   return null;
 }
 
@@ -502,17 +515,21 @@ async function updateMarketsWithProposal(
     return;
   }
 
-  await db.update(schema.markets)
-    .set({
-      proposalAcct: proposal.publicKey.toString(),
-    })
+  try {
+    await db.update(schema.markets)
+      .set({
+        proposalAcct: proposal.publicKey.toString(),
+      })
     .where(
       or(
         eq(schema.markets.marketAcct, proposal.account.passAmm.toString()),
         eq(schema.markets.marketAcct, proposal.account.failAmm.toString())
       )
     )
-    .execute();
+      .execute();
+  } catch (e) {
+    logger.error(e, "Error updating the markets");
+  }
 }
 
 

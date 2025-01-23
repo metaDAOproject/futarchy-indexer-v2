@@ -26,13 +26,15 @@ const logger = log.child({
  * 
  * Daos that are missing from the database are added to the backfill list to get old historical data
  */
-export async function backfillDaos():Promise<Error | null> {
+export async function backfillDaos():Promise<{message:string, error: Error | undefined}> {
 
   //get the daos from the chain
   const startTime = performance.now()
   logger.info("Backfilling daos");
   const onChainAggregates = await rpcReadClient.daos.fetchAllDaos();
   logger.info(`Found ${onChainAggregates.length} daos on chain`);
+
+  let errorsResult: Error[] = [];
   
   for (const daoAggregate of onChainAggregates) {
     //daoAggregate is a DAO with multiple daos in it
@@ -41,13 +43,22 @@ export async function backfillDaos():Promise<Error | null> {
       return await addOrUpdateDao(dao);
     }));
     errors.forEach(err => {
-      if (err) logger.error(err);
+      if (err) {
+        logger.error(err);
+        errorsResult.push(err);
+      }
     });
   }
 
   const endTime = performance.now()
-  logger.info(`Backfilling daos complete - took ${(endTime - startTime)/1000} seconds`);
-  return null;
+  const message = `Backfilling daos complete - took ${(endTime - startTime) / 1000} seconds`;
+  logger.info(message);
+  let errorMessage = "";
+  for (const error of errorsResult) {
+    errorMessage += error.toString() + '<br>';
+  }
+
+  return { message: message, error: errorMessage ? new Error(errorMessage) : undefined };
 }
 
 /********************************************************************************

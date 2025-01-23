@@ -12,14 +12,13 @@ const logger = log.child({
 const limit = pLimit(20);
 
 
-export async function backfillTokenSupply(): Promise<Error | null>{
+export async function backfillTokenSupply(): Promise<{message:string, error: Error|undefined}>{
     
   const startTime = performance.now()
   
 
   //get all the tokens
   const mintAccounts = await db.select({ acct: schema.tokens.mintAcct }).from(schema.tokens);
-  logger.info(`Backfilling token supply with ${mintAccounts.length} tokens`);
 
   //use plimit to concurrently run all the updates
   const tasks = mintAccounts.map(mint => limit(() => updateMint(mint.acct)));
@@ -29,9 +28,17 @@ export async function backfillTokenSupply(): Promise<Error | null>{
   });
 
   const endTime = performance.now()
-  logger.info(`Backfilling token supply took ${(endTime - startTime)/1000} seconds`);
+  const message = `Backfilling token supply ${mintAccounts.length} tokens took ${(endTime - startTime)/1000} seconds`;
+  logger.info(`message`);
 
-  return null;
+  let errorMessage = "";
+  for (const error of errors) {
+    if (error) {
+      errorMessage += error.toString() + '<br>';
+    }
+  }
+
+  return {message: message, error: errorMessage ? new Error(errorMessage) : undefined};
 }
 
 async function updateMint(mintAcct: string): Promise<Error | null> {
@@ -46,9 +53,13 @@ async function updateMint(mintAcct: string): Promise<Error | null> {
     return err instanceof Error ? err : new Error(String(err));
   }
 
-  await db.update(schema.tokens)
+  try {
+    await db.update(schema.tokens)
       .set({ supply: storedMint.supply.toString(), updatedAt: new Date() })
       .where(eq(schema.tokens.mintAcct, mint.toString()));
+  } catch (e) {
+    logger.error(e, "Error updating the token supply");
+  }
   
   return null;
 }
