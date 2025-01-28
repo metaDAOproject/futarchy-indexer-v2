@@ -100,7 +100,7 @@ async function createSwapTransaction(
   const mergeIx = tx.instructions?.find(i => i.name === "mergeConditionalTokensForUnderlyingTokens");
   
   if (mergeIx && mintIx) {
-    logger.error(new Error("ARB TRANSACTION DETECTED"));
+    logger.warn(new Error("ARB TRANSACTION DETECTED"));
     return null;
   }
 
