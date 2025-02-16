@@ -529,7 +529,7 @@ export const orders = pgTable(
     // Only present on order cancel
     cancelTxSig: transaction("cancel_tx_sig"),
     cancelBlock: biggerBlock("cancel_block"),
-    cancelTime: timestamp("cancel_time", { withTimezone: true }),
+    cancelTime: timestamp("cancel_time", { withTimezone: true }),  
   },
   (table) => ({
     // For displaying user trade history
@@ -594,6 +594,8 @@ export const takes = pgTable(
       .notNull(),
     orderBlock: biggerBlock("order_block").notNull(),
     orderTime: timestamp("order_time", { withTimezone: true }).notNull(),
+    base_decimals: smallint("base_decimals").notNull(),
+    quote_decimals: smallint("quote_decimals").notNull(),
   },
   (table) => ({
     // For aggregating into candles and showing latest trades
@@ -775,6 +777,7 @@ export const proposalDetails = pgTable("proposal_details", {
   quote_cond_vault_acct: pubkey("quote_cond_vault_acct"),
   pass_market_acct: pubkey("pass_market_acct"),
   fail_market_acct: pubkey("fail_market_acct"),
+  state: text("state"),
 });
 
 export const programSystem = pgTable("program_system", {

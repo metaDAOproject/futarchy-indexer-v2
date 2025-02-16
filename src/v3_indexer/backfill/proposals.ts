@@ -199,7 +199,13 @@ async function insertProposal(proposal: ProposalAccountWithKey, currentSlot: BN)
     logger.warn(e, "Error inserting the proposal");
   }
 
-  await updateMarketsWithProposal(proposal);
+  try {
+    await db.update(schema.proposalDetails)
+      .set({ state: "deployed" })
+      .where(eq(schema.proposalDetails.proposalAcct, dbProposal.proposalAcct));
+  } catch (e) {
+    logger.error(e, `Error updating Proposal Details ${dbProposal.proposalAcct} with proposal`);
+  }
 
   //technically this can just check if it is not "" but this is more readable
   if (vaultStatus == "finalized" || vaultStatus == "reverted") {

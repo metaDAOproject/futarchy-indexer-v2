@@ -36,8 +36,10 @@ export async function processAmmEvent(event: { name: string; data: AmmEvent }, s
     case "SwapEvent":
       await handleSwapEvent(event.data as SwapEvent, signature, transactionResponse);
       break;
+    case "CrankThatTwapEvent":
+      break;
     default:
-      logger.info("Unknown event", event);
+      logger.info(`Unknown event ${event.name}`);
   }
 }
 
@@ -184,10 +186,7 @@ async function handleSplitEvent(event: SplitTokensEvent, signature: string, tran
       amount: BigInt(event.amount.toString())
       // Note: createdAt will be set automatically by the default value
     };
-
-    logger.info("Attempting to insert with values:", insertValues);
-
-    
+   
     // First verify the vault exists
     const vault = await db.select()
       .from(schema.v0_4_conditional_vaults)
@@ -196,8 +195,6 @@ async function handleSplitEvent(event: SplitTokensEvent, signature: string, tran
 
     if (vault.length === 0) {
       logger.warn("Warning: Referenced vault does not exist:", event.vault.toString());
-    } else {
-      logger.info("Vault exists:", event.vault.toString());
     }
 
     await db.insert(schema.v0_4_splits)

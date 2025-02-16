@@ -61,7 +61,7 @@ const parseEvents = (transactionResponse: VersionedTransactionResponse | Transac
             vaultEvents.push(event);
           }
         } else {
-          logger.info("Unknown program pubkey", programPubkey.toBase58());
+          logger.info(`Unknown program pubkey  ${programPubkey.toBase58()}`);
         }
       }
     }

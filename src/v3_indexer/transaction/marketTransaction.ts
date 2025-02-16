@@ -1,10 +1,10 @@
 import { AccountInfo, Context, PublicKey } from "@solana/web3.js";
 import { connection, provider, rpcReadClient } from "../connection";
-import { PersistableTransaction } from "./persistableTransaction";
+import { BaseTransaction } from "./baseTransaction";
 import { db, eq, inArray, schema } from "@metadaoproject/indexer-db";
 import { enrichTokenMetadata } from "@metadaoproject/futarchy-sdk/dist";
 import { getMint } from "@solana/spl-token";
-import { PricesRecord, PricesType, TokenRecord, TwapRecord } from "@metadaoproject/indexer-db/lib/schema";
+import { PricesRecord, PricesType, TokenRecord, TransactionRecord, TwapRecord } from "@metadaoproject/indexer-db/lib/schema";
 import { BN } from "@coral-xyz/anchor";
 
 import { log } from "../../logger/logger";
@@ -15,12 +15,22 @@ const logger = log.child({
   module: "marketTransaction"
 });
 
-export class MarketTransaction implements PersistableTransaction {
+export class MarketTransaction extends BaseTransaction {
   protected marketAccts: PublicKey[];
-  constructor(marketAccts: PublicKey[]) {
+  constructor(marketAccts: PublicKey[], transactionRecord: TransactionRecord, reprocess: boolean) {
+    super(transactionRecord, reprocess);
     this.marketAccts = marketAccts;
   }
   async persist(): Promise<boolean> {
+    
+    if (this.reprocess) {
+      //we dont want to mess up prices for reprocessed txns
+      return true;
+    }
+
+    //save the transaction record first
+    this.saveRecord();
+    
     for (const marketAcct of this.marketAccts) {
       try {
         const accountInfo = await connection.getAccountInfoAndContext(marketAcct);
@@ -201,10 +211,7 @@ export class MarketTransaction implements PersistableTransaction {
     try {
       const pricesInsertResult = await db.insert(schema.prices)
         .values(newAmmConditionaPrice)
-        .onConflictDoUpdate({
-          target: [schema.prices.createdAt, schema.prices.marketAcct],
-          set: newAmmConditionaPrice,
-        })
+        .onConflictDoNothing()
         .returning({ marketAcct: schema.prices.marketAcct });
 
       if (pricesInsertResult === undefined || pricesInsertResult.length === 0) {

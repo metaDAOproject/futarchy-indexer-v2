@@ -234,6 +234,17 @@ async function priceHandler(): Promise<{message:string, error: Error|undefined}>
   return await updatePrices();
 }
 
-// Run the main function
+async function reprocess() {
+  let start = new Date();
+  let res = await backfillTransactions(true);
+  let end = new Date();
 
-main();
+}
+
+// Run the main function
+if (process.env.REPROCESS == "true") {
+  reprocess();
+} else {
+  main();
+}
+

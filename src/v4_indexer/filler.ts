@@ -69,10 +69,13 @@ const backfillHistoricalSignatures = async (
 
 const insertNewSignatures = async (programId: PublicKey) => {
   let allSignatures: ConfirmedSignatureInfo[] = [];
+  logger.info(`frontfilling new signatures for ${programId.toString()}`);
+
   //get latest signature from db indexers table latestTxSigProcessed
   let latestRecordedSignature = await getLatestTxSigProcessed();
 
   let oldestSignatureInserted: string | undefined;
+  let count = 0;
   while (true) {
     const signatures = await connection.getSignaturesForAddress(
       programId,
@@ -94,8 +97,13 @@ const insertNewSignatures = async (programId: PublicKey) => {
     await Promise.all(tasks);
 
     allSignatures = allSignatures.concat(signatures);
-    if (!oldestSignatureInserted) setLatestTxSigProcessed(signatures[0].signature); //since getSignaturesForAddress is a backwards walk, this should be the latest signature
+    if (!oldestSignatureInserted) {
+      setLatestTxSigProcessed(signatures[0].signature); //since getSignaturesForAddress is a backwards walk, this should be the latest signature
+    }
     oldestSignatureInserted = signatures[signatures.length - 1].signature;
+
+    count += signatures.length;
+    logger.info(`inserted ${count} signatures so far for front filling...`);
   }
 
   return allSignatures;
@@ -122,23 +130,10 @@ const insertSignatures = async (signatures: ConfirmedSignatureInfo[], queriedAdd
   
 }
 
-//set latestProcessedSlot in db
-async function setLatestProcessedSlot(slot: number) {
-  
-  try {
-    await db.update(schema.indexers)
-      .set({ latestSlotProcessed: slot.toString() })
-      .where(eq(schema.indexers.name, "v0_4_amm_indexer"))
-      .execute();
-  } catch (e) {
-    logger.error(e, "Error setting the latest processed slot");
-  }
-  
-}
-
 //set latestTxSigProcessed
 async function setLatestTxSigProcessed(signature: string) {
   try {
+    logger.info(`setting latestTxSigProcessed to ${signature}`);
     await db.update(schema.indexers).set({ latestTxSigProcessed: signature }).where(eq(schema.indexers.name, "v0_4_amm_indexer")).execute();
   } catch (e) {
     logger.error(e, "Error setting the latest processed signature");

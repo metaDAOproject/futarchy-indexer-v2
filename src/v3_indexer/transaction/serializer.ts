@@ -44,22 +44,7 @@ export function serialize(transaction: Transaction, pretty = false): string {
 }
 
 const bigintEncodingPattern = /^BIGINT:[0-9]+$/;
-/*
-export function deserialize(
-  json: string
-): Result<Transaction, { type: "ZodError"; error: z.ZodError }> {
-  const deserialized = JSON.parse(json, (_, value) =>
-    typeof value === "string" && bigintEncodingPattern.test(value)
-      ? BigInt(value.split(":")[1])
-      : value
-  );
-  const parsed = SerializableTransaction.safeParse(deserialized);
-  if (parsed.success) {
-    return Ok(parsed.data);
-  } else {
-    return Err({ type: "ZodError", error: parsed.error });
-  }
-}*/
+
 
 export const SerializableTokenMeta = z.strictObject({
   mint: z.string(),
@@ -352,7 +337,7 @@ function getIxWithDisplay(
   }
 
   try {
-    decodedIx = coder.decode(Buffer.from(instruction.data));
+    decodedIx = coder.decode(instruction.data);
   } catch (e) {
     logger.warn(e, "error with coder decoding of instruction:");
     return null;
@@ -414,17 +399,24 @@ function flattenIdlAccounts(
     .flat();
 }
 
-export async function getTransaction(signature: string): Promise<Transaction|boolean|null> {
-  const txResponse: VersionedTransactionResponse | null = await connection.getTransaction(signature, {
+export async function getTransaction(signature: string): Promise<{tx: Transaction, rawTx: VersionedTransactionResponse}|null> {
+  let txResponse: VersionedTransactionResponse | null = await connection.getTransaction(signature, {
     maxSupportedTransactionVersion: 0,
   });
   
   if (!txResponse) {
-    logger.warn(`${signature} no tx response for signature`);
-    return null;
+    //try agaain, just in case the first call didnt work
+    txResponse = await connection.getTransaction(signature, {
+      maxSupportedTransactionVersion: 0,
+    });
+    if (!txResponse) {
+      logger.warn(`${signature} no tx response for signature`);
+      return null;
+    }
   }
+
   
-  const accountsRaw = await resolveAccounts(txResponse);
+  const accountsRaw = await resolveAccounts(txResponse, signature);
   if (!accountsRaw) {
     logger.warn(`${signature} no accounts response for signature`);
     return null;
@@ -481,7 +473,7 @@ export async function getTransaction(signature: string): Promise<Transaction|boo
   });
 
   if (parseResult.success) {
-    return parseResult.data;
+    return {tx: parseResult.data, rawTx: txResponse};
   } 
     
   logger.error(parseResult.error, "error with parsing transaction" );
@@ -501,7 +493,7 @@ export function parseFormattedInstructionArgsData<T>(data: string) {
   return JSON.parse(jsonString) as T;
 }
 
-async function resolveAccounts({transaction, version}: VersionedTransactionResponse): Promise<MessageAccountKeys|null> {
+async function resolveAccounts({transaction, version}: VersionedTransactionResponse, signature: string): Promise<MessageAccountKeys|null> {
   let accountKeys: MessageAccountKeys;
   switch (version) {
     case 'legacy':
@@ -514,18 +506,15 @@ async function resolveAccounts({transaction, version}: VersionedTransactionRespo
       accountKeys = transaction.message.getAccountKeys();
       break;
     case 0:
-      // https://solana.stackexchange.com/questions/8652/how-do-i-parse-the-accounts-in-a-versioned-transaction
-      const lookupTables: AddressLookupTableAccount[] = [];
-      for (const {accountKey} of transaction.message.addressTableLookups) {
-        const lookupTable = await connection.getAddressLookupTable(accountKey);
-        if (!lookupTable?.value) {
-     
-          logger.info("missing lookup table response", lookupTable, accountKey);
-          return null;
-        }
-        lookupTables.push(lookupTable.value);
+
+      try{
+        const parsedTx = await connection.getParsedTransaction(signature, { maxSupportedTransactionVersion: 0 });
+        accountKeys = new MessageAccountKeys(parsedTx?.transaction.message.accountKeys.map((acct) => acct.pubkey) ?? []);
+      } catch (e) {
+        //we may want to tone this down to just a warning
+        logger.error(e, "error with getting parsed transaction");
+        return null;
       }
-      accountKeys = transaction.message.getAccountKeys({addressLookupTableAccounts: lookupTables});
       break;
     default:
       logger.info("unsupported transaction versoin", version)
