@@ -5,6 +5,7 @@ import { frontfill as v4_frontfill, backfill as v4_backfill } from "./v4_indexer
 import { CronJob } from "cron";
 import http from "http";
 import {  updatePrices } from "./priceHandler";
+import { calculateProposalPerformance, calculateUserPerformance } from "./userPerformance";
 
 const appStartTime = new Date();
 
@@ -243,7 +244,10 @@ async function reprocess() {
 
 // Run the main function
 if (process.env.REPROCESS == "true") {
-  reprocess();
+  //reprocess();
+
+  calculateProposalPerformance("AczntXRrBFn3epMVAnGTwb4fYrzcCPETd7JU8jnGpFJo");
+
 } else {
   main();
 }
