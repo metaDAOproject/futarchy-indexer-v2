@@ -17,7 +17,7 @@ const logger = log.child({
   module: "backfill-proposals-v3"
 });
 
-const limit = pLimit(20);
+const limit = pLimit(10);
 
 /**
  * Backfills all on-chain proposals to the database.

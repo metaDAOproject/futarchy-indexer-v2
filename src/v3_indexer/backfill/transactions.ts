@@ -12,7 +12,7 @@ const logger = log.child({
   module: "backfill-transactions"
 });
 
-const limit = pLimit(15);
+const limit = pLimit(10);
 
 export async function backfillTransactions(reprocess: boolean=false): Promise<{message:string, error: Error|undefined}> {
 
