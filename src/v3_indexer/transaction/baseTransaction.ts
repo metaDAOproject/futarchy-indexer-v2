@@ -20,7 +20,15 @@ export abstract class BaseTransaction {
     // First insert the transaction record
     if (this.reprocess) {
       //we dont want to mess up prices for reprocessed txns
-      return true;
+      try{
+        await db.insert(schema.transactions)
+          .values(this.transactionRecord)
+          .onConflictDoNothing();
+        return true;
+      } catch (e) {
+        logger.warn(e, `error saving transaction record ${this.transactionRecord.txSig}`);
+        return false;
+      }
     }
 
     try {

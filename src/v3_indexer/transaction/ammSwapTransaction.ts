@@ -227,7 +227,10 @@ export class AmmSwapTransaction extends MarketTransaction {
         if (this.reprocess) {
           //delete all orders and takes for this tx
           await trx.delete(schema.takes).where(eq(schema.takes.orderTxSig, this.transactionRecord.txSig)).execute();
-          await trx.delete(schema.orders).where(eq(schema.orders.orderTxSig, this.transactionRecord.txSig)).execute();          
+          await trx.delete(schema.orders).where(eq(schema.orders.orderTxSig, this.transactionRecord.txSig)).execute();     
+          
+          //save the transaction record first
+          await this.saveRecord();
         }
 
         //save the market and transaction record first

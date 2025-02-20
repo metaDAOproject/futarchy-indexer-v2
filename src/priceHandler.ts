@@ -33,7 +33,14 @@ export async function updatePrices(): Promise<{message:string, error: Error|unde
     }
 
     const url = baseUrl + ids;
-    const response = await fetch(url);
+    const apiKey = process.env.JUPITER_API_KEY || "";
+    
+    const response = await fetch(url, {
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey
+      }
+    });
     if (!response.ok) {
       logger.error(`Error fetching prices: ${response.statusText}`);
       return { message: `Error fetching prices: ${response.statusText}`, error: new Error(response.statusText) };
