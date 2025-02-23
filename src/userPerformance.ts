@@ -2,9 +2,10 @@ import { eq, schema, db, sql, or, inArray, and, lte, gt, desc } from "@metadaopr
 import { alias } from "@metadaoproject/indexer-db/node_modules/drizzle-orm/pg-core";
 import { log } from "./logger/logger";
 import { proposals, ProposalStatus } from "@metadaoproject/indexer-db/lib/schema";
-import { PriceMath } from "@metadaoproject/futarchy/v0.3";
+import { PriceMath, Proposal } from "@metadaoproject/futarchy/v0.3";
 import { BN } from "@coral-xyz/anchor";
 import { UserPerformanceRecord } from "@metadaoproject/indexer-db/lib/schema";
+
 
 const logger = log.child({
   module: "userperformance"
@@ -12,6 +13,7 @@ const logger = log.child({
 
 
 type UserPerformanceTotals = {
+  userAcct: string;
   tokensBought: number;
   tokensSold: number;
   volumeBought: number;
@@ -23,8 +25,6 @@ type UserPerformanceTotals = {
   buyOrderCount: number;
   sellOrderCount: number;
 };
-
-
 
 export async function calculateProposalPerformance(publicKey: string) {
   const quoteTokens = alias(schema.tokens, "quote_tokens"); // NOTE: This should be USDC for now
@@ -58,7 +58,7 @@ export async function calculateProposalPerformance(publicKey: string) {
   
   let proposalDaoAcct = daos?.daoAcct;
 
-  if (!proposal) {
+  if (!proposal || !quote_token || !base_token) {
     logger.error(`No proposal found for ${publicKey}`);
     return;
   }
@@ -80,11 +80,71 @@ export async function calculateProposalPerformance(publicKey: string) {
     .execute() ?? [];
   
   
+  // Get the spot price at the time of the proposal finalization
+  const proposalFinalizedAt = proposal.completedAt ?? new Date();
+  const proposalFinalizedAtMinus2Minutes = new Date(proposalFinalizedAt);
+  proposalFinalizedAtMinus2Minutes.setMinutes( proposalFinalizedAt.getMinutes() - 2 );
+  
+  const spotPriceAtFinalization = await db.select()
+    .from(schema.prices)
+    .where(
+      and(
+        eq(schema.prices.marketAcct, base_token?.mintAcct ?? ""),
+        lte(schema.prices.createdAt, proposalFinalizedAt),
+        gt(schema.prices.createdAt, proposalFinalizedAtMinus2Minutes)
+      )
+    )
+    .limit(1)
+    .orderBy(desc(schema.prices.createdAt))
+    .execute() ?? [];
+  
+  const lastSpotPrice = Number(spotPriceAtFinalization[0]?.price ?? 0);
+  
   for (const trader of allTraders) {
-    await calculateUserPerformance(trader.actorAcct, proposal, quote_token, base_token);
+    await calculateUserPerformance(trader.actorAcct, proposal, lastSpotPrice, quote_token, base_token);
   }
 
 }
+
+async function calculateUserPerformance(
+  userAcct: string, 
+  proposal: typeof schema.proposals.$inferSelect,
+  spotPriceAtFinalization: number,
+  quote_token: typeof schema.tokens.$inferSelect,
+  base_token: typeof schema.tokens.$inferSelect
+) {
+
+  const userPerformanceTotals: UserPerformanceTotals = {
+    userAcct: userAcct,
+    tokensBought: 0,
+    tokensSold: 0,
+    volumeBought: 0,
+    volumeSold: 0,
+    tokensBoughtResolvingMarket: 0,
+    tokensSoldResolvingMarket: 0,
+    volumeBoughtResolvingMarket: 0,
+    volumeSoldResolvingMarket: 0,
+    buyOrderCount: 0,
+    sellOrderCount: 0,
+  }
+
+  const allOrders = await db.select()
+        .from(schema.orders)
+        .where(
+          and(
+            eq(schema.orders.actorAcct, userAcct),
+            sql`${schema.orders.marketAcct} IN (${proposal.passMarketAcct}, ${proposal.failMarketAcct})`
+          )
+        )
+    .execute() ?? [];
+  const resolvingMarket = proposal.status === ProposalStatus.Passed
+      ? proposal.passMarketAcct
+    : proposal.failMarketAcct;
+
+  
+
+}
+
  
 
 /*
