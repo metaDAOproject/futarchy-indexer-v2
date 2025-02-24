@@ -530,6 +530,7 @@ export const orders = pgTable(
     cancelTxSig: transaction("cancel_tx_sig"),
     cancelBlock: biggerBlock("cancel_block"),
     cancelTime: timestamp("cancel_time", { withTimezone: true }),  
+    order_id: uuid("order_id"),
   },
   (table) => ({
     // For displaying user trade history
@@ -596,6 +597,9 @@ export const takes = pgTable(
     orderTime: timestamp("order_time", { withTimezone: true }).notNull(),
     base_decimals: smallint("base_decimals").notNull(),
     quote_decimals: smallint("quote_decimals").notNull(),
+    order_id: uuid("order_id"),
+    side: text("side"),
+    actorAcct: pubkey("actor_acct"),
   },
   (table) => ({
     // For aggregating into candles and showing latest trades

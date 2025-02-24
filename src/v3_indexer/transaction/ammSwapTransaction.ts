@@ -65,6 +65,7 @@ export async function createAmmSwapTransaction(
   const takes: TakesRecord[] = [];
   const marketAccts: PublicKey[] = [];
 
+
   for (const marketAcct of allAddresses) {
 
     let preBaseBalance = BigInt(0);
@@ -169,6 +170,7 @@ export async function createAmmSwapTransaction(
         console.log("--------------------------------");
       }
 
+      const uuid = crypto.randomUUID();
       const swapOrder: OrdersRecord = {
         marketAcct: marketAcct,
         orderBlock: tx.slot.toString(),
@@ -181,6 +183,7 @@ export async function createAmmSwapTransaction(
         side: isBid ? OrderSide.BID : OrderSide.ASK,
         unfilledBaseAmount: "0",
         updatedAt: now,
+        order_id: uuid,
       };
 
       const swapTake: TakesRecord = {
@@ -194,6 +197,9 @@ export async function createAmmSwapTransaction(
         takerQuoteFee: quoteFee,
         base_decimals: Number(baseDecimals),
         quote_decimals: Number(quoteDecimals),
+        side: isBid ? OrderSide.BID : OrderSide.ASK,
+        actorAcct: actor.pubkey,
+        order_id: uuid,
       };
 
       marketAccts.push(new PublicKey(marketAcct));
