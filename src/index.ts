@@ -1,4 +1,4 @@
-import { backfillDaos, backfillProposals, backfillTokenSupply, backfillTransactions } from "./v3_indexer";
+import { backfillDaos, backfillFromDB, backfillProposals, backfillTokenSupply, backfillTransactions } from "./v3_indexer";
 import { log } from "./logger/logger";
 import { mapLogHealth, subscribeAll } from "./txLogHandler";
 import { frontfill as v4_frontfill, backfill as v4_backfill } from "./v4_indexer/filler";
@@ -236,7 +236,8 @@ async function priceHandler(): Promise<{message:string, error: Error|undefined}>
 
 async function reprocess() {
   let start = new Date();
-  let res = await backfillTransactions(true);
+ // let res = await backfillTransactions(true);
+  let res = await backfillFromDB(true);
   let end = new Date();
 
 }

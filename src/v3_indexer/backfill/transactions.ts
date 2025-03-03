@@ -3,7 +3,7 @@ import { log } from "../../logger/logger";
 import pLimit from "p-limit";
 import { connection } from "../connection";
 import { ptFromSignatureAndSlot } from "../transaction/persistableTransaction";
-import { db, eq, schema } from "@metadaoproject/indexer-db";
+import { db, eq, schema, isNull } from "@metadaoproject/indexer-db";
 
 
 const AMM_KEY = new PublicKey("AMM5G2nxuKUwCLRYTW7qqEwuoqCtNSjtbipwEmm2g8bH");
@@ -12,7 +12,7 @@ const logger = log.child({
   module: "backfill-transactions"
 });
 
-const limit = pLimit(10);
+const limit = pLimit(15);
 
 export async function backfillTransactions(reprocess: boolean=false): Promise<{message:string, error: Error|undefined}> {
 
@@ -26,6 +26,41 @@ export async function backfillTransactions(reprocess: boolean=false): Promise<{m
   logger.info(message);
 
   return {message: message, error: undefined};
+}
+
+export async function backfillFromDB(reprocess: boolean=false): Promise<{message:string, error: Error|undefined}> {
+  const startTime = performance.now()
+
+  const hist = await getTransactionHistoryFromDB(reprocess);
+  await processTransactions(hist, reprocess);
+
+  const endTime = performance.now()
+  const message = `Backfilling ${hist.length} transactions complete - took ${(endTime - startTime) / 1000} seconds`;
+  logger.info(message);
+
+  return {message: message, error: undefined};
+  
+}
+
+async function getTransactionHistoryFromDB(reprocess: boolean=false): Promise<ConfirmedSignatureInfo[]> {
+  const hist = await db.select().from(schema.takes).where(isNull(schema.takes.order_id));
+  const txs: ConfirmedSignatureInfo[] = [];
+  for (const take of hist) {
+    if (!take.orderTxSig) {
+      continue;
+    }
+
+    const confirmedSig: ConfirmedSignatureInfo = {
+      signature: take.orderTxSig,
+      slot: Number(take.orderBlock),
+      err: null,
+      memo: null,
+      blockTime: null,
+    }
+
+    txs.push(confirmedSig);
+  }
+  return txs;
 }
 
 async function processTransactions(transactions: ConfirmedSignatureInfo[], reprocess: boolean) {
