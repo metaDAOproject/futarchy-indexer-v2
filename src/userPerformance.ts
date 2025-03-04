@@ -1,8 +1,8 @@
-import { eq, schema, db, sql, or, inArray, and, lte, gt, desc } from "@metadaoproject/indexer-db";
+import { eq, schema, db, sql, and, lte, gt, desc, asc } from "@metadaoproject/indexer-db";
 import { alias } from "@metadaoproject/indexer-db/node_modules/drizzle-orm/pg-core";
 import { log } from "./logger/logger";
-import { proposals, ProposalStatus } from "@metadaoproject/indexer-db/lib/schema";
-import { PriceMath, Proposal } from "@metadaoproject/futarchy/v0.3";
+import { ProposalStatus } from "@metadaoproject/indexer-db/lib/schema";
+import { PriceMath } from "@metadaoproject/futarchy/v0.3";
 import { BN } from "@coral-xyz/anchor";
 import { UserPerformanceRecord } from "@metadaoproject/indexer-db/lib/schema";
 
@@ -55,7 +55,7 @@ export async function calculateProposalPerformance(publicKey: string) {
   if (!proposalData) return;
 
   const { proposal, daos, quote_token, base_token } = proposalData;
-  
+
   let proposalDaoAcct = daos?.daoAcct;
 
   if (!proposal || !quote_token || !base_token) {
@@ -72,47 +72,96 @@ export async function calculateProposalPerformance(publicKey: string) {
     return;
   }
 
-  const allTraders = await db.selectDistinct({ actorAcct: schema.orders.actorAcct })
-    .from(schema.orders)
+  const allTraders = await db.selectDistinct({ actorAcct: schema.takes.actorAcct })
+    .from(schema.takes)
     .where(
-      sql`${schema.orders.marketAcct} IN (${proposal.passMarketAcct}, ${proposal.failMarketAcct})`
+      sql`${schema.takes.marketAcct} IN (${proposal.passMarketAcct}, ${proposal.failMarketAcct})`
     )
     .execute() ?? [];
-  
-  
+
+
   // Get the spot price at the time of the proposal finalization
   const proposalFinalizedAt = proposal.completedAt ?? new Date();
-  const proposalFinalizedAtMinus2Minutes = new Date(proposalFinalizedAt);
-  proposalFinalizedAtMinus2Minutes.setMinutes( proposalFinalizedAt.getMinutes() - 2 );
-  
+  const proposalFinalizedAtMinus10Minutes = new Date(proposalFinalizedAt);
+  proposalFinalizedAtMinus10Minutes.setMinutes(proposalFinalizedAt.getMinutes() - 10);
+
   const spotPriceAtFinalization = await db.select()
     .from(schema.prices)
     .where(
       and(
         eq(schema.prices.marketAcct, base_token?.mintAcct ?? ""),
         lte(schema.prices.createdAt, proposalFinalizedAt),
-        gt(schema.prices.createdAt, proposalFinalizedAtMinus2Minutes)
+        gt(schema.prices.createdAt, proposalFinalizedAtMinus10Minutes)
       )
     )
     .limit(1)
-    .orderBy(desc(schema.prices.createdAt))
+    .orderBy(asc(schema.prices.createdAt))
     .execute() ?? [];
-  
+
   const lastSpotPrice = Number(spotPriceAtFinalization[0]?.price ?? 0);
-  
+  if (lastSpotPrice === 0) {
+    logger.error("No spot price found at finalization for proposal " + publicKey + " NO USER PERFORMANCE CALCULATED");
+    return;
+  }
+
   for (const trader of allTraders) {
-    await calculateUserPerformance(trader.actorAcct, proposal, lastSpotPrice, quote_token, base_token);
+    if (!trader.actorAcct) continue;
+    try {
+      const value = await calculateUserPerformance(trader.actorAcct, proposal, lastSpotPrice, base_token.decimals);
+
+      const upr: UserPerformanceRecord = {
+        proposalAcct: publicKey,
+        daoAcct: proposalDaoAcct,
+        userAcct: trader.actorAcct,
+        tokensBought: value.tokensBought.toString(),
+        tokensSold: value.tokensSold.toString(),
+        volumeBought: value.volumeBought.toString(),
+        volumeSold: value.volumeSold.toString(),
+        tokensBoughtResolvingMarket: value.tokensBoughtResolvingMarket.toString(),
+        tokensSoldResolvingMarket: value.tokensSoldResolvingMarket.toString(),
+        volumeBoughtResolvingMarket: value.volumeBoughtResolvingMarket.toString(),
+        volumeSoldResolvingMarket: value.volumeSoldResolvingMarket.toString(),
+        buyOrdersCount: value.buyOrderCount as unknown as bigint,
+        sellOrdersCount: value.sellOrderCount as unknown as bigint,
+      };
+      await db.insert(schema.users)
+        .values(
+          { userAcct: trader.actorAcct }
+        )
+        .onConflictDoNothing();
+
+      await db.insert(schema.userPerformance).values(upr)
+        .onConflictDoUpdate({
+          target: [
+            schema.userPerformance.proposalAcct,
+            schema.userPerformance.userAcct,
+          ],
+          set: {
+            tokensBought: upr.tokensBought,
+            tokensSold: upr.tokensSold,
+            volumeBought: upr.volumeBought,
+            volumeSold: upr.volumeSold,
+            tokensBoughtResolvingMarket: upr.tokensBoughtResolvingMarket,
+            tokensSoldResolvingMarket: upr.tokensSoldResolvingMarket,
+            volumeBoughtResolvingMarket: upr.volumeBoughtResolvingMarket,
+            volumeSoldResolvingMarket: upr.volumeSoldResolvingMarket,
+            buyOrdersCount: upr.buyOrdersCount,
+            sellOrdersCount: upr.sellOrdersCount,
+          }
+        });
+    } catch (e) {
+      logger.error(e, "error inserting user_performance record");
+    }
   }
 
 }
 
 async function calculateUserPerformance(
-  userAcct: string, 
+  userAcct: string,
   proposal: typeof schema.proposals.$inferSelect,
   spotPriceAtFinalization: number,
-  quote_token: typeof schema.tokens.$inferSelect,
-  base_token: typeof schema.tokens.$inferSelect
-) {
+  baseDecimals: number
+): Promise<UserPerformanceTotals> {
 
   const userPerformanceTotals: UserPerformanceTotals = {
     userAcct: userAcct,
@@ -129,23 +178,77 @@ async function calculateUserPerformance(
   }
 
   const allOrders = await db.select()
-        .from(schema.orders)
-        .where(
-          and(
-            eq(schema.orders.actorAcct, userAcct),
-            sql`${schema.orders.marketAcct} IN (${proposal.passMarketAcct}, ${proposal.failMarketAcct})`
-          )
-        )
+    .from(schema.takes)
+    .where(
+      and(
+        eq(schema.takes.actorAcct, userAcct),
+        sql`${schema.takes.marketAcct} IN (${proposal.passMarketAcct}, ${proposal.failMarketAcct})`
+      )
+    )
+    .orderBy(desc(schema.takes.orderTime))
     .execute() ?? [];
   const resolvingMarket = proposal.status === ProposalStatus.Passed
-      ? proposal.passMarketAcct
+    ? proposal.passMarketAcct
     : proposal.failMarketAcct;
 
-  
 
+  for (const order of allOrders) {
+    // Debatable size or quantity, often used interchangably
+    const size = PriceMath.getHumanAmount(new BN(order.baseAmount), baseDecimals);
+
+    // Amount or notional
+    const amount = Number(order.quotePrice).valueOf() * size;
+
+    // Buy Side
+    if (order.side === "BID") {
+      userPerformanceTotals.tokensBought = userPerformanceTotals.tokensBought + size;
+      userPerformanceTotals.volumeBought = userPerformanceTotals.volumeBought + amount;
+      userPerformanceTotals.buyOrderCount++;
+      // If this is the resolving market then we want to keep a running tally for that for P&L
+      if (order.marketAcct === resolvingMarket) {
+        userPerformanceTotals.tokensBoughtResolvingMarket = userPerformanceTotals.tokensBoughtResolvingMarket + size;
+        userPerformanceTotals.volumeBoughtResolvingMarket = userPerformanceTotals.volumeBoughtResolvingMarket + amount;
+      }
+      // Sell Side
+    } else if (order.side === "ASK") {
+      userPerformanceTotals.tokensSold = userPerformanceTotals.tokensSold + size;
+      userPerformanceTotals.volumeSold = userPerformanceTotals.volumeSold + amount;
+      userPerformanceTotals.sellOrderCount++;
+      // If this is the resolving market then we want to keep a running tally for that for P&L
+      if (order.marketAcct === resolvingMarket) {
+        userPerformanceTotals.tokensSoldResolvingMarket = userPerformanceTotals.tokensSoldResolvingMarket + size;
+        userPerformanceTotals.volumeSoldResolvingMarket = userPerformanceTotals.volumeSoldResolvingMarket + amount;
+      }
+    }
+
+  }
+
+  // NOTE: this gets us the delta, whereas we need to know the direction at the very end
+  const tradeSizeDelta = Math.abs(
+    userPerformanceTotals.tokensBoughtResolvingMarket - userPerformanceTotals.tokensSoldResolvingMarket
+  );
+
+  // We need to complete the round trip / final leg
+  if (tradeSizeDelta !== 0) {
+    // TODO: This needs to be revised given the spot price can't be null or 0 if we want to really do this
+    const lastLegNotional = tradeSizeDelta * Number(spotPriceAtFinalization);
+    // NOTE: Directionally orients our last leg
+    const needsSellToExit = userPerformanceTotals.tokensBoughtResolvingMarket > userPerformanceTotals.tokensSoldResolvingMarket; // boolean
+
+    if (needsSellToExit) {
+      // We've bought more than we've sold, therefore when we exit the position calulcation
+      // we need to count the remaining volume as a sell at spot price when conditional
+      // market is finalized.
+      userPerformanceTotals.volumeSoldResolvingMarket = userPerformanceTotals.volumeSoldResolvingMarket + lastLegNotional;
+    } else {
+      userPerformanceTotals.volumeBoughtResolvingMarket = userPerformanceTotals.volumeBoughtResolvingMarket + lastLegNotional;
+    }
+  }
+
+  return userPerformanceTotals;
 }
 
- 
+
 
 /*
   return;
