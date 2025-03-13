@@ -1,13 +1,14 @@
-import { AddLiquidityEvent, AmmEvent, ConditionalVaultEvent, CreateAmmEvent, getVaultAddr, InitializeConditionalVaultEvent, InitializeQuestionEvent, SwapEvent, PriceMath, SplitTokensEvent, MergeTokensEvent, RemoveLiquidityEvent, ResolveQuestionEvent } from "@metadaoproject/futarchy/v0.4";
+import { AddLiquidityEvent, AmmEvent, ConditionalVaultEvent, CreateAmmEvent, getVaultAddr, InitializeConditionalVaultEvent, InitializeQuestionEvent, SwapEvent, PriceMath, SplitTokensEvent, MergeTokensEvent, RemoveLiquidityEvent, ResolveQuestionEvent, LaunchpadEvent, LaunchInitializedEvent, LaunchClaimEvent, LaunchCompletedEvent, LaunchFundedEvent, LaunchRefundedEvent, LaunchStartedEvent, CrankThatTwapEvent } from "@metadaoproject/futarchy/v0.4";
 import { schema, db, eq, and, or } from "@metadaoproject/indexer-db";
 import { PublicKey } from "@solana/web3.js";
 import type { VersionedTransactionResponse } from "@solana/web3.js";
-import { PricesType, V04SwapType } from "@metadaoproject/indexer-db/lib/schema";
+import { PricesType, TwapRecord, V04LaunchState, V04SwapType } from "@metadaoproject/indexer-db/lib/schema";
 import * as token from "@solana/spl-token";
 
-import { connection, conditionalVaultClient } from "../connection";
+import { connection, conditionalVaultClient, autocratClient, ammClient } from "../connection";
 
 import { log } from "../logger/logger";
+import { BN } from "@coral-xyz/anchor";
 
 const logger = log.child({
   module: "v4_processor"
@@ -37,6 +38,7 @@ export async function processAmmEvent(event: { name: string; data: AmmEvent }, s
       await handleSwapEvent(event.data as SwapEvent, signature, transactionResponse);
       break;
     case "CrankThatTwapEvent":
+      await handleCrankThatTwapEvent(event.data as CrankThatTwapEvent);
       break;
     default:
       logger.info(`Unknown event ${event.name}`);
@@ -171,8 +173,67 @@ async function handleSwapEvent(event: SwapEvent, signature: string, transactionR
       latestAmmSeqNumApplied: BigInt(event.common.seqNum.toString()),
     }).where(eq(schema.v0_4_amms.ammAddr, event.common.amm.toString()));
 
+    await insertTwapIfNotExists(db, event);
   } catch (error) {
     logger.error(error, "Error in handleSwapEvent");
+  }
+}
+
+async function handleCrankThatTwapEvent(event: CrankThatTwapEvent) {
+  try {
+    await insertTwapIfNotExists(db, event);
+  } catch (error) {
+    logger.error(error, "Error in handleCrankThatTwapEvent");
+  }
+}
+
+async function insertTwapIfNotExists(
+  db: DBConnection,
+  event: CrankThatTwapEvent | SwapEvent
+) {
+  const ammMarketAccount = await ammClient.getAmm(event.common.amm);
+
+  // Copy-pasted & modified from v3_indexer/transaction/marketTransaction.ts, line 116
+  if (!ammMarketAccount.oracle.aggregator.isZero()) {
+    // indexing the twap
+    const market = await db
+      .select()
+      .from(schema.markets)
+      .where(eq(schema.markets.marketAcct, event.common.amm.toBase58()))
+      .execute();
+
+    if (market === undefined || market.length === 0) {
+      logger.warn("market not found", event.common.amm.toBase58());
+      return false;
+    }
+
+    const twapCalculation: BN = ammMarketAccount.oracle.aggregator.div(
+      ammMarketAccount.oracle.lastUpdatedSlot.sub(
+        ammMarketAccount.createdAtSlot
+      )
+    );
+
+    const proposalAcct = market[0].proposalAcct;
+
+    const twapNumber: string = twapCalculation.toString();
+    const newTwap: TwapRecord = {
+      curTwap: twapNumber,
+      marketAcct: event.common.amm.toBase58(),
+      observationAgg: ammMarketAccount.oracle.aggregator.toString(),
+      proposalAcct: proposalAcct,
+      // alternatively, we could pass in the context of the update here
+      updatedSlot: event.common.slot.toString(),
+      lastObservation: ammMarketAccount.oracle.lastObservation.toString(),
+      lastPrice: ammMarketAccount.oracle.lastPrice.toString(),
+    };
+
+    try {
+      // TODO batch commits across inserts - maybe with event queue
+      await db.insert(schema.twaps).values(newTwap).onConflictDoNothing();
+    } catch (e) {
+      logger.error("error upserting twap", e);
+      return false;
+    }
   }
 }
 
@@ -263,9 +324,6 @@ export async function processVaultEvent(event: { name: string; data: Conditional
     default:
       logger.info("Unknown Vault event", event.name);
   }
-
-  
-
 }
 
 async function handleInitializeQuestionEvent(event: InitializeQuestionEvent) {
@@ -480,3 +538,289 @@ async function insertConditionalVault(db: DBConnection, event: InitializeConditi
 //     return [];
 //   }
 // }
+
+export async function processLaunchpadEvent(event: { name: string; data: LaunchpadEvent }, signature: string, transactionResponse: VersionedTransactionResponse) {
+  switch (event.name) {
+    case "LaunchClaimEvent":
+      await handleLaunchClaimEvent(event.data as LaunchClaimEvent, signature, transactionResponse);
+      break;
+    case "LaunchCompletedEvent":
+      await handleLaunchCompletedEvent(event.data as LaunchCompletedEvent, signature, transactionResponse);
+      break;
+    case "LaunchFundedEvent":
+      await handleLaunchFundedEvent(event.data as LaunchFundedEvent, signature, transactionResponse);
+      break;
+    case "LaunchInitializedEvent":
+      await handleLaunchInitializedEvent(event.data as LaunchInitializedEvent, signature, transactionResponse);
+      break;
+    case "LaunchRefundedEvent":
+      await handleLaunchRefundedEvent(event.data as LaunchRefundedEvent, signature, transactionResponse);
+      break;
+    case "LaunchStartedEvent":
+      await handleLaunchStartedEvent(event.data as LaunchStartedEvent, signature, transactionResponse);
+      break;
+    default:
+      logger.info("Unknown Launchpad event", event.name);
+  }
+}
+
+async function handleLaunchClaimEvent(event: LaunchClaimEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+  try {
+    await db.transaction(async (trx) => {
+      const [existingClaim] = await trx.select()
+        .from(schema.v0_4_claims)
+        .where(and(
+          eq(schema.v0_4_claims.launchAddr, event.launch.toString()),
+          eq(schema.v0_4_claims.funderAddr, event.funder.toString()),
+          eq(schema.v0_4_claims.slot, BigInt(event.common.slot.toString()))
+        ))
+        .limit(1);
+
+      if (existingClaim) {
+        logger.info(`Claim already exists for launch ${event.launch.toString()} by ${event.funder.toString()} at slot ${existingClaim.slot.toString()}`);
+        return;
+      }
+
+      await trx.insert(schema.v0_4_claims).values({
+        fundingRecordAddr: event.fundingRecord.toString(),
+        launchAddr: event.launch.toString(),
+        funderAddr: event.funder.toString(),
+        tokensClaimed: event.tokensClaimed.toString(),
+        slot: BigInt(event.common.slot.toString()),
+        timestamp: new Date(event.common.unixTimestamp.mul(new BN(1000)).toNumber()),
+      }).onConflictDoNothing();
+
+      await trx.update(schema.v0_4_funding_records).set({
+        isClaimed: true,
+        updatedAtSlot: BigInt(event.common.slot.toString()),
+      }).where(eq(schema.v0_4_funding_records.fundingRecordAddr, event.fundingRecord.toString()));
+    });
+  } catch (error) {
+    logger.error(error, "Error in handleLaunchClaimEvent");
+  }
+}
+
+async function handleLaunchCompletedEvent(event: LaunchCompletedEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+  try {
+    await db.transaction(async (trx) => {
+      const [existingLaunch] = await trx.select()
+        .from(schema.v0_4_launches)
+        .where(eq(schema.v0_4_launches.launchAddr, event.launch.toString()))
+        .limit(1);
+
+      if (existingLaunch && existingLaunch.updatedAtSlot > BigInt(event.common.slot.toString())) {
+        logger.info(`Launch ${event.launch.toString()} already updated at slot ${existingLaunch.updatedAtSlot.toString()}`);
+        return;
+      }
+
+      // Check if the launch is complete or refunding
+      const launchState = !!event.finalState.complete ? V04LaunchState.Complete : V04LaunchState.Refunding;
+
+      if( launchState === V04LaunchState.Complete && event.dao) {
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        const dao = await autocratClient.fetchDao(event.dao);
+        
+        if(dao) {
+          const [existingDao] = await trx.select()
+            .from(schema.v0_4_daos)
+            .where(eq(schema.v0_4_daos.daoAddr, event.dao.toString()))
+            .limit(1);
+          
+          if(existingDao && existingDao.updatedAtSlot > BigInt(event.common.slot.toString())) {
+            logger.info(`DAO ${event.dao.toString()} already created at slot ${existingDao.updatedAtSlot.toString()}`);
+          } else {
+            await insertTokenIfNotExists(trx, dao.usdcMint);
+            await insertTokenIfNotExists(trx, dao.tokenMint);
+
+            await trx.insert(schema.v0_4_daos).values({
+              daoAddr: event.dao.toString(),
+              createdAt: new Date(),
+              treasuryAddr: dao.treasury.toString(),
+              treasuryPdaBump: dao.treasuryPdaBump,
+              tokenMintAcct: dao.tokenMint.toString(),
+              usdcMintAcct: dao.usdcMint.toString(),
+              proposalCount: 0n,
+              passThresholdBps: dao.passThresholdBps,
+              slotsPerProposal: BigInt(dao.slotsPerProposal.toString()),
+              twapInitialObservation: dao.twapInitialObservation.toString(),
+              twapMaxObservationChangePerUpdate: dao.twapMaxObservationChangePerUpdate.toString(),
+              twapStartDelaySlots: BigInt(dao.twapStartDelaySlots.toString()),
+              minQuoteFutarchicLiquidity: BigInt(dao.minQuoteFutarchicLiquidity.toString()),
+              minBaseFutarchicLiquidity: BigInt(dao.minBaseFutarchicLiquidity.toString()),
+              latestDaoSeqNumApplied: BigInt(dao.seqNum.toString()),
+              updatedAtSlot: BigInt(event.common.slot.toString()),
+            }).onConflictDoNothing();
+          }
+        }
+      }
+
+      await trx.update(schema.v0_4_launches).set({
+        state: launchState,
+        committedAmount: BigInt(event.totalCommitted.toString()),
+        latestLaunchSeqNumApplied: BigInt(event.common.launchSeqNum.toString()),
+        daoAddr: launchState === V04LaunchState.Complete ? event.dao?.toString() : null,
+        daoTreasuryAddr: launchState === V04LaunchState.Complete ? event.daoTreasury?.toString() : null,
+        updatedAtSlot: BigInt(event.common.slot.toString()),
+      }).where(eq(schema.v0_4_launches.launchAddr, event.launch.toString()));
+    });
+  } catch (error) {
+    logger.error(error, "Error in handleLaunchCompletedEvent");
+  }
+}
+
+async function handleLaunchFundedEvent(event: LaunchFundedEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+  try {
+    await db.transaction(async (trx) => {
+      const [existingFund] = await trx.select()
+        .from(schema.v0_4_funds)
+        .where(and(
+          eq(schema.v0_4_funds.funderAddr, event.funder.toString()),
+          eq(schema.v0_4_funds.launchAddr, event.launch.toString()),
+          eq(schema.v0_4_funds.slot, BigInt(event.common.slot.toString()))
+        ))
+        .limit(1);
+
+      if (existingFund) {
+        logger.info(`Fund already exists for launch ${event.launch.toString()} by ${event.funder.toString()} at slot ${existingFund.slot.toString()}`);
+        return;
+      }
+
+      await trx.insert(schema.v0_4_funding_records).values({
+        fundingRecordAddr: event.fundingRecord.toString(),
+        launchAddr: event.launch.toString(),
+        funderAddr: event.funder.toString(),
+        committedAmount: BigInt(event.totalCommittedByFunder.toString()),
+        latestFundingRecordSeqNumApplied: BigInt(event.fundingRecordSeqNum.toString()),
+        isClaimed: false,
+        isRefunded: false,
+        updatedAtSlot: BigInt(event.common.slot.toString()),
+      }).onConflictDoUpdate({
+        target: schema.v0_4_funding_records.fundingRecordAddr,
+        set: {
+          committedAmount: BigInt(event.totalCommittedByFunder.toString()),
+          latestFundingRecordSeqNumApplied: BigInt(event.fundingRecordSeqNum.toString()),
+        }
+      });
+
+      await trx.insert(schema.v0_4_funds).values({
+        launchAddr: event.launch.toString(),
+        funderAddr: event.funder.toString(),
+        slot: BigInt(event.common.slot.toString()),
+        timestamp: new Date(event.common.unixTimestamp.mul(new BN(1000)).toNumber()),
+        usdcAmount: event.amount.toString(),
+        fundingRecordAddr: event.fundingRecord.toString(),
+        fundingRecordSeqNum: BigInt(event.fundingRecordSeqNum.toString()),
+      }).onConflictDoNothing();
+
+      await trx.update(schema.v0_4_launches).set({
+        committedAmount: BigInt(event.totalCommitted.toString()),
+        latestLaunchSeqNumApplied: BigInt(event.common.launchSeqNum.toString()),
+        updatedAtSlot: BigInt(event.common.slot.toString()),
+      }).where(eq(schema.v0_4_launches.launchAddr, event.launch.toString()));
+    });
+  } catch (error) {
+    logger.error(error, "Error in handleLaunchFundedEvent");
+  }
+}
+
+async function handleLaunchInitializedEvent(event: LaunchInitializedEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+  try {
+    await db.transaction(async (trx) => {
+      const [existingLaunch] = await trx.select()
+        .from(schema.v0_4_launches)
+        .where(eq(schema.v0_4_launches.launchAddr, event.launch.toString()))
+        .limit(1);
+
+      if (existingLaunch && existingLaunch.updatedAtSlot > BigInt(event.common.slot.toString())) {
+        logger.info(`Launch ${event.launch.toString()} already exists with last updated slot ${existingLaunch.updatedAtSlot.toString()}`);
+        return;
+      }
+
+      await insertTokenIfNotExists(trx, event.tokenMint);
+
+      await trx.insert(schema.v0_4_launches).values({
+        launchAddr: event.launch.toString(),
+        minimumRaiseAmount: BigInt(event.minimumRaiseAmount.toString()),
+        launchAuthority: event.launchAuthority.toString(),
+        launchSigner: event.launchSigner.toString(),
+        launchSignerPdaBump: event.launchSignerPdaBump,
+        launchUsdcVault: event.launchUsdcVault.toString(),
+        launchTokenVault: event.launchTokenVault.toString(),
+        tokenMintAcct: event.tokenMint.toString(),
+        pdaBump: event.pdaBump,
+        daoAddr: null,
+        daoTreasuryAddr: null,
+        treasuryUsdcAcct: null,
+        committedAmount: 0n,
+        latestLaunchSeqNumApplied: 0n,
+        state: V04LaunchState.Initialized,
+        unixTimestampStarted: 0n,
+        secondsForLaunch: event.secondsForLaunch,
+        updatedAtSlot: BigInt(event.common.slot.toString()),
+      }).onConflictDoNothing();
+    });
+  } catch (error) {
+    logger.error(error, "Error in handleLaunchInitializedEvent");
+  }
+}
+
+async function handleLaunchRefundedEvent(event: LaunchRefundedEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+  try {
+    await db.transaction(async (trx) => {
+      const [existingRefund] = await trx.select()
+        .from(schema.v0_4_refunds)
+        .where(and(
+          eq(schema.v0_4_refunds.funderAddr, event.funder.toString()),
+          eq(schema.v0_4_refunds.launchAddr, event.launch.toString()),
+          eq(schema.v0_4_refunds.slot, BigInt(event.common.slot.toString()))
+        ))
+        .limit(1);
+
+      if (existingRefund) {
+        logger.info(`Refund already exists for launch ${event.launch.toString()} by ${event.funder.toString()} at slot ${existingRefund.slot.toString()}`);
+        return;
+      }
+
+      await trx.insert(schema.v0_4_refunds).values({
+        fundingRecordAddr: event.fundingRecord.toString(),
+        launchAddr: event.launch.toString(),
+        funderAddr: event.funder.toString(),
+        slot: BigInt(event.common.slot.toString()),
+        timestamp: new Date(event.common.unixTimestamp.mul(new BN(1000)).toNumber()),
+        usdcAmount: event.usdcRefunded.toString(),
+      }).onConflictDoNothing();
+
+      await trx.update(schema.v0_4_funding_records).set({
+        isRefunded: true,
+        updatedAtSlot: BigInt(event.common.slot.toString()),
+      }).where(eq(schema.v0_4_funding_records.fundingRecordAddr, event.fundingRecord.toString()));
+    });
+  } catch (error) {
+    logger.error(error, "Error in handleLaunchRefundedEvent");
+  }
+}
+
+async function handleLaunchStartedEvent(event: LaunchStartedEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+  try {
+    await db.transaction(async (trx) => {
+      const [existingLaunch] = await trx.select()
+      .from(schema.v0_4_launches)
+      .where(eq(schema.v0_4_launches.launchAddr, event.launch.toString()))
+      .limit(1);
+
+    if (existingLaunch && existingLaunch.updatedAtSlot > BigInt(event.common.slot.toString())) {
+      logger.info(`Launch ${event.launch.toString()} already updated at slot ${existingLaunch.updatedAtSlot.toString()}`);
+      return;
+    }
+
+    await trx.update(schema.v0_4_launches).set({
+      state: V04LaunchState.Live,
+      unixTimestampStarted: BigInt(event.common.unixTimestamp.toString()),
+      latestLaunchSeqNumApplied: BigInt(event.common.launchSeqNum.toString()),
+      updatedAtSlot: BigInt(event.common.slot.toString()),
+    }).where(eq(schema.v0_4_launches.launchAddr, event.launch.toString()));
+    });
+  } catch (error) {
+    logger.error(error, "Error in handleLaunchStartedEvent");
+  }
+}

@@ -2,7 +2,7 @@ import { Context, Logs, PublicKey } from "@solana/web3.js";
 import { ptFromSignatureAndSlot } from "./v3_indexer/transaction/persistableTransaction";
 import { log } from "./logger/logger";
 import { connection } from "./v3_indexer/connection";
-import { AMM_PROGRAM_ID as V4_AMM_PROGRAM_ID, AUTOCRAT_PROGRAM_ID as V4_AUTOCRAT_PROGRAM_ID, CONDITIONAL_VAULT_PROGRAM_ID as V4_CONDITIONAL_VAULT_PROGRAM_ID } from "@metadaoproject/futarchy/v0.4";
+import { AMM_PROGRAM_ID as V4_AMM_PROGRAM_ID, AUTOCRAT_PROGRAM_ID as V4_AUTOCRAT_PROGRAM_ID, CONDITIONAL_VAULT_PROGRAM_ID as V4_CONDITIONAL_VAULT_PROGRAM_ID, LAUNCHPAD_PROGRAM_ID as V4_LAUNCHPAD_PROGRAM_ID } from "@metadaoproject/futarchy/v0.4";
 import { AMM_PROGRAM_ID as V3_AMM_PROGRAM_ID, AUTOCRAT_PROGRAM_ID as V3_AUTOCRAT_PROGRAM_ID, CONDITIONAL_VAULT_PROGRAM_ID as V3_CONDITIONAL_VAULT_PROGRAM_ID } from "@metadaoproject/futarchy/v0.3";
 import { indexFromLogs } from "./v4_indexer/indexer";
 import { backfillProposals } from "./v3_indexer/backfill/proposals";
@@ -50,6 +50,7 @@ async function subscribe(accountPubKey: PublicKey) {
 //asynchronously subscribes to logs for all programs
 export async function subscribeAll() {
   const programIds = [
+    V4_LAUNCHPAD_PROGRAM_ID,
     V4_AMM_PROGRAM_ID,
     V4_AUTOCRAT_PROGRAM_ID,
     V4_CONDITIONAL_VAULT_PROGRAM_ID,
@@ -80,7 +81,7 @@ export async function startTxLogHandler(account: PublicKey){
 
 async function processLogs(logs: Logs, ctx: Context, programId: PublicKey) {
   //check if programId is v3 or v4
-  if (programId.equals(V4_AMM_PROGRAM_ID) || programId.equals(V4_AUTOCRAT_PROGRAM_ID) || programId.equals(V4_CONDITIONAL_VAULT_PROGRAM_ID)) {
+  if (programId.equals(V4_AMM_PROGRAM_ID) || programId.equals(V4_AUTOCRAT_PROGRAM_ID) || programId.equals(V4_CONDITIONAL_VAULT_PROGRAM_ID) || programId.equals(V4_LAUNCHPAD_PROGRAM_ID)) {
     await indexV4(logs, ctx, programId);
   } else if (programId.equals(V3_AMM_PROGRAM_ID) || programId.equals(V3_CONDITIONAL_VAULT_PROGRAM_ID)) {
     await indexV3(logs, ctx, programId);

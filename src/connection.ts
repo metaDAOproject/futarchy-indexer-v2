@@ -1,6 +1,6 @@
 import { Connection } from "@solana/web3.js";
 import { AnchorProvider, Wallet } from "@coral-xyz/anchor";
-import { ConditionalVaultClient, AmmClient } from "@metadaoproject/futarchy/v0.4";
+import { ConditionalVaultClient, AmmClient, LaunchpadClient, AutocratClient } from "@metadaoproject/futarchy/v0.4";
 
 export const RPC_ENDPOINT = process.env.RPC_ENDPOINT ?? "";
 
@@ -17,3 +17,5 @@ export const provider = new AnchorProvider(connection, readonlyWallet, {
 
 export const ammClient = AmmClient.createClient({ provider });
 export const conditionalVaultClient = ConditionalVaultClient.createClient({ provider });
+export const launchpadClient = LaunchpadClient.createClient({ provider });
+export const autocratClient = AutocratClient.createClient({ provider });

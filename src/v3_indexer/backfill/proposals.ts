@@ -8,7 +8,7 @@ import { PublicKey } from "@solana/web3.js";
 import { BN } from "@coral-xyz/anchor";
 import { enrichTokenMetadata } from "@metadaoproject/futarchy-sdk/dist";
 import pLimit from "p-limit";
-import { alias } from "@metadaoproject/indexer-db/node_modules/drizzle-orm/pg-core";
+import { alias } from "@metadaoproject/indexer-db";
 import { PriceMath } from "@metadaoproject/futarchy/v0.3";
 
 const passImgUrl = "https://imagedelivery.net/HYEnlujCFMCgj6yA728xIw/f38677ab-8ec6-4706-6606-7d4e0a3cfc00/public";
