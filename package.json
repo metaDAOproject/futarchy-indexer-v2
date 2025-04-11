@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.29.0",
-    "@metadaoproject/futarchy": "^0.4.0-alpha.53",
+    "@metadaoproject/futarchy": "^0.4.0-alpha.58",
     "@metadaoproject/futarchy-sdk": "^4.0.0-alpha.54",
     "@metadaoproject/indexer-db": "file:./packages/database",
     "@solana/spl-token": "^0.3.8",

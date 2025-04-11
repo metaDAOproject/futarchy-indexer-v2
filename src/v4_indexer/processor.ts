@@ -1,8 +1,8 @@
-import { AddLiquidityEvent, AmmEvent, ConditionalVaultEvent, CreateAmmEvent, getVaultAddr, InitializeConditionalVaultEvent, InitializeQuestionEvent, SwapEvent, PriceMath, SplitTokensEvent, MergeTokensEvent, RemoveLiquidityEvent, ResolveQuestionEvent, LaunchpadEvent, LaunchInitializedEvent, LaunchClaimEvent, LaunchCompletedEvent, LaunchFundedEvent, LaunchRefundedEvent, LaunchStartedEvent, CrankThatTwapEvent } from "@metadaoproject/futarchy/v0.4";
-import { schema, db, eq, and, or } from "@metadaoproject/indexer-db";
+import { AddLiquidityEvent, AmmEvent, ConditionalVaultEvent, CreateAmmEvent, getVaultAddr, InitializeConditionalVaultEvent, InitializeQuestionEvent, SwapEvent, PriceMath, SplitTokensEvent, MergeTokensEvent, RemoveLiquidityEvent, ResolveQuestionEvent, LaunchpadEvent, LaunchInitializedEvent, LaunchClaimEvent, LaunchCompletedEvent, LaunchFundedEvent, LaunchRefundedEvent, LaunchStartedEvent, CrankThatTwapEvent, AutocratEvent, InitializeProposalEvent, UpdateDaoEvent, InitializeDaoEvent, FinalizeProposalEvent, ExecuteProposalEvent, Dao, Proposal } from "@metadaoproject/futarchy/v0.4";
+import { schema, db, eq, and, or, DBTransaction } from "@metadaoproject/indexer-db";
 import { PublicKey } from "@solana/web3.js";
 import type { VersionedTransactionResponse } from "@solana/web3.js";
-import { PricesType, TwapRecord, V04LaunchState, V04SwapType } from "@metadaoproject/indexer-db/lib/schema";
+import { PricesType, TwapRecord, V04LaunchState, V04ProposalState, V04SwapType } from "@metadaoproject/indexer-db/lib/schema";
 import * as token from "@solana/spl-token";
 
 import { connection, conditionalVaultClient, autocratClient, ammClient } from "../connection";
@@ -196,6 +196,7 @@ async function insertTwapIfNotExists(
   // Copy-pasted & modified from v3_indexer/transaction/marketTransaction.ts, line 116
   if (!ammMarketAccount.oracle.aggregator.isZero()) {
     // indexing the twap
+    // TODO: we need to go from v0_4_amms, then go to markets.
     const market = await db
       .select()
       .from(schema.markets)
@@ -213,14 +214,15 @@ async function insertTwapIfNotExists(
       )
     );
 
-    const proposalAcct = market[0].proposalAcct;
+    // const proposalAcct = market[0].proposalAcct;
 
     const twapNumber: string = twapCalculation.toString();
     const newTwap: TwapRecord = {
       curTwap: twapNumber,
       marketAcct: event.common.amm.toBase58(),
       observationAgg: ammMarketAccount.oracle.aggregator.toString(),
-      proposalAcct: proposalAcct,
+      // ignoring proposal property - not required, references V3 proposals
+      // proposalAcct: proposalAcct,
       // alternatively, we could pass in the context of the update here
       updatedSlot: event.common.slot.toString(),
       lastObservation: ammMarketAccount.oracle.lastObservation.toString(),
@@ -229,7 +231,11 @@ async function insertTwapIfNotExists(
 
     try {
       // TODO batch commits across inserts - maybe with event queue
-      await db.insert(schema.twaps).values(newTwap).onConflictDoNothing();
+      await db.insert(schema.twaps).values(newTwap).onConflictDoNothing({
+        // All conflicts are ignored unless we specify a target, in this case the primary key
+        // This means that all other conflicts will still result in an error - this is intentional
+        target: [schema.twaps.marketAcct, schema.twaps.updatedSlot]
+      });
     } catch (e) {
       logger.error("error upserting twap", e);
       return false;
@@ -497,7 +503,9 @@ async function insertPriceIfNotDuplicate(db: DBConnection, amm: any[], event: Ad
       updatedSlot: BigInt(event.common.slot.toString()),
       createdBy: 'amm-market-indexer',
       pricesType: PricesType.Conditional,
-    }).onConflictDoNothing();
+    }).onConflictDoNothing({
+      target: [schema.prices.marketAcct, schema.prices.createdAt]
+    });
   } catch (error) {
     logger.error(
       error instanceof Error
@@ -823,4 +831,184 @@ async function handleLaunchStartedEvent(event: LaunchStartedEvent, signature: st
   } catch (error) {
     logger.error(error, "Error in handleLaunchStartedEvent");
   }
+}
+
+export async function processAutocratEvent(event: { name: string; data: AutocratEvent }, signature: string, transactionResponse: VersionedTransactionResponse) {
+  switch (event.name) {
+    case "InitializeDaoEvent":
+      await handleInitializeDaoEvent(event.data as InitializeDaoEvent, signature, transactionResponse);
+      break;
+    case "UpdateDaoEvent":
+      await handleUpdateDaoEvent(event.data as UpdateDaoEvent, signature, transactionResponse);
+      break;
+    case "InitializeProposalEvent":
+      await handleInitializeProposalEvent(event.data as InitializeProposalEvent, signature, transactionResponse);
+      break;
+    case "FinalizeProposalEvent":
+      await handleFinalizeProposalEvent(event.data as FinalizeProposalEvent, signature, transactionResponse);
+      break;
+    case "ExecuteProposalEvent":
+      await handleExecuteProposalEvent(event.data as ExecuteProposalEvent, signature, transactionResponse);
+      break;
+    default:
+      logger.info("Unknown Autocrat event", event.name);
+  }
+}
+
+async function handleInitializeDaoEvent(event: InitializeDaoEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+  try {
+    const daoAcct = await autocratClient.getDao(event.dao);
+
+    await db.transaction(async (trx) => {
+      await insertTokenIfNotExists(trx, daoAcct.usdcMint);
+      await insertTokenIfNotExists(trx, daoAcct.tokenMint);
+      await upsertDao(daoAcct, event.dao, BigInt(event.common.slot.toString()), trx);
+    });
+  } catch (error) {
+    logger.error(error, "Error in handleInitializeDaoEvent");
+  }
+}
+
+async function handleUpdateDaoEvent(event: UpdateDaoEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+  try {
+    const daoAcct = await autocratClient.getDao(event.dao);
+
+    await db.transaction(async (trx) => {
+      await insertTokenIfNotExists(trx, daoAcct.usdcMint);
+      await insertTokenIfNotExists(trx, daoAcct.tokenMint);
+      await upsertDao(daoAcct, event.dao, BigInt(event.common.slot.toString()), trx);
+    });
+  } catch (error) {
+    logger.error(error, "Error in handleUpdateDaoEvent");
+  }
+}
+
+async function handleInitializeProposalEvent(event: InitializeProposalEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+  try {
+    const proposalAcct = await autocratClient.getProposal(event.proposal);
+
+    await db.transaction(async (trx) => {
+      await upsertProposal(proposalAcct, event.proposal, BigInt(event.common.slot.toString()), trx);
+    });
+  } catch (error) {
+    logger.error(error, "Error in handleInitializeProposalEvent");
+  }
+}
+
+async function handleFinalizeProposalEvent(event: FinalizeProposalEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+  try {
+    const proposalAcct = await autocratClient.getProposal(event.proposal);
+
+    await db.transaction(async (trx) => {
+      await upsertProposal(proposalAcct, event.proposal, BigInt(event.common.slot.toString()), trx);
+    });
+  } catch (error) {
+    logger.error(error, "Error in handleFinalizeProposalEvent");
+  }
+}
+
+async function handleExecuteProposalEvent(event: ExecuteProposalEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+  try {
+    const proposalAcct = await autocratClient.getProposal(event.proposal);
+
+    await db.transaction(async (trx) => {
+      await upsertProposal(proposalAcct, event.proposal, BigInt(event.common.slot.toString()), trx);
+    });
+  } catch (error) {
+    logger.error(error, "Error in handleExecuteProposalEvent");
+  }
+}
+
+async function upsertDao(daoAcct: Dao, daoAddr: PublicKey, slot: bigint, trx: DBTransaction){
+  const [existingDao] = await trx.select()
+        .from(schema.v0_4_daos)
+        .where(eq(schema.v0_4_daos.daoAddr, daoAddr.toString()))
+        .limit(1);
+
+      if (existingDao && existingDao.updatedAtSlot > slot) {
+        logger.info(`DAO ${daoAddr.toString()} already exists at slot ${existingDao.updatedAtSlot.toString()}. Current slot: ${slot}`);
+        return;
+      }
+
+      type DaoEntity = typeof schema.v0_4_daos.$inferInsert;
+
+      const dao: DaoEntity = {
+        daoAddr: daoAddr.toString(),
+        updatedAtSlot: slot,
+        latestDaoSeqNumApplied: BigInt(daoAcct.seqNum.toString()),
+        passThresholdBps: daoAcct.passThresholdBps,
+        slotsPerProposal: BigInt(daoAcct.slotsPerProposal.toString()),
+        twapInitialObservation: daoAcct.twapInitialObservation.toString(),
+        twapMaxObservationChangePerUpdate: daoAcct.twapMaxObservationChangePerUpdate.toString(),
+        twapStartDelaySlots: BigInt(daoAcct.twapStartDelaySlots.toString()),
+        minQuoteFutarchicLiquidity: BigInt(daoAcct.minQuoteFutarchicLiquidity.toString()),
+        minBaseFutarchicLiquidity: BigInt(daoAcct.minBaseFutarchicLiquidity.toString()),
+        treasuryAddr: daoAcct.treasury.toString(),
+        treasuryPdaBump: daoAcct.treasuryPdaBump,
+        tokenMintAcct: daoAcct.tokenMint.toString(),
+        usdcMintAcct: daoAcct.usdcMint.toString(),
+        proposalCount: BigInt(daoAcct.proposalCount.toString()),
+      };
+
+      await trx.insert(schema.v0_4_daos).values(dao).onConflictDoUpdate({
+        target: schema.v0_4_daos.daoAddr,
+        set: dao,
+      });
+}
+
+async function upsertProposal(proposalAcct: Proposal, proposalAddr: PublicKey, slot: bigint, trx: DBTransaction){
+  const [existingProposal] = await trx.select()
+    .from(schema.v0_4_proposals)
+    .where(eq(schema.v0_4_proposals.proposalAddr, proposalAddr.toString()))
+    .limit(1);
+
+  if (existingProposal && existingProposal.updatedAtSlot > slot) {  
+    logger.info(`Proposal ${proposalAddr.toString()} already exists at slot ${existingProposal.updatedAtSlot.toString()}. Current slot: ${slot}`);
+    return;
+  }
+
+  type ProposalEntity = typeof schema.v0_4_proposals.$inferInsert;
+
+  let state: V04ProposalState = V04ProposalState.Pending;
+  if (proposalAcct.state.passed) {
+    state = V04ProposalState.Passed;
+  } else if (proposalAcct.state.failed) {
+    state = V04ProposalState.Failed;
+  } else if (proposalAcct.state.executed) {
+    state = V04ProposalState.Executed;
+  }
+
+  // Proposal is finalized when it is passed or failed
+  let finalizedAt: Date | undefined = undefined;
+  if (state === V04ProposalState.Passed || state === V04ProposalState.Failed) {
+    finalizedAt = new Date();
+  }
+
+  const proposal: ProposalEntity = {
+    proposalAddr: proposalAddr.toString(),
+    updatedAtSlot: slot,
+    number: proposalAcct.number,
+    proposer: proposalAcct.proposer.toString(),
+    descriptionUrl: proposalAcct.descriptionUrl,
+    slotEnqueued: proposalAcct.slotEnqueued.toString(),
+    state: state,
+    pdaBump: proposalAcct.pdaBump,
+    daoAddr: proposalAcct.dao.toString(),
+    questionAddr: proposalAcct.question.toString(),
+    nonce: BigInt(proposalAcct.nonce.toString()),
+    passLpTokensLocked: proposalAcct.passLpTokensLocked.toString(),
+    failLpTokensLocked: proposalAcct.failLpTokensLocked.toString(),
+    passAmmAddr: proposalAcct.passAmm.toString(),
+    failAmmAddr: proposalAcct.failAmm.toString(),
+    baseVaultAddr: proposalAcct.baseVault.toString(),
+    quoteVaultAddr: proposalAcct.quoteVault.toString(),
+    durationInSlots: BigInt(proposalAcct.durationInSlots.toString()),
+    instruction: proposalAcct.instruction,
+    finalizedAt: finalizedAt
+  };
+
+  await trx.insert(schema.v0_4_proposals).values(proposal).onConflictDoUpdate({
+    target: schema.v0_4_proposals.proposalAddr,
+    set: proposal,
+  });
 }
