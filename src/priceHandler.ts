@@ -55,9 +55,10 @@ export async function updatePrices(): Promise<{
     );
 
     const results = await db
+      .with(v3Query)
       .select()
       .from(v3Query)
-      .union(db.select().from(v4Query))
+      .union(db.with(v4Query).select().from(v4Query))
       .execute();
 
     let ids = "";
