@@ -210,7 +210,7 @@ async function insertTwapIfNotExists(
 
     const twapCalculation: BN = ammMarketAccount.oracle.aggregator.div(
       ammMarketAccount.oracle.lastUpdatedSlot.sub(
-        ammMarketAccount.createdAtSlot
+        ammMarketAccount.createdAtSlot.add(ammMarketAccount.oracle.startDelaySlots)
       )
     );
 
