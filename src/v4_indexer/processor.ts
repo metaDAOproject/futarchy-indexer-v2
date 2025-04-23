@@ -478,7 +478,16 @@ async function insertPriceIfNotDuplicate(db: DBConnection, amm: any[], event: Ad
     return;
   }
 
-  const ammPrice = PriceMath.getAmmPriceFromReserves(event.common.postBaseReserves, event.common.postQuoteReserves);
+  const postBaseReserves = event.common.postBaseReserves;
+  const postQuoteReserves = event.common.postQuoteReserves;
+  let ammPrice = new BN(0);
+
+  if(postBaseReserves.isZero() || postQuoteReserves.isZero()) {
+    console.log("Price is 0", event.common.amm.toBase58(), BigInt(event.common.slot.toString()));
+  } else {
+    ammPrice = PriceMath.getAmmPriceFromReserves(postBaseReserves, postQuoteReserves);
+  }
+
   const baseToken = await db.select()
     .from(schema.tokens)
     .where(eq(schema.tokens.mintAcct, amm[0].baseMintAddr))
