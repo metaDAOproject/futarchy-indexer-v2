@@ -83,7 +83,7 @@ async function handleAddLiquidityEvent(event: AddLiquidityEvent) {
     }
 
     if (amm[0].latestAmmSeqNumApplied >= BigInt(event.common.seqNum.toString())) {
-      logger.info("Already applied", event.common.seqNum.toString());
+      logger.info("Already applied add liquidity event", event.common.seqNum.toString());
       return;
     }
 
@@ -113,7 +113,7 @@ async function handleRemoveLiquidityEvent(event: RemoveLiquidityEvent) {
     }
 
     if (amm[0].latestAmmSeqNumApplied >= BigInt(event.common.seqNum.toString())) {
-      logger.info("Already applied", event.common.seqNum.toString());
+      logger.info("Already applied remove liquidity event", event.common.seqNum.toString());
       return;
     }
 
@@ -161,7 +161,7 @@ async function handleSwapEvent(event: SwapEvent, signature: string, transactionR
     logger.info("latestAmmSeqNumApplied", amm[0].latestAmmSeqNumApplied.toString());
     logger.info("event.common.seqNum", event.common.seqNum.toString());
     if (amm[0].latestAmmSeqNumApplied >= BigInt(event.common.seqNum.toString())) {
-      logger.info("Already applied", event.common.seqNum.toString());
+      logger.info("Already applied swap event", event.common.seqNum.toString());
       return;
     }
 

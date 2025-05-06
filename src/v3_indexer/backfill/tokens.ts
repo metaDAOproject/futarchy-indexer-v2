@@ -9,7 +9,7 @@ const logger = log.child({
   module: "backfill-token-supply"
 });
 
-const limit = pLimit(5);
+const limit = pLimit(2);
 
 
 export async function backfillTokenSupply(): Promise<{message:string, error: Error|undefined}>{

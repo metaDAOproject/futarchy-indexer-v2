@@ -5,7 +5,7 @@ import { log } from "../logger/logger";
 import { index } from "./indexer";
 import pLimit from "p-limit";
 
-const limit = pLimit(5);
+const limit = pLimit(2);
 
 const RPC_ENDPOINT = process.env.RPC_ENDPOINT;
 
@@ -52,6 +52,7 @@ const backfillHistoricalSignatures = async (
     //trigger indexing
     const tasks = [];
     for (const signature of signatures) {
+        // TODO: We should have some backoff here and let it do what it needs to do to catch up...
         const task = limit(() => index(signature.signature, programId));
         tasks.push(task);
     }

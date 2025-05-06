@@ -12,7 +12,7 @@ const logger = log.child({
   module: "v0.3-backfill-transactions"
 });
 
-const limit = pLimit(5);
+const limit = pLimit(15);
 
 export async function backfillTransactions(reprocess: boolean=false): Promise<{message:string, error: Error|undefined}> {
   const startTime = performance.now()
@@ -76,6 +76,7 @@ async function getTransactionHistory(account: PublicKey, reprocess: boolean = fa
   //grab the latest transaction
   const latestTx = await db.select().from(schema.transactionWatchers).where(eq(schema.transactionWatchers.acct, account.toString()));
   if (!reprocess && latestTx.length > 0 && latestTx[0].latestTxSig) {
+    logger.info("Found latest transaction in db");
     latestSig = latestTx[0].latestTxSig;
   }
 
