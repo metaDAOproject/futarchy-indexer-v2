@@ -5,7 +5,7 @@ import { log } from "../logger/logger";
 import { index } from "./indexer";
 import pLimit from "p-limit";
 
-const limit = pLimit(10);
+const limit = pLimit(5);
 
 const RPC_ENDPOINT = process.env.RPC_ENDPOINT;
 

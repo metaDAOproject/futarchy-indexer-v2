@@ -897,7 +897,8 @@ async function handleInitializeProposalEvent(event: InitializeProposalEvent, sig
     const proposalAcct = await autocratClient.getProposal(event.proposal);
 
     await db.transaction(async (trx) => {
-      await upsertProposal(proposalAcct, event.proposal, BigInt(event.common.slot.toString()), trx);
+      const blockTime = transactionResponse.blockTime ? new Date(transactionResponse.blockTime * 1000) : null;
+      await upsertProposal(proposalAcct, event.proposal, BigInt(event.common.slot.toString()), blockTime, trx);
     });
   } catch (error) {
     logger.error(error, "Error in handleInitializeProposalEvent");
@@ -909,7 +910,8 @@ async function handleFinalizeProposalEvent(event: FinalizeProposalEvent, signatu
     const proposalAcct = await autocratClient.getProposal(event.proposal);
 
     await db.transaction(async (trx) => {
-      await upsertProposal(proposalAcct, event.proposal, BigInt(event.common.slot.toString()), trx);
+      const blockTime = transactionResponse.blockTime ? new Date(transactionResponse.blockTime * 1000) : null;
+      await upsertProposal(proposalAcct, event.proposal, BigInt(event.common.slot.toString()), blockTime, trx);
     });
   } catch (error) {
     logger.error(error, "Error in handleFinalizeProposalEvent");
@@ -921,7 +923,8 @@ async function handleExecuteProposalEvent(event: ExecuteProposalEvent, signature
     const proposalAcct = await autocratClient.getProposal(event.proposal);
 
     await db.transaction(async (trx) => {
-      await upsertProposal(proposalAcct, event.proposal, BigInt(event.common.slot.toString()), trx);
+      const blockTime = transactionResponse.blockTime ? new Date(transactionResponse.blockTime * 1000) : null;
+      await upsertProposal(proposalAcct, event.proposal, BigInt(event.common.slot.toString()), blockTime, trx);
     });
   } catch (error) {
     logger.error(error, "Error in handleExecuteProposalEvent");
@@ -965,7 +968,7 @@ async function upsertDao(daoAcct: Dao, daoAddr: PublicKey, slot: bigint, trx: DB
       });
 }
 
-async function upsertProposal(proposalAcct: Proposal, proposalAddr: PublicKey, slot: bigint, trx: DBTransaction){
+async function upsertProposal(proposalAcct: Proposal, proposalAddr: PublicKey, slot: bigint, blockTime: Date | null, trx: DBTransaction){
   const [existingProposal] = await trx.select()
     .from(schema.v0_4_proposals)
     .where(eq(schema.v0_4_proposals.proposalAddr, proposalAddr.toString()))
@@ -990,7 +993,7 @@ async function upsertProposal(proposalAcct: Proposal, proposalAddr: PublicKey, s
   // Proposal is finalized when it is passed or failed
   let finalizedAt: Date | undefined = undefined;
   if (state === V04ProposalState.Passed || state === V04ProposalState.Failed) {
-    finalizedAt = new Date();
+    finalizedAt = blockTime ?? new Date();
   }
 
   const proposal: ProposalEntity = {
