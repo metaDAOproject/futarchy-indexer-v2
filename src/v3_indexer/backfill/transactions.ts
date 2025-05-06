@@ -9,16 +9,18 @@ import { db, eq, schema } from "@metadaoproject/indexer-db";
 const AMM_KEY = new PublicKey("AMM5G2nxuKUwCLRYTW7qqEwuoqCtNSjtbipwEmm2g8bH");
 
 const logger = log.child({
-  module: "backfill-transactions"
+  module: "v0.3-backfill-transactions"
 });
 
-const limit = pLimit(10);
+const limit = pLimit(5);
 
 export async function backfillTransactions(reprocess: boolean=false): Promise<{message:string, error: Error|undefined}> {
-
   const startTime = performance.now()
-
+  if (reprocess) {
+    logger.info("Reprocessing v3 transactions");
+  }
   const hist = await getTransactionHistory(AMM_KEY, reprocess);
+  logger.info(`Found ${hist.length} transactions to process`);
   await processTransactions(hist, reprocess);
 
   const endTime = performance.now()
@@ -93,6 +95,7 @@ async function getTransactionHistory(account: PublicKey, reprocess: boolean = fa
       const cur = transactions[i];
 
       if (cur.signature === latestSig) {
+        logger.info("Reached latest transaction");
         reachedLatest = true;
         break;
       }

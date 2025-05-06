@@ -194,8 +194,8 @@ export async function frontfill(): Promise<{message:string, error: Error|undefin
     } catch (error) {
       logger.error(
         error instanceof Error ? 
-        `Error in backfill for ${programId.toString()}: ${error.message}` : 
-        `Unknown error in backfill for ${programId.toString()}`
+        `Error in forward fill for ${programId.toString()}: ${error.message}` : 
+        `Unknown error in forward fill for ${programId.toString()}`
       );
       return {message: "An Error occurred", error: error};
     }

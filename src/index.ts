@@ -235,10 +235,11 @@ async function priceHandler(): Promise<{message:string, error: Error|undefined}>
 }
 
 async function reprocess() {
+  console.log("Reprocessing called")
   let start = new Date();
   let res = await backfillTransactions(true);
   let end = new Date();
-
+  console.log("Reprocessing complete")
 }
 
 // Run the main function
