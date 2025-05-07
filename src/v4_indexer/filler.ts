@@ -28,6 +28,8 @@ const logger = log.child({
 // - backfillHistoricalSignatures
 // - insertNewSignatures
 
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 const backfillHistoricalSignatures = async (
   programId: PublicKey,
 ) => {
@@ -52,8 +54,11 @@ const backfillHistoricalSignatures = async (
     //trigger indexing
     const tasks = [];
     for (const signature of signatures) {
-        // TODO: We should have some backoff here and let it do what it needs to do to catch up...
-        const task = limit(() => index(signature.signature, programId));
+        // Add delay between tasks to ensure we don't exceed 1 request per second
+        const task = limit(async () => {
+          await index(signature.signature, programId);
+          await delay(1000); // Add 1 second delay between tasks
+        });
         tasks.push(task);
     }
     await Promise.all(tasks);
@@ -92,7 +97,11 @@ const insertNewSignatures = async (programId: PublicKey) => {
     //TODO: maybe only index if signature doesnt exist in signatures table (which would mean it wasnt indexed yet)
     const tasks = [];
     for (const signature of signatures) {
-        const task = limit(() => index(signature.signature, programId));
+        // Add delay between tasks to ensure we don't exceed 1 request per second
+        const task = limit(async () => {
+          await index(signature.signature, programId);
+          await delay(1000); // Add 1 second delay between tasks
+        });
         tasks.push(task);
     }
     await Promise.all(tasks);
