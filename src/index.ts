@@ -1,7 +1,7 @@
 import { backfillDaos, backfillProposals, backfillTokenSupply, backfillTransactions } from "./v3_indexer";
 import { log } from "./logger/logger";
 import { mapLogHealth, subscribeAll } from "./txLogHandler";
-import { frontfill as v4_frontfill, backfill as v4_backfill } from "./v4_indexer/filler";
+import { gapFill as v4_gapfill, backfill as v4_backfill } from "./v4_indexer/filler";
 import { CronJob } from "cron";
 import http from "http";
 import {  updatePrices } from "./priceHandler";
@@ -56,18 +56,18 @@ async function main() {
   let totalPreviousErrors = error ? 1 : 0;
   healthMap.set("backfillV4", new CronRunResult("backfillV4", message, error, start, end, error ? 1 : 0));
 
-  //now lets frontfill v4
+  // now lets frontfill v4
   start = new Date();
-  res = await frontfillV4()
+  res = await gapFillV4()
   end = new Date();
   ({ message, error } = res);
-  healthMap.set("frontfillV4", new CronRunResult("frontfillV4", message, error, start, end, error ? 1 : 0));
+  healthMap.set("gapFillV4", new CronRunResult("gapFillV4", message, error, start, end, error ? 1 : 0));
 
   //lets start our crons now
   
   startCron("backfillV3", "*/10 * * * *", backfillV3);
   startCron("backfillV4", "*/12 * * * *", backfillV4);
-  startCron("frontfillV4", "*/14 * * * *", frontfillV4);
+  startCron("gapFillV4", "*/14 * * * *", gapFillV4);
   startCron("priceHandler", "* * * * *", priceHandler);
 
   //start tx log subscription
@@ -226,8 +226,8 @@ async function backfillV4(): Promise<{message:string, error: Error|undefined}> {
   return await v4_backfill();
 }
 
-async function frontfillV4(): Promise<{message:string, error: Error|undefined}> {
-  return await v4_frontfill();
+async function gapFillV4(): Promise<{message:string, error: Error|undefined}> {
+  return await v4_gapfill();
 }
 
 async function priceHandler(): Promise<{message:string, error: Error|undefined}> {

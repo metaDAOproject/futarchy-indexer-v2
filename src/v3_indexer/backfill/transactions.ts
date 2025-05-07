@@ -1,4 +1,4 @@
-import { ConfirmedSignatureInfo, PublicKey } from "@solana/web3.js";
+import { ConfirmedSignatureInfo, PublicKey, SignaturesForAddressOptions } from "@solana/web3.js";
 import { log } from "../../logger/logger";
 import pLimit from "p-limit";
 import { connection } from "../connection";
@@ -86,7 +86,14 @@ async function getTransactionHistory(account: PublicKey, reprocess: boolean = fa
   //each loop, earliestSig gets updated until we hit after or run out of transactions
   while (true) {
     // The Solana RPC tx API has us do a backwards walk
-    const transactions = await connection.getSignaturesForAddress(account, { until: latestSig, before: earliestSig, limit: 1000 }, "confirmed");
+    let options: SignaturesForAddressOptions = {
+      limit: 1000,
+      until: latestSig,
+    };
+    if(earliestSig){
+      options.before = earliestSig;
+    }
+    const transactions = await connection.getSignaturesForAddress(account, options, "confirmed");
     if (transactions.length === 0) {
       break;
     }

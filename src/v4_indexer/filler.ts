@@ -1,4 +1,4 @@
-import { ConfirmedSignatureInfo, Connection, PublicKey } from "@solana/web3.js";
+import { ConfirmedSignatureInfo, Connection, PublicKey, SignaturesForAddressOptions } from "@solana/web3.js";
 import { AMM_PROGRAM_ID as V4_AMM_PROGRAM_ID, AUTOCRAT_PROGRAM_ID as V4_AUTOCRAT_PROGRAM_ID, CONDITIONAL_VAULT_PROGRAM_ID as V4_CONDITIONAL_VAULT_PROGRAM_ID } from "@metadaoproject/futarchy/v0.4";
 import { db, schema, eq, asc } from "@metadaoproject/indexer-db";
 import { log } from "../logger/logger";
@@ -28,8 +28,18 @@ const logger = log.child({
 // - backfillHistoricalSignatures
 // - insertNewSignatures
 
+/**
+ * Utility function to create a delay
+ * @param ms - Number of milliseconds to delay
+ * @returns Promise that resolves after the specified delay
+ */
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+/**
+ * Backfills historical signatures for a given program ID
+ * @param programId - The PublicKey of the program to backfill signatures for
+ * @returns Array of backfilled ConfirmedSignatureInfo objects
+ */
 const backfillHistoricalSignatures = async (
   programId: PublicKey,
 ) => {
@@ -41,6 +51,7 @@ const backfillHistoricalSignatures = async (
       .then(signatures => signatures[0] ? signatures[0].signature : undefined);
 
   while (true) {
+
     const signatures = await connection.getSignaturesForAddress(
       programId,
       { before: oldestSignature, limit: 1000 },
@@ -73,52 +84,94 @@ const backfillHistoricalSignatures = async (
   return backfilledSignatures;
 };
 
+/**
+ * Inserts new signatures for a given program ID, starting from the latest recorded signature.
+ * This function performs a forward-fill operation by:
+ * 1. Retrieving the latest processed signature from the database
+ * 2. Fetching new signatures in batches of 1000
+ * 3. Inserting signatures into the database
+ * 4. Triggering indexing for each signature with rate limiting
+ * 5. Updating the latest processed signature
+ * 
+ * The function uses a backwards walk through signatures, starting from the most recent
+ * and moving towards older signatures until no more are found.
+ * 
+ * @param programId - The PublicKey of the program to insert new signatures for
+ * @returns Array of all newly inserted ConfirmedSignatureInfo objects
+ * @throws Error if there's an issue with signature retrieval or processing
+ */
 const insertNewSignatures = async (programId: PublicKey) => {
   let allSignatures: ConfirmedSignatureInfo[] = [];
   logger.info(`frontfilling new signatures for ${programId.toString()}`);
 
-  //get latest signature from db indexers table latestTxSigProcessed
+  // Get the most recent signature that has been processed from the database
   let latestRecordedSignature = await getLatestTxSigProcessed();
 
   let oldestSignatureInserted: string | undefined;
   let count = 0;
   while (true) {
-    const signatures = await connection.getSignaturesForAddress(
-      programId,
-      { limit: 1000, until: latestRecordedSignature, before: oldestSignatureInserted },
-      "confirmed"
-    );
+    try {
 
-    if (signatures.length === 0) break;
+      // For some reason the RPC updated and if we include undefined in the options it fails
+      let signaturesOptions: SignaturesForAddressOptions = {
+        limit: 1000,
+        until: latestRecordedSignature,
+      };
 
-    await insertSignatures(signatures, programId);
+      if(oldestSignatureInserted) {
+        signaturesOptions.before = oldestSignatureInserted;
+      }
+      // Fetch a batch of signatures (max 1000) between latestRecordedSignature and oldestSignatureInserted
+      const signatures = await connection.getSignaturesForAddress(
+        programId,
+        signaturesOptions,
+        "confirmed"
+      );
 
-    //trigger indexing
-    //TODO: maybe only index if signature doesnt exist in signatures table (which would mean it wasnt indexed yet)
-    const tasks = [];
-    for (const signature of signatures) {
-        // Add delay between tasks to ensure we don't exceed 1 request per second
-        const task = limit(async () => {
-          await index(signature.signature, programId);
-          await delay(1000); // Add 1 second delay between tasks
-        });
-        tasks.push(task);
+      if (signatures.length === 0) break;
+
+      // Insert the batch of signatures into the database
+      await insertSignatures(signatures, programId);
+
+      // Process each signature with rate limiting to avoid overwhelming the RPC
+      const tasks = [];
+      for (const signature of signatures) {
+          // Create a rate-limited task for each signature
+          // This ensures we don't exceed 1 request per second
+          const task = limit(async () => {
+            await index(signature.signature, programId);
+            await delay(1000); // Add 1 second delay between tasks
+          });
+          tasks.push(task);
+      }
+      await Promise.all(tasks);
+
+      // Update tracking variables
+      allSignatures = allSignatures.concat(signatures);
+      if (!oldestSignatureInserted) {
+        // Update the latest processed signature in the database
+        // This is the most recent signature since getSignaturesForAddress walks backwards
+        setLatestTxSigProcessed(signatures[0].signature);
+      }
+      // Update the oldest signature we've processed for the next iteration
+      oldestSignatureInserted = signatures[signatures.length - 1].signature;
+
+      count += signatures.length;
+      logger.info(`inserted ${count} signatures so far for front filling...`);
+    } catch (e) {
+      logger.error(`Error with inserting new signatures for oldest signature ${oldestSignatureInserted} and latest signature ${latestRecordedSignature}`, e);
+      throw Error(e as string);
     }
-    await Promise.all(tasks);
-
-    allSignatures = allSignatures.concat(signatures);
-    if (!oldestSignatureInserted) {
-      setLatestTxSigProcessed(signatures[0].signature); //since getSignaturesForAddress is a backwards walk, this should be the latest signature
-    }
-    oldestSignatureInserted = signatures[signatures.length - 1].signature;
-
-    count += signatures.length;
-    logger.info(`inserted ${count} signatures so far for front filling...`);
   }
 
   return allSignatures;
 }
 
+/**
+ * Inserts signatures and their associated account information into the database
+ * @param signatures - Array of ConfirmedSignatureInfo objects to insert
+ * @param queriedAddr - The PublicKey of the account these signatures are associated with
+ */
 const insertSignatures = async (signatures: ConfirmedSignatureInfo[], queriedAddr: PublicKey) => {
   
   try {
@@ -140,7 +193,10 @@ const insertSignatures = async (signatures: ConfirmedSignatureInfo[], queriedAdd
   
 }
 
-//set latestTxSigProcessed
+/**
+ * Updates the latest processed transaction signature in the indexers table
+ * @param signature - The signature string to set as the latest processed
+ */
 async function setLatestTxSigProcessed(signature: string) {
   try {
     logger.info(`setting latestTxSigProcessed to ${signature}`);
@@ -150,7 +206,10 @@ async function setLatestTxSigProcessed(signature: string) {
   }
 }
 
-//get latestTxSigProcessed
+/**
+ * Retrieves the latest processed transaction signature from the indexers table
+ * @returns The latest processed signature string, or undefined if none exists
+ */
 async function getLatestTxSigProcessed() {
   return await db.select({ signature: schema.indexers.latestTxSigProcessed })
       .from(schema.indexers)
@@ -162,6 +221,10 @@ async function getLatestTxSigProcessed() {
 
 const programIds = [V4_CONDITIONAL_VAULT_PROGRAM_ID, V4_AMM_PROGRAM_ID, V4_AUTOCRAT_PROGRAM_ID];
 
+/**
+ * Backfills historical signatures for all configured program IDs
+ * @returns Object containing a message summarizing the results and any errors that occurred
+ */
 export async function backfill(): Promise<{message:string, error: Error | undefined}> {
   const results = await Promise.all(programIds.map(async (programId) => {
     let message = "";
@@ -193,7 +256,11 @@ export async function backfill(): Promise<{message:string, error: Error | undefi
   return { message: message, error: errorMessage ? new Error(errorMessage) : undefined };
 }
 
-export async function frontfill(): Promise<{message:string, error: Error|undefined}> {
+/**
+ * Fills gaps in signature processing by inserting new signatures for all configured program IDs
+ * @returns Object containing a message summarizing the results and any errors that occurred
+ */
+export async function gapFill(): Promise<{message:string, error: Error|undefined}> {
   const results = await Promise.all(programIds.map(async (programId) => {
     try {
       
