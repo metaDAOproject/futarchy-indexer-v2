@@ -66,8 +66,8 @@ async function main() {
   //lets start our crons now
   
   startCron("backfillV3", "*/10 * * * *", backfillV3);
-  startCron("backfillV4", "*/10 * * * *", backfillV4);
-  startCron("frontfillV4", "*/10 * * * *", frontfillV4);
+  startCron("backfillV4", "*/12 * * * *", backfillV4);
+  startCron("frontfillV4", "*/14 * * * *", frontfillV4);
   startCron("priceHandler", "* * * * *", priceHandler);
 
   //start tx log subscription
