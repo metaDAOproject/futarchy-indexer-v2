@@ -55,7 +55,7 @@ const backfillHistoricalSignatures = async (
     const signatures = await connection.getSignaturesForAddress(
       programId,
       { before: oldestSignature, limit: 1000 },
-      "confirmed"
+      "finalized"
     );
 
     if (signatures.length === 0) break;
@@ -68,7 +68,7 @@ const backfillHistoricalSignatures = async (
         // Add delay between tasks to ensure we don't exceed 1 request per second
         const task = limit(async () => {
           await index(signature.signature, programId);
-          await delay(1000); // Add 1 second delay between tasks
+          await delay(500); // Add 1 second delay between tasks
         });
         tasks.push(task);
     }
@@ -125,7 +125,7 @@ const insertNewSignatures = async (programId: PublicKey) => {
       const signatures = await connection.getSignaturesForAddress(
         programId,
         signaturesOptions,
-        "confirmed"
+        "finalized"
       );
 
       if (signatures.length === 0) break;
@@ -140,7 +140,7 @@ const insertNewSignatures = async (programId: PublicKey) => {
           // This ensures we don't exceed 1 request per second
           const task = limit(async () => {
             await index(signature.signature, programId);
-            await delay(1000); // Add 1 second delay between tasks
+            await delay(500); // Add 1 second delay between tasks
           });
           tasks.push(task);
       }
