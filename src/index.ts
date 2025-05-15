@@ -2,6 +2,8 @@ import { backfillDaos, backfillProposals, backfillTokenSupply, backfillTransacti
 import { log } from "./logger/logger";
 import { mapLogHealth, subscribeAll } from "./txLogHandler";
 import { gapFill as v4_gapfill, backfill as v4_backfill } from "./v4_indexer/filler";
+import { captureTokenBalanceSnapshotV3 } from "./v3_indexer/snapshot";
+import { captureTokenBalanceSnapshotV4 } from "./v4_indexer/snapshot";
 import { CronJob } from "cron";
 import http from "http";
 import {  updatePrices } from "./priceHandler";
@@ -69,6 +71,8 @@ async function main() {
   startCron("backfillV4", "*/12 * * * *", backfillV4);
   startCron("gapFillV4", "*/14 * * * *", gapFillV4);
   startCron("priceHandler", "* * * * *", priceHandler);
+  startCron("snapshotV3", "0 */6 * * *", snapshotV3);
+  startCron("snapshotV4", "5 */6 * * *", snapshotV4);
 
   //start tx log subscription
   subscribeAll();
@@ -232,6 +236,14 @@ async function gapFillV4(): Promise<{message:string, error: Error|undefined}> {
 
 async function priceHandler(): Promise<{message:string, error: Error|undefined}> {
   return await updatePrices();
+}
+
+async function snapshotV3(): Promise<{message:string, error: Error|undefined}> {
+  return await captureTokenBalanceSnapshotV3();
+}
+
+async function snapshotV4(): Promise<{message:string, error: Error|undefined}> {
+  return await captureTokenBalanceSnapshotV4();
 }
 
 async function reprocess() {

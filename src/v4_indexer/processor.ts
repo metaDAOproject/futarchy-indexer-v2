@@ -1,4 +1,4 @@
-import { AddLiquidityEvent, AmmEvent, ConditionalVaultEvent, CreateAmmEvent, getVaultAddr, InitializeConditionalVaultEvent, InitializeQuestionEvent, SwapEvent, PriceMath, SplitTokensEvent, MergeTokensEvent, RemoveLiquidityEvent, ResolveQuestionEvent, LaunchpadEvent, LaunchInitializedEvent, LaunchClaimEvent, LaunchCompletedEvent, LaunchFundedEvent, LaunchRefundedEvent, LaunchStartedEvent, CrankThatTwapEvent, AutocratEvent, InitializeProposalEvent, UpdateDaoEvent, InitializeDaoEvent, FinalizeProposalEvent, ExecuteProposalEvent, Dao, Proposal } from "@metadaoproject/futarchy/v0.4";
+import { AddLiquidityEvent, AmmEvent, ConditionalVaultEvent, CreateAmmEvent, getVaultAddr, InitializeConditionalVaultEvent, InitializeQuestionEvent, SwapEvent, PriceMath, RedeemTokensEvent, SplitTokensEvent, MergeTokensEvent, RemoveLiquidityEvent, ResolveQuestionEvent, LaunchpadEvent, LaunchInitializedEvent, LaunchClaimEvent, LaunchCompletedEvent, LaunchFundedEvent, LaunchRefundedEvent, LaunchStartedEvent, CrankThatTwapEvent, AutocratEvent, InitializeProposalEvent, UpdateDaoEvent, InitializeDaoEvent, FinalizeProposalEvent, ExecuteProposalEvent, Dao, Proposal } from "@metadaoproject/futarchy/v0.4";
 import { schema, db, eq, and, or, DBTransaction } from "@metadaoproject/indexer-db";
 import { PublicKey } from "@solana/web3.js";
 import type { VersionedTransactionResponse } from "@solana/web3.js";
@@ -141,7 +141,6 @@ async function handleSwapEvent(event: SwapEvent, signature: string, transactionR
     await db.insert(schema.v0_4_swaps).values({
       signature: signature,
       slot: transactionResponse.slot.toString(),
-      // @ts-ignore - fixed above in the if statement
       blockTime: new Date(transactionResponse.blockTime * 1000),
       swapType: event.swapType.buy ? V04SwapType.Buy : V04SwapType.Sell,
       ammAddr: event.common.amm.toString(),
@@ -174,6 +173,70 @@ async function handleSwapEvent(event: SwapEvent, signature: string, transactionR
     }).where(eq(schema.v0_4_amms.ammAddr, event.common.amm.toString()));
 
     await insertTwapIfNotExists(db, event);
+    
+    try {
+      const ammPubkey = new PublicKey(event.common.amm.toString());
+      const userPubkey = new PublicKey(event.common.user.toString());
+
+      const ammMarketAccount = await ammClient.getAmm(ammPubkey);
+
+      const inputMint = event.swapType.buy ? ammMarketAccount.quoteMint : ammMarketAccount.baseMint;
+      const outputMint = event.swapType.buy ? ammMarketAccount.baseMint : ammMarketAccount.quoteMint;
+      try {
+        const userInputTokenAccounts = await connection.getTokenAccountsByOwner(
+          userPubkey,
+          { mint: inputMint }
+        );
+        
+        if (userInputTokenAccounts.value.length > 0) {
+          const userInputTokenAccount = userInputTokenAccounts.value[0].pubkey;
+          const accountInfo = await token.getAccount(connection, userInputTokenAccount);
+          
+          await updateOrInsertTokenBalance(
+            db,
+            userInputTokenAccount,
+            BigInt(accountInfo.amount.toString()),
+            inputMint,
+            userPubkey,
+            signature,
+            transactionResponse.slot.toString(),
+            transactionResponse.blockTime
+          );
+          
+          logger.info(`Updated user input token account ${userInputTokenAccount.toString()} with balance ${accountInfo.amount.toString()}`);
+        }
+        
+        const userOutputTokenAccounts = await connection.getTokenAccountsByOwner(
+          userPubkey,
+          { mint: outputMint }
+        );
+        
+        if (userOutputTokenAccounts.value.length > 0) {
+          const userOutputTokenAccount = userOutputTokenAccounts.value[0].pubkey;
+          const accountInfo = await token.getAccount(connection, userOutputTokenAccount);
+          
+          await updateOrInsertTokenBalance(
+            db,
+            userOutputTokenAccount,
+            BigInt(accountInfo.amount.toString()),
+            outputMint,
+            userPubkey,
+            signature,
+            transactionResponse.slot.toString(),
+            transactionResponse.blockTime
+          );
+          
+          logger.info(`Updated user output token account ${userOutputTokenAccount.toString()} with balance ${accountInfo.amount.toString()}`);
+        }
+      } catch (userTokenError) {
+        logger.warn(`Error updating user token accounts: ${userTokenError}`);
+      }
+      
+      logger.info(`Updated token balances for swap by user ${userPubkey.toString()} in AMM ${ammPubkey.toString()}`);
+    } catch (tokenError) {
+      logger.error(tokenError, "Error updating token balances for swap event");
+    }
+    
   } catch (error) {
     logger.error(error, "Error in handleSwapEvent");
   }
@@ -243,6 +306,133 @@ async function insertTwapIfNotExists(
   }
 }
 
+export async function updateOrInsertTokenBalance(
+  db: DBConnection,
+  tokenAccount: PublicKey,
+  amount: bigint,
+  mintAccount: PublicKey,
+  ownerAccount: PublicKey,
+  signature: string,
+  slot: string,
+  blockTime: number | null
+): Promise<void> {
+  try {
+    insertTokenIfNotExists(db, mintAccount);
+
+    const timestamp = blockTime ? new Date(blockTime * 1000) : new Date();
+    
+    // Check if the token account exists
+    const existingAccount = await db.select()
+      .from(schema.tokenAccts)
+      .where(eq(schema.tokenAccts.tokenAcct, tokenAccount.toString()))
+      .limit(1);
+    
+    if (existingAccount.length === 0) {
+      // Insert new token account
+      await db.insert(schema.tokenAccts).values({
+        tokenAcct: tokenAccount.toString(),
+        mintAcct: mintAccount.toString(),
+        ownerAcct: ownerAccount.toString(),
+        amount: amount,
+        updatedAt: timestamp
+      }).onConflictDoNothing();
+      
+      logger.info(`Inserted token account ${tokenAccount.toString()} with balance ${amount.toString()}`);
+    } else {
+      // Update existing token account
+      await db.update(schema.tokenAccts)
+        .set({
+          amount: amount,
+          updatedAt: timestamp
+        })
+        .where(eq(schema.tokenAccts.tokenAcct, tokenAccount.toString()));
+      
+      logger.info(`Updated token balance for ${tokenAccount.toString()} to ${amount.toString()}`);
+    }
+    
+  } catch (error) {
+    logger.error(error, `Error updating token balance for ${tokenAccount.toString()}`);
+  }
+}
+
+/**
+ * Updates token balances for conditional vault tokens assuming vault event data structure
+ */
+async function updateConditionalTokenBalancesForVaultEvents(
+  db: DBConnection,
+  vault: PublicKey,
+  user: PublicKey,
+  signature: string,
+  slot: string,
+  blockTime: number | null
+): Promise<void> {
+  try {
+    const vaultAccount = await conditionalVaultClient.fetchVault(vault);
+    
+    if (!vaultAccount) {
+      logger.warn(`Vault ${vault.toString()} not found, skipping balance updates`);
+      return;
+    }
+    
+    // Use vault data to determine number of outcomes, or default to 2 for binary markets
+    const numOutcomes = vaultAccount.conditionalTokenMints?.length ?? 2; // NOTE: should be fine but check this if redeem event is wonky
+    
+    // Get the conditional token mints
+    const conditionalTokenMints = conditionalVaultClient.getConditionalTokenMints(vault, numOutcomes);
+    
+    // Get the user's token accounts for these mints
+    const { userConditionalAccounts } = conditionalVaultClient.getConditionalTokenAccountsAndInstructions(
+      vault,
+      numOutcomes,
+      user
+    );
+    
+    // Update each conditional token account
+    for (let i = 0; i < userConditionalAccounts.length; i++) {
+      const userTokenAccount = userConditionalAccounts[i];
+      const tokenMint = conditionalTokenMints[i]; 
+      
+      try {
+        const accountInfo = await token.getAccount(connection, userTokenAccount);
+        
+        await updateOrInsertTokenBalance(
+          db,
+          userTokenAccount,
+          BigInt(accountInfo.amount.toString()),
+          tokenMint,
+          user,
+          signature,
+          slot,
+          blockTime
+        );
+        
+        logger.info(`Updated user conditional token account ${userTokenAccount.toString()} with balance ${accountInfo.amount.toString()}`);
+      } catch (error) {
+        logger.warn(`Error updating token account ${userTokenAccount.toString()}: ${error}`);
+      }
+    }
+    
+    logger.info(`Updated conditional token balances for user ${user.toString()} in vault ${vault.toString()}`);
+  } catch (error) {
+    logger.error(error, `Error updating conditional token balances for vault ${vault.toString()}`);
+  }
+}
+
+async function handleRedeemEvent(event: RedeemTokensEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+  try {
+    await updateConditionalTokenBalancesForVaultEvents(
+      db,
+      new PublicKey(event.vault.toString()),
+      new PublicKey(event.user.toString()),
+      signature,
+      transactionResponse.slot.toString(),
+      transactionResponse.blockTime ?? null
+    );
+  } catch (error) {
+    logger.error(error, "Error in handleRedeemEvent");
+  }
+}
+
 async function handleSplitEvent(event: SplitTokensEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
     const insertValues = {
@@ -267,6 +457,15 @@ async function handleSplitEvent(event: SplitTokensEvent, signature: string, tran
     await db.insert(schema.v0_4_splits)
       .values(insertValues)
       .onConflictDoNothing();
+
+    await updateConditionalTokenBalancesForVaultEvents(
+      db,
+      new PublicKey(event.vault.toString()),
+      new PublicKey(event.user.toString()),
+      signature,
+      transactionResponse.slot.toString(),
+      transactionResponse.blockTime ?? null
+    );
     
   } catch (error) {
     logger.error(error, "Error in handleSplitEvent");
@@ -283,6 +482,15 @@ async function handleMergeEvent(event: MergeTokensEvent, signature: string, tran
       slot: transactionResponse.slot.toString(),
       amount: BigInt(event.amount.toString())
     }).onConflictDoNothing();
+
+    await updateConditionalTokenBalancesForVaultEvents(
+      db,
+      new PublicKey(event.vault.toString()),
+      new PublicKey(event.user.toString()),
+      signature,
+      transactionResponse.slot.toString(),
+      transactionResponse.blockTime ?? null
+    );
     
   } catch (error) {
     logger.error(error, "Error in handleMergeEvent");
@@ -314,6 +522,9 @@ export async function processVaultEvent(event: { name: string; data: Conditional
   switch (event.name) {
     case "InitializeQuestionEvent":
       await handleInitializeQuestionEvent(event.data as InitializeQuestionEvent);
+      break;
+    case "RedeemTokensEvent":
+      await handleRedeemEvent(event.data as RedeemTokensEvent, signature, transactionResponse);
       break;
     case "InitializeConditionalVaultEvent":
       await handleInitializeConditionalVaultEvent(event.data as InitializeConditionalVaultEvent);
