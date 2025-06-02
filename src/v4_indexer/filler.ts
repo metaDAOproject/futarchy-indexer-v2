@@ -109,15 +109,15 @@ const insertNewSignatures = async (programId: PublicKey) => {
 
   let oldestSignatureInserted: string | undefined;
   let count = 0;
+
+  let signaturesOptions: SignaturesForAddressOptions = {
+    limit: 1000,
+    until: latestRecordedSignature,
+  };
+
   while (true) {
     try {
-
       // For some reason the RPC updated and if we include undefined in the options it fails
-      let signaturesOptions: SignaturesForAddressOptions = {
-        limit: 1000,
-        until: latestRecordedSignature,
-      };
-
       if(oldestSignatureInserted) {
         signaturesOptions.before = oldestSignatureInserted;
       }
@@ -159,7 +159,7 @@ const insertNewSignatures = async (programId: PublicKey) => {
       count += signatures.length;
       logger.info(`inserted ${count} signatures so far for front filling...`);
     } catch (e) {
-      logger.error(`Error with inserting new signatures for oldest signature ${oldestSignatureInserted} and latest signature ${latestRecordedSignature}`, e);
+      logger.error(`Program: ${programId.toString()} Request options: ${JSON.stringify(signaturesOptions)} Commitment: finalized`);
       throw Error(e as string);
     }
   }
