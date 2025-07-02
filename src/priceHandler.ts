@@ -10,13 +10,15 @@ const logger = log.child({
   module: "priceHandler",
 });
 
-interface PriceData {
-  id: string;
-  type: string;
-  price: string;
+interface PriceDataV3 {
+  usdPrice: number;
+  blockId: number;
+  decimals: number;
+  priceChange24h: number;
 }
-
-const baseUrl = "https://api.jup.ag/price/v2?ids=";
+// Jupiter pro url if we want to use it in the future
+// const baseUrl = "https://api.jup.ag/price/v3?ids=";
+const baseUrl = "https://lite-api.jup.ag/price/v3?ids=";
 
 export async function updatePrices(): Promise<{
   message: string;
@@ -25,7 +27,7 @@ export async function updatePrices(): Promise<{
   try {
     const startTime = performance.now();
     //get all the daos that are not hidden
-    const v3Query = db.$with("v3").as(
+    const metaQuery = db.$with("v3").as(
       db
         .select({
           baseAcct: schema.daos.baseAcct,
@@ -55,9 +57,9 @@ export async function updatePrices(): Promise<{
     );
 
     const results = await db
-      .with(v3Query)
+      .with(metaQuery)
       .select()
-      .from(v3Query)
+      .from(metaQuery)
       .union(db.with(v4Query).select().from(v4Query))
       .execute();
 
@@ -88,13 +90,15 @@ export async function updatePrices(): Promise<{
 
     let missingPrices = [];
     let errors = [];
-    for (const [tokenId, priceData] of Object.entries(data.data)) {
+    
+    // v3 response structure is different - no nested data object
+    for (const [tokenId, priceData] of Object.entries(data)) {
       if (priceData) {
-        const pd = priceData as PriceData;
+        const pd = priceData as PriceDataV3;
 
         const newPrice: PricesRecord = {
-          marketAcct: pd.id,
-          price: pd.price,
+          marketAcct: tokenId,
+          price: pd.usdPrice.toString(),
           pricesType: PricesType.Spot,
           createdBy: "jupiter-quotes-indexer",
           updatedSlot: slot?.toString() ?? "0",

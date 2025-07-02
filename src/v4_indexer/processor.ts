@@ -182,6 +182,10 @@ async function handleSwapEvent(event: SwapEvent, signature: string, transactionR
 
       const inputMint = event.swapType.buy ? ammMarketAccount.quoteMint : ammMarketAccount.baseMint;
       const outputMint = event.swapType.buy ? ammMarketAccount.baseMint : ammMarketAccount.quoteMint;
+      
+      await insertTokenIfNotExists(db, inputMint);
+      await insertTokenIfNotExists(db, outputMint);
+      
       try {
         const userInputTokenAccounts = await connection.getTokenAccountsByOwner(
           userPubkey,
@@ -317,7 +321,7 @@ export async function updateOrInsertTokenBalance(
   blockTime: number | null
 ): Promise<void> {
   try {
-    insertTokenIfNotExists(db, mintAccount);
+    await insertTokenIfNotExists(db, mintAccount);
 
     const timestamp = blockTime ? new Date(blockTime * 1000) : new Date();
     
@@ -375,10 +379,14 @@ async function updateConditionalTokenBalancesForVaultEvents(
     }
     
     // Use vault data to determine number of outcomes, or default to 2 for binary markets
-    const numOutcomes = vaultAccount.conditionalTokenMints?.length ?? 2; // NOTE: should be fine but check this if redeem event is wonky
+    const numOutcomes = vaultAccount.conditionalTokenMints?.length ?? 2;
     
     // Get the conditional token mints
     const conditionalTokenMints = conditionalVaultClient.getConditionalTokenMints(vault, numOutcomes);
+    
+    for (const mint of conditionalTokenMints) {
+      await insertTokenIfNotExists(db, mint);
+    }
     
     // Get the user's token accounts for these mints
     const { userConditionalAccounts } = conditionalVaultClient.getConditionalTokenAccountsAndInstructions(
@@ -502,15 +510,22 @@ async function insertTokenIfNotExists(db: DBConnection, mintAcct: PublicKey) {
     const existingToken = await db.select().from(schema.tokens).where(eq(schema.tokens.mintAcct, mintAcct.toString())).limit(1);
     if (existingToken.length === 0) {
       logger.info("Inserting token", mintAcct.toString());
-    const mint: token.Mint = await token.getMint(connection, mintAcct);
-    await db.insert(schema.tokens).values({
-      mintAcct: mintAcct.toString(),
-      symbol: mintAcct.toString().slice(0, 3),
-      name: mintAcct.toString().slice(0, 3),
-      decimals: mint.decimals,
-      supply: mint.supply,
-        updatedAt: new Date(),
-      }).onConflictDoNothing();
+      const mint: token.Mint = await token.getMint(connection, mintAcct);
+      
+      // Use a transaction to ensure atomicity
+      await db.transaction(async (trx: DBTransaction) => {
+        const existingTokenInTrx = await trx.select().from(schema.tokens).where(eq(schema.tokens.mintAcct, mintAcct.toString())).limit(1);
+        if (existingTokenInTrx.length === 0) {
+          await trx.insert(schema.tokens).values({
+            mintAcct: mintAcct.toString(),
+            symbol: mintAcct.toString().slice(0, 3),
+            name: mintAcct.toString().slice(0, 3),
+            decimals: mint.decimals,
+            supply: mint.supply.toString(),
+            updatedAt: new Date(),
+          }).onConflictDoNothing();
+        }
+      });
     }
   } catch (e) {
     logger.warn(e, "Error inserting the token");
@@ -857,8 +872,6 @@ async function handleLaunchCompletedEvent(event: LaunchCompletedEvent, signature
           if(existingDao && existingDao.updatedAtSlot > BigInt(event.common.slot.toString())) {
             logger.info(`DAO ${event.dao.toString()} already created at slot ${existingDao.updatedAtSlot.toString()}`);
           } else {
-            await insertTokenIfNotExists(trx, dao.usdcMint);
-            await insertTokenIfNotExists(trx, dao.tokenMint);
 
             await trx.insert(schema.v0_4_daos).values({
               daoAddr: event.dao.toString(),
@@ -963,8 +976,6 @@ async function handleLaunchInitializedEvent(event: LaunchInitializedEvent, signa
         logger.info(`Launch ${event.launch.toString()} already exists with last updated slot ${existingLaunch.updatedAtSlot.toString()}`);
         return;
       }
-
-      await insertTokenIfNotExists(trx, event.tokenMint);
 
       await trx.insert(schema.v0_4_launches).values({
         launchAddr: event.launch.toString(),
@@ -1094,8 +1105,6 @@ async function handleUpdateDaoEvent(event: UpdateDaoEvent, signature: string, tr
     const daoAcct = await autocratClient.getDao(event.dao);
 
     await db.transaction(async (trx) => {
-      await insertTokenIfNotExists(trx, daoAcct.usdcMint);
-      await insertTokenIfNotExists(trx, daoAcct.tokenMint);
       await upsertDao(daoAcct, event.dao, BigInt(event.common.slot.toString()), trx);
     });
   } catch (error) {
