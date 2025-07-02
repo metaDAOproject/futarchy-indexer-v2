@@ -872,6 +872,8 @@ async function handleLaunchCompletedEvent(event: LaunchCompletedEvent, signature
           if(existingDao && existingDao.updatedAtSlot > BigInt(event.common.slot.toString())) {
             logger.info(`DAO ${event.dao.toString()} already created at slot ${existingDao.updatedAtSlot.toString()}`);
           } else {
+            await insertTokenIfNotExists(trx, dao.usdcMint);
+            await insertTokenIfNotExists(trx, dao.tokenMint);
 
             await trx.insert(schema.v0_4_daos).values({
               daoAddr: event.dao.toString(),
@@ -976,6 +978,8 @@ async function handleLaunchInitializedEvent(event: LaunchInitializedEvent, signa
         logger.info(`Launch ${event.launch.toString()} already exists with last updated slot ${existingLaunch.updatedAtSlot.toString()}`);
         return;
       }
+
+      await insertTokenIfNotExists(trx, event.tokenMint);
 
       await trx.insert(schema.v0_4_launches).values({
         launchAddr: event.launch.toString(),
@@ -1105,6 +1109,8 @@ async function handleUpdateDaoEvent(event: UpdateDaoEvent, signature: string, tr
     const daoAcct = await autocratClient.getDao(event.dao);
 
     await db.transaction(async (trx) => {
+      await insertTokenIfNotExists(trx, daoAcct.usdcMint);
+      await insertTokenIfNotExists(trx, daoAcct.tokenMint);
       await upsertDao(daoAcct, event.dao, BigInt(event.common.slot.toString()), trx);
     });
   } catch (error) {
