@@ -27,7 +27,7 @@ export async function updatePrices(): Promise<{
   try {
     const startTime = performance.now();
     //get all the daos that are not hidden
-    const metaQuery = db.$with("v3").as(
+    const v3Query = db.$with("v3").as(
       db
         .select({
           baseAcct: schema.daos.baseAcct,
@@ -57,9 +57,9 @@ export async function updatePrices(): Promise<{
     );
 
     const results = await db
-      .with(metaQuery)
+      .with(v3Query)
       .select()
-      .from(metaQuery)
+      .from(v3Query)
       .union(db.with(v4Query).select().from(v4Query))
       .execute();
 
