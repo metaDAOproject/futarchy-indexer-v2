@@ -379,7 +379,7 @@ async function updateConditionalTokenBalancesForVaultEvents(
     }
     
     // Use vault data to determine number of outcomes, or default to 2 for binary markets
-    const numOutcomes = vaultAccount.conditionalTokenMints?.length ?? 2;
+    const numOutcomes = vaultAccount.conditionalTokenMints?.length ?? 2; // NOTE: should be fine but check this if redeem event is wonky
     
     // Get the conditional token mints
     const conditionalTokenMints = conditionalVaultClient.getConditionalTokenMints(vault, numOutcomes);
