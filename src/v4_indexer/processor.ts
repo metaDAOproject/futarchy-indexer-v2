@@ -14,7 +14,7 @@ const logger = log.child({
   module: "v4_processor"
 });
 
-type Market = {
+export type Market = {
   marketAcct: string;
   baseMint: string;
   quoteMint: string;
@@ -182,6 +182,10 @@ async function handleSwapEvent(event: SwapEvent, signature: string, transactionR
 
       const inputMint = event.swapType.buy ? ammMarketAccount.quoteMint : ammMarketAccount.baseMint;
       const outputMint = event.swapType.buy ? ammMarketAccount.baseMint : ammMarketAccount.quoteMint;
+      
+      await insertTokenIfNotExists(db, inputMint);
+      await insertTokenIfNotExists(db, outputMint);
+      
       try {
         const userInputTokenAccounts = await connection.getTokenAccountsByOwner(
           userPubkey,
@@ -317,7 +321,7 @@ export async function updateOrInsertTokenBalance(
   blockTime: number | null
 ): Promise<void> {
   try {
-    insertTokenIfNotExists(db, mintAccount);
+    await insertTokenIfNotExists(db, mintAccount);
 
     const timestamp = blockTime ? new Date(blockTime * 1000) : new Date();
     
@@ -379,6 +383,10 @@ async function updateConditionalTokenBalancesForVaultEvents(
     
     // Get the conditional token mints
     const conditionalTokenMints = conditionalVaultClient.getConditionalTokenMints(vault, numOutcomes);
+    
+    for (const mint of conditionalTokenMints) {
+      await insertTokenIfNotExists(db, mint);
+    }
     
     // Get the user's token accounts for these mints
     const { userConditionalAccounts } = conditionalVaultClient.getConditionalTokenAccountsAndInstructions(
@@ -502,15 +510,22 @@ async function insertTokenIfNotExists(db: DBConnection, mintAcct: PublicKey) {
     const existingToken = await db.select().from(schema.tokens).where(eq(schema.tokens.mintAcct, mintAcct.toString())).limit(1);
     if (existingToken.length === 0) {
       logger.info("Inserting token", mintAcct.toString());
-    const mint: token.Mint = await token.getMint(connection, mintAcct);
-    await db.insert(schema.tokens).values({
-      mintAcct: mintAcct.toString(),
-      symbol: mintAcct.toString().slice(0, 3),
-      name: mintAcct.toString().slice(0, 3),
-      decimals: mint.decimals,
-      supply: mint.supply,
-        updatedAt: new Date(),
-      }).onConflictDoNothing();
+      const mint: token.Mint = await token.getMint(connection, mintAcct);
+      
+      // Use a transaction to ensure atomicity
+      await db.transaction(async (trx: DBTransaction) => {
+        const existingTokenInTrx = await trx.select().from(schema.tokens).where(eq(schema.tokens.mintAcct, mintAcct.toString())).limit(1);
+        if (existingTokenInTrx.length === 0) {
+          await trx.insert(schema.tokens).values({
+            mintAcct: mintAcct.toString(),
+            symbol: mintAcct.toString().slice(0, 3),
+            name: mintAcct.toString().slice(0, 3),
+            decimals: mint.decimals,
+            supply: mint.supply.toString(),
+            updatedAt: new Date(),
+          }).onConflictDoNothing();
+        }
+      });
     }
   } catch (e) {
     logger.warn(e, "Error inserting the token");
@@ -646,7 +661,7 @@ async function insertTokenAccountIfNotExists(db: DBConnection, event: Initialize
   }
 }
 
-async function insertMarketIfNotExists(db: DBConnection, market: Market) {
+export async function insertMarketIfNotExists(db: DBConnection, market: Market) {
   const existingMarket = await db.select()
     .from(schema.markets)
     .where(eq(schema.markets.marketAcct, market.marketAcct))

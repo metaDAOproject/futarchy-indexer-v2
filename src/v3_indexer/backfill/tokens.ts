@@ -15,7 +15,7 @@ const limit = pLimit(2);
 export async function backfillTokenSupply(): Promise<{message:string, error: Error|undefined}>{
     
   const startTime = performance.now()
-  
+  logger.info("Backfilling token supply");
 
   //get all the tokens
   const mintAccounts = await db.select({ acct: schema.tokens.mintAcct }).from(schema.tokens);
@@ -29,7 +29,7 @@ export async function backfillTokenSupply(): Promise<{message:string, error: Err
 
   const endTime = performance.now()
   const message = `Backfilling token supply ${mintAccounts.length} tokens took ${(endTime - startTime)/1000} seconds`;
-  logger.info(`message`);
+  logger.info(message);
 
   let errorMessage = "";
   for (const error of errors) {

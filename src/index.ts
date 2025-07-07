@@ -6,7 +6,7 @@ import { captureTokenBalanceSnapshotV3 } from "./v3_indexer/snapshot";
 import { captureTokenBalanceSnapshotV4 } from "./v4_indexer/snapshot";
 import { CronJob } from "cron";
 import http from "http";
-import {  updatePrices } from "./priceHandler";
+import { updatePrices } from "./priceHandler";
 
 const appStartTime = new Date();
 
@@ -58,7 +58,7 @@ async function main() {
   let totalPreviousErrors = error ? 1 : 0;
   healthMap.set("backfillV4", new CronRunResult("backfillV4", message, error, start, end, error ? 1 : 0));
 
-  // now lets frontfill v4
+  //now lets frontfill v4
   start = new Date();
   res = await gapFillV4()
   end = new Date();
