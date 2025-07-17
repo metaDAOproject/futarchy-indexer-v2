@@ -2,8 +2,10 @@ import { backfillDaos, backfillProposals, backfillTokenSupply, backfillTransacti
 import { log } from "./logger/logger";
 import { mapLogHealth, subscribeAll } from "./txLogHandler";
 import { gapFill as v4_gapfill, backfill as v4_backfill } from "./v4_indexer/filler";
+import { gapFill as v5_gapfill, backfill as v5_backfill } from "./v5_indexer/filler";
 import { captureTokenBalanceSnapshotV3 } from "./v3_indexer/snapshot";
 import { captureTokenBalanceSnapshotV4 } from "./v4_indexer/snapshot";
+import { captureTokenBalanceSnapshotV5 } from "./v5_indexer/snapshot";
 import { CronJob } from "cron";
 import http from "http";
 import { updatePrices } from "./priceHandler";
@@ -65,14 +67,31 @@ async function main() {
   ({ message, error } = res);
   healthMap.set("gapFillV4", new CronRunResult("gapFillV4", message, error, start, end, error ? 1 : 0));
 
+  // time for v5
+  start = new Date();
+  res = await backfillV5()
+  end = new Date();
+  ({ message, error } = res);
+  healthMap.set("backfillV5", new CronRunResult("backfillV5", message, error, start, end, error ? 1 : 0));
+
+  //now lets frontfill v5
+  start = new Date();
+  res = await gapFillV5()
+  end = new Date();
+  ({ message, error } = res);
+  healthMap.set("gapFillV5", new CronRunResult("gapFillV5", message, error, start, end, error ? 1 : 0));
+
   //lets start our crons now
   
   startCron("backfillV3", "*/10 * * * *", backfillV3);
   startCron("backfillV4", "*/12 * * * *", backfillV4);
-  startCron("gapFillV4", "*/14 * * * *", gapFillV4);
+  startCron("backfillV5", "*/14 * * * *", backfillV5);
+  startCron("gapFillV4", "*/16 * * * *", gapFillV4);
+  startCron("gapFillV5", "*/18 * * * *", gapFillV5);
   startCron("priceHandler", "* * * * *", priceHandler);
   startCron("snapshotV3", "0 */6 * * *", snapshotV3);
   startCron("snapshotV4", "5 */6 * * *", snapshotV4);
+  startCron("snapshotV5", "10 */6 * * *", snapshotV5);
 
   //start tx log subscription
   subscribeAll();
@@ -230,8 +249,16 @@ async function backfillV4(): Promise<{message:string, error: Error|undefined}> {
   return await v4_backfill();
 }
 
+async function backfillV5(): Promise<{message:string, error: Error|undefined}> {
+  return await v5_backfill();
+}
+
 async function gapFillV4(): Promise<{message:string, error: Error|undefined}> {
   return await v4_gapfill();
+}
+
+async function gapFillV5(): Promise<{message:string, error: Error|undefined}> {
+  return await v5_gapfill();
 }
 
 async function priceHandler(): Promise<{message:string, error: Error|undefined}> {
@@ -244,6 +271,10 @@ async function snapshotV3(): Promise<{message:string, error: Error|undefined}> {
 
 async function snapshotV4(): Promise<{message:string, error: Error|undefined}> {
   return await captureTokenBalanceSnapshotV4();
+}
+
+async function snapshotV5(): Promise<{message:string, error: Error|undefined}> {
+  return await captureTokenBalanceSnapshotV5();
 }
 
 async function reprocess() {

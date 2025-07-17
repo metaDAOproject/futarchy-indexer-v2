@@ -59,11 +59,28 @@ export async function updatePrices(): Promise<{
         .where(eq(schema.organizations.isHide, false))
     );
 
+    const v5Query = db.$with("v5").as(
+      db
+        .select({
+          baseAcct: schema.v0_5_daos.baseMintAcct,
+        })
+        .from(schema.v0_5_daos)
+        .leftJoin(
+          schema.organizations,
+          eq(
+            schema.v0_5_daos.organizationId,
+            schema.organizations.organizationId
+          )
+        )
+        .where(eq(schema.organizations.isHide, false))
+    );
+
     const results = await db
-      .with(v3Query)
+      .with(v3Query, v4Query, v5Query) 
       .select()
       .from(v3Query)
       .union(db.with(v4Query).select().from(v4Query))
+      .union(db.with(v5Query).select().from(v5Query)) 
       .execute();
 
     let ids = "";

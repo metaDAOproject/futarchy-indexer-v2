@@ -2,9 +2,11 @@ import { Context, Logs, PublicKey } from "@solana/web3.js";
 import { ptFromSignatureAndSlot } from "./v3_indexer/transaction/persistableTransaction";
 import { log } from "./logger/logger";
 import { connection } from "./v3_indexer/connection";
+import { AMM_PROGRAM_ID as V5_AMM_PROGRAM_ID, AUTOCRAT_PROGRAM_ID as V5_AUTOCRAT_PROGRAM_ID, CONDITIONAL_VAULT_PROGRAM_ID as V5_CONDITIONAL_VAULT_PROGRAM_ID, LAUNCHPAD_PROGRAM_ID as V5_LAUNCHPAD_PROGRAM_ID } from "@metadaoproject/futarchy/v0.5";
 import { AMM_PROGRAM_ID as V4_AMM_PROGRAM_ID, AUTOCRAT_PROGRAM_ID as V4_AUTOCRAT_PROGRAM_ID, CONDITIONAL_VAULT_PROGRAM_ID as V4_CONDITIONAL_VAULT_PROGRAM_ID, LAUNCHPAD_PROGRAM_ID as V4_LAUNCHPAD_PROGRAM_ID } from "@metadaoproject/futarchy/v0.4";
 import { AMM_PROGRAM_ID as V3_AMM_PROGRAM_ID, AUTOCRAT_PROGRAM_ID as V3_AUTOCRAT_PROGRAM_ID, CONDITIONAL_VAULT_PROGRAM_ID as V3_CONDITIONAL_VAULT_PROGRAM_ID } from "@metadaoproject/futarchy/v0.3";
-import { indexFromLogs } from "./v4_indexer/indexer";
+import { v5IndexFromLogs } from "./v5_indexer/indexer";
+import { v4IndexFromLogs } from "./v4_indexer/indexer";
 import { backfillProposals } from "./v3_indexer/backfill/proposals";
 
 
@@ -50,6 +52,9 @@ async function subscribe(accountPubKey: PublicKey) {
 //asynchronously subscribes to logs for all programs
 export async function subscribeAll() {
   const programIds = [
+    V5_LAUNCHPAD_PROGRAM_ID,
+    V5_AMM_PROGRAM_ID,
+    V5_AUTOCRAT_PROGRAM_ID,
     V4_LAUNCHPAD_PROGRAM_ID,
     V4_AMM_PROGRAM_ID,
     V4_AUTOCRAT_PROGRAM_ID,
@@ -80,9 +85,11 @@ export async function startTxLogHandler(account: PublicKey){
 }
 
 async function processLogs(logs: Logs, ctx: Context, programId: PublicKey) {
-  //check if programId is v3 or v4
+  //check if programId is v3 or v4 or v5
   if (programId.equals(V4_AMM_PROGRAM_ID) || programId.equals(V4_AUTOCRAT_PROGRAM_ID) || programId.equals(V4_CONDITIONAL_VAULT_PROGRAM_ID) || programId.equals(V4_LAUNCHPAD_PROGRAM_ID)) {
     await indexV4(logs, ctx, programId);
+  } else if (programId.equals(V5_AMM_PROGRAM_ID) || programId.equals(V5_AUTOCRAT_PROGRAM_ID) || programId.equals(V5_CONDITIONAL_VAULT_PROGRAM_ID) || programId.equals(V5_LAUNCHPAD_PROGRAM_ID)) {
+    await indexV5(logs, ctx, programId);
   } else if (programId.equals(V3_AMM_PROGRAM_ID) || programId.equals(V3_CONDITIONAL_VAULT_PROGRAM_ID)) {
     await indexV3(logs, ctx, programId);
   } else if (programId.equals(V3_AUTOCRAT_PROGRAM_ID)) {
@@ -111,5 +118,9 @@ async function indexProposal(logs: Logs, ctx: Context, programId: PublicKey) {
 }
 
 async function indexV4(logs: Logs, ctx: Context, programId: PublicKey) {
-  await indexFromLogs(logs, ctx, programId);
+  await v4IndexFromLogs(logs, ctx, programId);
+}
+
+async function indexV5(logs: Logs, ctx: Context, programId: PublicKey) {
+  await v5IndexFromLogs(logs, ctx, programId);
 }

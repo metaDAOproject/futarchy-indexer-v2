@@ -1,17 +1,16 @@
-import { AMM_PROGRAM_ID, CONDITIONAL_VAULT_PROGRAM_ID, LAUNCHPAD_PROGRAM_ID, AUTOCRAT_PROGRAM_ID } from "@metadaoproject/futarchy/v0.4";
+import { AMM_PROGRAM_ID, CONDITIONAL_VAULT_PROGRAM_ID, LAUNCHPAD_PROGRAM_ID, AUTOCRAT_PROGRAM_ID } from "@metadaoproject/futarchy/v0.5";
 import * as anchor from "@coral-xyz/anchor";
 import { CompiledInnerInstruction, PublicKey, TransactionResponse, VersionedTransactionResponse, Context, Logs, } from "@solana/web3.js";
 
-import { schema, db, eq, and, desc, gt } from "@metadaoproject/indexer-db";
-import { connection, ammClient, conditionalVaultClient, launchpadClient, autocratClient } from "../connection";
-import { Program } from "@coral-xyz/anchor";
+import { schema, db } from "@metadaoproject/indexer-db";
+import { connection, ammClient, conditionalVaultClient, launchpadClient, autocratClient } from "./connection";
 
 import { log } from "../logger/logger";
 
 import { processAmmEvent, processAutocratEvent, processLaunchpadEvent, processVaultEvent } from "./processor";
 
 const logger = log.child({
-  module: "v4_indexer"
+  module: "v5_indexer"
 });
 type DBConnection = any; // TODO: Fix typing..
 
@@ -175,7 +174,7 @@ export async function index(signature: string, programId: PublicKey) {
 }
 
 //indexes signature from logs
-export async function v4IndexFromLogs(logs: Logs, ctx: Context, programId: PublicKey) {
+export async function v5IndexFromLogs(logs: Logs, ctx: Context, programId: PublicKey) {
   try {
     let signature = logs.signature;
     if (!signature) {
