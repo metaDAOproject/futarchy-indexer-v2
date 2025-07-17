@@ -42,7 +42,7 @@ const healthMap = new Map<string, CronRunResult>();
 
 async function main() {
 
-  //first lets backfill v3
+  // first lets backfill v3
   let start = new Date();
   let res = await backfillV3()
   let end = new Date();
@@ -82,7 +82,7 @@ async function main() {
   healthMap.set("gapFillV5", new CronRunResult("gapFillV5", message, error, start, end, error ? 1 : 0));
 
   //lets start our crons now
-  
+
   startCron("backfillV3", "*/10 * * * *", backfillV3);
   startCron("backfillV4", "*/12 * * * *", backfillV4);
   startCron("backfillV5", "*/14 * * * *", backfillV5);

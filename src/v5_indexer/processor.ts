@@ -461,8 +461,8 @@ async function handleSplitEvent(event: SplitTokensEvent, signature: string, tran
    
     // First verify the vault exists
     const vault = await db.select()
-      .from(schema.v0_5_conditional_vaults)
-      .where(eq(schema.v0_5_conditional_vaults.conditionalVaultAddr, event.vault.toString()))
+      .from(schema.v0_4_conditional_vaults)
+      .where(eq(schema.v0_4_conditional_vaults.conditionalVaultAddr, event.vault.toString()))
       .limit(1);
 
     if (vault.length === 0) {
@@ -759,7 +759,7 @@ async function insertPriceIfNotDuplicate(db: DBConnection, amm: any[], event: Ad
 
 async function insertConditionalVault(db: DBConnection, event: InitializeConditionalVaultEvent, vaultAddr: PublicKey) {
   try {
-    await db.insert(schema.v0_5_conditional_vaults).values({
+    await db.insert(schema.v0_4_conditional_vaults).values({
       conditionalVaultAddr: vaultAddr.toString(),
       questionAddr: event.question.toString(),
       underlyingMintAcct: event.underlyingTokenMint.toString(),
@@ -909,6 +909,7 @@ async function handleLaunchCompletedEvent(event: LaunchCompletedEvent, signature
       }
 
       await trx.update(schema.v0_5_launches).set({ 
+        committedAmount: BigInt(event.totalCommitted.toString()),
         state: launchState,
         latestLaunchSeqNumApplied: BigInt(event.common.launchSeqNum.toString()),
         daoAddr: launchState === V05LaunchState.Complete ? event.dao?.toString() : null,
@@ -965,6 +966,7 @@ async function handleLaunchFundedEvent(event: LaunchFundedEvent, signature: stri
       }).onConflictDoNothing();
 
       await trx.update(schema.v0_5_launches).set({
+        committedAmount: BigInt(event.totalCommitted.toString()),
         latestLaunchSeqNumApplied: BigInt(event.common.launchSeqNum.toString()),
         updatedAtSlot: BigInt(event.common.slot.toString()),
       }).where(eq(schema.v0_5_launches.launchAddr, event.launch.toString()));
