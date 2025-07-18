@@ -876,6 +876,14 @@ async function handleLaunchCompletedEvent(event: LaunchCompletedEvent, signature
             .where(eq(schema.v0_5_daos.daoAddr, event.dao.toString()))
             .limit(1);
           
+          console.log('initialSpendingLimit debug:', {
+            raw: dao.initialSpendingLimit,
+            type: typeof dao.initialSpendingLimit,
+            truthyCheck: !!dao.initialSpendingLimit,
+            afterOr: dao.initialSpendingLimit || 0,
+            final: (dao.initialSpendingLimit || 0).toString()
+          });
+          
           if(existingDao && existingDao.updatedAtSlot > BigInt(event.common.slot.toString())) {
             logger.info(`DAO ${event.dao.toString()} already created at slot ${existingDao.updatedAtSlot.toString()}`);
           } else {
@@ -886,7 +894,7 @@ async function handleLaunchCompletedEvent(event: LaunchCompletedEvent, signature
               daoAddr: event.dao.toString(),
               createdAt: new Date(),
               nonce: BigInt(dao.nonce.toString()),
-              initialSpendingLimit: BigInt((dao.initialSpendingLimit ?? 0).toString()),
+              initialSpendingLimit: BigInt((dao.initialSpendingLimit || 0).toString()),
               daoCreator: dao.daoCreator.toString(),
               pdaBump: dao.pdaBump,
               squadsMultisig: dao.squadsMultisig.toString(),
