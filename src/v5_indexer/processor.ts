@@ -816,7 +816,7 @@ export async function processLaunchpadEvent(event: { name: string; data: Launchp
 
 async function handleLaunchClaimEvent(event: LaunchClaimEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
-    await db.transaction(async (trx) => {
+    await db.transaction(async (trx: DBTransaction) => {
       const [existingClaim] = await trx.select()
         .from(schema.v0_5_claims)
         .where(and(
@@ -852,7 +852,7 @@ async function handleLaunchClaimEvent(event: LaunchClaimEvent, signature: string
 
 async function handleLaunchCompletedEvent(event: LaunchCompletedEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
-    await db.transaction(async (trx) => {
+    await db.transaction(async (trx: DBTransaction) => {
       const [existingLaunch] = await trx.select()
         .from(schema.v0_5_launches)
         .where(eq(schema.v0_5_launches.launchAddr, event.launch.toString()))
@@ -924,7 +924,7 @@ async function handleLaunchCompletedEvent(event: LaunchCompletedEvent, signature
 
 async function handleLaunchFundedEvent(event: LaunchFundedEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
-    await db.transaction(async (trx) => {
+    await db.transaction(async (trx: DBTransaction) => {
       const [existingFund] = await trx.select()
         .from(schema.v0_5_funds)
         .where(and(
@@ -1142,7 +1142,7 @@ async function handleFinalizeProposalEvent(event: FinalizeProposalEvent, signatu
   try {
     const proposalAcct = await autocratClient.getProposal(event.proposal);
 
-    await db.transaction(async (trx) => {
+    await db.transaction(async (trx: DBTransaction) => {
       const blockTime = transactionResponse.blockTime ? new Date(transactionResponse.blockTime * 1000) : null;
       await upsertProposal(proposalAcct, event.proposal, BigInt(event.common.slot.toString()), blockTime, trx);
     });
@@ -1181,7 +1181,8 @@ async function upsertDao(daoAcct: Dao, daoAddr: PublicKey, slot: bigint, trx: DB
         daoAddr: daoAddr.toString(),
         updatedAtSlot: slot,
         latestDaoSeqNumApplied: BigInt(daoAcct.seqNum.toString()),
-        initialSpendingLimit: BigInt((daoAcct.initialSpendingLimit ?? 0).toString()),
+        initialSpendingLimitAmount: BigInt((daoAcct.initialSpendingLimit?.amountPerMonth ?? 0).toString()),
+        initialSpendingLimitMembers: daoAcct.initialSpendingLimit?.members || null,
         passThresholdBps: daoAcct.passThresholdBps,
         slotsPerProposal: BigInt(daoAcct.slotsPerProposal.toString()),
         twapInitialObservation: daoAcct.twapInitialObservation.toString(),
