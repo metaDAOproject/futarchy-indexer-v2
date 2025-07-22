@@ -12,7 +12,6 @@ import { updatePrices } from "./priceHandler";
 
 const appStartTime = new Date();
 
-
 const logger = log.child({
   module: "main"
 });
@@ -40,17 +39,24 @@ class CronRunResult {
 }
 const healthMap = new Map<string, CronRunResult>();
 
-async function main() {
+let subscriptionProcess: any = null;
+let subscriptionHealth: any = null;
+let subscriptionLastHealthUpdate: Date | null = null;
 
-  // first lets backfill v3
+async function main() {
+  if (process.env.IS_SUBSCRIPTION_WORKER === 'true') {
+    await runSubscriptionWorker();
+    return; 
+  }
+
+  startSubscriptionWorker();
+
   let start = new Date();
   let res = await backfillV3()
   let end = new Date();
   let { message, error } = res;
 
-
   healthMap.set("backfillV3", new CronRunResult("backfillV3", message, error, start, end, error ? 1 : 0));
-
 
   //now lets do v4
   start = new Date();
@@ -82,7 +88,6 @@ async function main() {
   healthMap.set("gapFillV5", new CronRunResult("gapFillV5", message, error, start, end, error ? 1 : 0));
 
   //lets start our crons now
-
   startCron("backfillV3", "*/10 * * * *", backfillV3);
   startCron("backfillV4", "*/12 * * * *", backfillV4);
   startCron("backfillV5", "*/14 * * * *", backfillV5);
@@ -93,9 +98,6 @@ async function main() {
   startCron("snapshotV4", "5 */6 * * *", snapshotV4);
   startCron("snapshotV5", "10 */6 * * *", snapshotV5);
 
-  //start tx log subscription
-  subscribeAll();
-
   const server = http.createServer((req: any, res: any) => {
     const reqUrl = new URL(req.url, `http://${req.headers.host}`).pathname;
     let hasError = false;
@@ -105,18 +107,23 @@ async function main() {
         break;
       }
     }
-    let logHasError = false;
-    for (const result of mapLogHealth.values()) {
-      if (result.error) {
-        logHasError = true;
-        break;
+    
+    let subscriptionHasError = false;
+    if (!subscriptionProcess || subscriptionProcess.killed) {
+      subscriptionHasError = true;
+    }
+    if (subscriptionHealth) {
+      for (const log of subscriptionHealth) {
+        if (log.error) {
+          subscriptionHasError = true;
+          break;
+        }
       }
     }
 
     if (reqUrl == "/") {
-      
       let bgColor = "#357e4e";
-      if (hasError) {
+      if (hasError || subscriptionHasError) {
         bgColor = "#ff0000";
       }
       res.writeHead(200, { 'Content-Type': 'text/html' });
@@ -133,6 +140,18 @@ async function main() {
       let html = "<html><body>";
       html += style;
       html += `<h1>MetaDao Indexer Health Check - Started at ${appStartTime.toLocaleString('en-US', {timeZone: 'America/Vancouver'})} </h1>`;
+      
+      html += '<br><h2>Subscription Worker Status</h2>';
+      html += '<table>';
+      html += '<thead><tr><th>PID</th><th>Status</th><th>Last Health Update</th></tr></thead>';
+      html += '<tbody>';
+      html += `<tr>
+        <td>${subscriptionProcess?.pid || 'N/A'}</td>
+        <td>${subscriptionProcess && !subscriptionProcess.killed ? 'Running' : 'Not Running'}</td>
+        <td>${subscriptionLastHealthUpdate ? subscriptionLastHealthUpdate.toLocaleString('en-US', {timeZone: 'America/Vancouver'}) : 'Never'}</td>
+      </tr>`;
+      html += '</tbody></table>';
+      
       html += '<br><br><h2>Backfill Health</h2>';
       html += "<table>";
       html += "<thead><tr><th>Name</th><th>Message</th><th>Error</th><th>Previous Errors</th><th>Start</th><th>End</th></tr></thead>";
@@ -150,25 +169,23 @@ async function main() {
       html += "</tbody>";
       html += "</table>";
 
-      html += "<br><br><h2>Log Health</h2>";
-      html += "<table>";
-      html += "<thead><tr><th>Name</th><th>Error</th><th>Last Message</th></tr></thead>";
-      html += "<tbody>";
-      for (const result of mapLogHealth.values()) {
-        html += `<tr><td>${result.name}</td><td>${result.error?.message || 'None'}</td><td>${result.lastRun.toLocaleString('en-US', {timeZone: 'America/Vancouver'})}</td></tr>`;
+      if (subscriptionHealth && subscriptionHealth.length > 0) {
+        html += "<br><br><h2>Subscription Worker Logs</h2>";
+        html += "<table>";
+        html += "<thead><tr><th>Name</th><th>Error</th><th>Last Message</th></tr></thead>";
+        html += "<tbody>";
+        for (const result of subscriptionHealth) {
+          html += `<tr><td>${result.name}</td><td>${result.error || 'None'}</td><td>${result.lastRun}</td></tr>`;
+        }
+        html += "</tbody>";
+        html += "</table>";
       }
-      html += "</tbody>";
-      html += "</table>";
 
       html += "</body></html>";
-
-
       res.end(html);
-
     }
     else if (reqUrl == "/health") {
-
-      if (hasError || logHasError) {
+      if (hasError || subscriptionHasError) {
         res.writeHead(500, { 'Content-Type': 'text/plain' });
         res.end("Error");
       } else {
@@ -176,9 +193,6 @@ async function main() {
         res.end("OK");
       }
     }
-    
-    
-   
   });
 
   let port = process.env.PORT ?? 8080;
@@ -187,19 +201,88 @@ async function main() {
   });
 }
 
+async function runSubscriptionWorker() {
+  logger.info("Starting as subscription worker process");
+  
+  subscribeAll();
+  
+  setInterval(() => {
+    const health = Array.from(mapLogHealth.entries()).map(([name, result]) => ({
+      name,
+      error: result.error?.message || null,
+      lastRun: result.lastRun.toLocaleString('en-US', {timeZone: 'America/Vancouver'})
+    }));
+    
+    if (process.send) {
+      process.send({
+        type: 'health',
+        data: health
+      });
+    }
+  }, 5000);
+  
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('Subscription worker running');
+  });
+  
+  const port = process.env.SUBSCRIPTION_PORT || 8082;
+  server.listen(port, () => {
+    logger.info(`Subscription worker health server on port ${port}`);
+  });
+  
+  process.on('SIGTERM', () => {
+    logger.info('Subscription worker shutting down...');
+    process.exit(0);
+  });
+}
+
+function startSubscriptionWorker() {
+  logger.info("Starting subscription worker process...");
+  
+  subscriptionProcess = Bun.spawn(["bun", __filename], {
+    env: { 
+      ...process.env,
+      IS_SUBSCRIPTION_WORKER: 'true'
+    },
+    stdout: "inherit",
+    stderr: "inherit",
+    ipc(message: any) {
+      if (message.type === 'health') {
+        subscriptionHealth = message.data;
+        subscriptionLastHealthUpdate = new Date();
+      }
+    }
+  });
+  
+  logger.info(`Subscription worker started with PID: ${subscriptionProcess.pid}`);
+  
+  subscriptionProcess.exited.then((exitCode: number) => {  
+    logger.error(`Subscription worker exited with code ${exitCode}`);
+    
+    setTimeout(() => {
+      logger.info('Restarting subscription worker...');
+      startSubscriptionWorker();
+    }, 5000);
+  });
+}
+
+process.on('SIGTERM', () => {
+  logger.info('Main process shutting down...');
+  if (subscriptionProcess) {
+    subscriptionProcess.kill();
+  }
+  process.exit(0);
+});
 
 function startCron(cronName: string, cronFrequency: string, cf: cronFunction) {
-  
-  //healthMap.set(cronName, new CronRunResult(cronName, "This job has not started yet", undefined, new Date(), new Date()));
-
-  //every 10 minutes
   const cronJob = new CronJob(cronFrequency, async () => {
     const start = new Date();
     let result = await cf();
     const { message, error } = result;
     const end = new Date();
     let totalPreviousErrors = error ? 1 : 0;
-    const oldHealth = healthMap.get("backfillV3");
+    const oldHealth = healthMap.get(cronName);
     if (oldHealth) {
       totalPreviousErrors = totalPreviousErrors + oldHealth.totalPreviousErrors;
     }
@@ -208,13 +291,11 @@ function startCron(cronName: string, cronFrequency: string, cf: cronFunction) {
   cronJob.start();
 }
 
-
 /**
  * Backfill V3
  * @returns {Promise<string | Error>}
  */
 async function backfillV3(): Promise<{ message:string, error: Error | undefined }> {
-  
   const backfillTasks = [
     { fn: backfillDaos, name: 'backfillDaos' },
     { fn: backfillProposals, name: 'backfillProposals' },
@@ -291,4 +372,3 @@ if (process.env.REPROCESS == "true") {
 } else {
   main();
 }
-
