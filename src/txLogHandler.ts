@@ -28,6 +28,8 @@ export class LogResult {
   }
 }
 
+const commitment = "confirmed";
+
 export const mapLogHealth = new Map<string, LogResult>();
 
 //subscribes to logs for a given account
@@ -46,7 +48,7 @@ async function subscribe(accountPubKey: PublicKey) {
     }
 
     mapLogHealth.set(accountPubKey.toString(), new LogResult(accountPubKey.toString(), err, new Date()));
-  });
+  }, commitment); // Note: the default here is "finalized"
 }
 
 //asynchronously subscribes to logs for all programs
@@ -69,19 +71,6 @@ export async function subscribeAll() {
     mapLogHealth.set(programId.toString(), new LogResult(programId.toString(), undefined, new Date(1970, 0, 1)));
   }
   Promise.all(programIds.map(async (programId) => subscribe(programId)));
-}
-
-
-export async function startTxLogHandler(account: PublicKey){
-  connection.onLogs(account, async (logs, context) => {
-    // wait here because we need to fetch the txn from RPC
-    // and often we get no response if we try right after recieving the logs notification
-
-    //TODO:that comment is old and unknown if this is true REID still needs to confirm
-
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    const res = await processLogs(logs, context, account);
-  });
 }
 
 async function processLogs(logs: Logs, ctx: Context, programId: PublicKey) {
