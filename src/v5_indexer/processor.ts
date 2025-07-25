@@ -599,12 +599,12 @@ async function handleResolveQuestionEvent(event: ResolveQuestionEvent, signature
 
     //update v4 metric decisions
     //completed at = now
-    await db.update(schema.v0_5_metric_decisions).set({
+    await db.update(schema.v0_4_metric_decisions).set({
       completedAt: new Date(),
     }).where(
       or(
-        eq(schema.v0_5_metric_decisions.outcomeQuestionAddr, event.question.toString()),
-        eq(schema.v0_5_metric_decisions.metricQuestionAddr, event.question.toString())
+        eq(schema.v0_4_metric_decisions.outcomeQuestionAddr, event.question.toString()),
+        eq(schema.v0_4_metric_decisions.metricQuestionAddr, event.question.toString())
       )
     );
 
