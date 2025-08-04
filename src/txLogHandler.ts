@@ -74,8 +74,16 @@ export async function subscribeAll() {
 }
 
 async function processLogs(logs: Logs, ctx: Context, programId: PublicKey) {
-  //check if programId is v3 or v4 or v5
-  if (programId.equals(V4_AMM_PROGRAM_ID) || programId.equals(V4_AUTOCRAT_PROGRAM_ID) || programId.equals(V4_CONDITIONAL_VAULT_PROGRAM_ID) || programId.equals(V4_LAUNCHPAD_PROGRAM_ID)) {
+  // Special handling for V4 Conditional Vault - it can be used by both v4 and v5 programs
+  if (programId.equals(V4_CONDITIONAL_VAULT_PROGRAM_ID)) {
+    
+    await indexV4(logs, ctx, programId);
+    await indexV5(logs, ctx, programId);
+    
+    return; 
+  }
+
+  if (programId.equals(V4_AMM_PROGRAM_ID) || programId.equals(V4_AUTOCRAT_PROGRAM_ID) || programId.equals(V4_LAUNCHPAD_PROGRAM_ID)) {
     await indexV4(logs, ctx, programId);
   } else if (programId.equals(V5_AMM_PROGRAM_ID) || programId.equals(V5_AUTOCRAT_PROGRAM_ID) || programId.equals(V5_LAUNCHPAD_PROGRAM_ID)) {
     await indexV5(logs, ctx, programId);
@@ -83,8 +91,7 @@ async function processLogs(logs: Logs, ctx: Context, programId: PublicKey) {
     await indexV3(logs, ctx, programId);
   } else if (programId.equals(V3_AUTOCRAT_PROGRAM_ID)) {
     await indexProposal(logs, ctx, programId);
-  }
-  else {
+  } else {
     logger.error(`Unknown programId ${programId.toString()}`);
   }
 }

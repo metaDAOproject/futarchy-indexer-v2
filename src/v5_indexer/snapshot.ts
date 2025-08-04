@@ -158,7 +158,6 @@ async function getUsersForAmms(amms: PublicKey[]): Promise<Map<string, string[]>
     const ammAddr = ammPubkey.toString();
     
     // Get users who have swapped with this AMM
-    // here: ensure we made v0_5_swaps table
     const users = await db.selectDistinct({
       userAddr: schema.v0_5_swaps.userAddr
     })
