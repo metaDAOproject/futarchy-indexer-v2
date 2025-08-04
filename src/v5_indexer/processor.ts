@@ -50,7 +50,6 @@ export async function processAmmEvent(event: { name: string; data: AmmEvent }, s
 
 async function handleCreateAmmEvent(event: CreateAmmEvent) {
   try {
-
     await insertTokenIfNotExists(db, event.lpMint);
     await insertTokenIfNotExists(db, event.baseMint);
     await insertTokenIfNotExists(db, event.quoteMint);
@@ -86,6 +85,35 @@ async function handleAddLiquidityEvent(event: AddLiquidityEvent) {
 
     if (amm.length === 0) {
       logger.info("AMM not found", event.common.amm.toString());
+      logger.info("Adding AMM");
+
+      const ammAccount = await ammClient.getAmm(event.common.amm);
+
+      await insertTokenIfNotExists(db, ammAccount.lpMint);
+      await insertTokenIfNotExists(db, ammAccount.baseMint);
+      await insertTokenIfNotExists(db, ammAccount.quoteMint);
+
+      await db.insert(schema.v0_5_amms).values({
+        ammAddr: event.common.amm.toString(),
+        lpMintAddr: ammAccount.lpMint.toString(),
+        createdAtSlot: event.common.slot.toString(),
+        baseMintAddr: ammAccount.baseMint.toString(),
+        quoteMintAddr: ammAccount.quoteMint.toString(),
+        vaultAtaBase: ammAccount.vaultAtaBase.toString(),
+        vaultAtaQuote: ammAccount.vaultAtaQuote.toString(), 
+        latestAmmSeqNumApplied: BigInt(ammAccount.seqNum.toString()),
+        baseReserves: BigInt(event.common.postBaseReserves.toString()),
+        quoteReserves: BigInt(event.common.postQuoteReserves.toString()),
+      }).onConflictDoNothing();
+
+      await db.update(schema.v0_5_amms).set({
+        baseReserves: BigInt(event.common.postBaseReserves.toString()),
+        quoteReserves: BigInt(event.common.postQuoteReserves.toString()),
+        latestAmmSeqNumApplied: BigInt(event.common.seqNum.toString()),
+      }).where(eq(schema.v0_5_amms.ammAddr, event.common.amm.toString()));
+
+      const _tempAmm = [{baseMintAddr: ammAccount.baseMint.toString(), quoteMintAddr: ammAccount.quoteMint.toString()}];
+      await insertPriceIfNotDuplicate(db, _tempAmm, event);
       return;
     }
 
@@ -93,8 +121,6 @@ async function handleAddLiquidityEvent(event: AddLiquidityEvent) {
       logger.info("Already applied add liquidity event", event.common.seqNum.toString());
       return;
     }
-
-    await insertPriceIfNotDuplicate(db, amm, event);
 
     await db.update(schema.v0_5_amms).set({
       baseReserves: BigInt(event.common.postBaseReserves.toString()),
