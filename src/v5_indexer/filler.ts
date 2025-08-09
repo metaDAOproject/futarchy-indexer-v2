@@ -1,5 +1,6 @@
 import { ConfirmedSignatureInfo, Connection, PublicKey, SignaturesForAddressOptions } from "@solana/web3.js";
 import { AMM_PROGRAM_ID as V5_AMM_PROGRAM_ID, AUTOCRAT_PROGRAM_ID as V5_AUTOCRAT_PROGRAM_ID, LAUNCHPAD_PROGRAM_ID as V5_LAUNCHPAD_PROGRAM_ID, CONDITIONAL_VAULT_PROGRAM_ID as V4_CONDITIONAL_VAULT_PROGRAM_ID } from "@metadaoproject/futarchy/v0.5";
+import { TOKEN_MIGRATOR_PROGRAM_ID } from "@metadaoproject/token-migrator/v0.1";
 import { db, schema, eq, asc } from "@metadaoproject/indexer-db";
 import { log } from "../logger/logger";
 import { index } from "./indexer";
@@ -219,7 +220,7 @@ async function getLatestTxSigProcessed() {
 }
 
 
-const programIds = [ V5_LAUNCHPAD_PROGRAM_ID, V5_AMM_PROGRAM_ID, V5_AUTOCRAT_PROGRAM_ID, V4_CONDITIONAL_VAULT_PROGRAM_ID]; //here
+const programIds = [ V5_LAUNCHPAD_PROGRAM_ID, V5_AMM_PROGRAM_ID, V5_AUTOCRAT_PROGRAM_ID, V4_CONDITIONAL_VAULT_PROGRAM_ID, TOKEN_MIGRATOR_PROGRAM_ID]; 
 
 /**
  * Backfills historical signatures for all configured program IDs

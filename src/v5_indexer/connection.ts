@@ -1,6 +1,7 @@
 import { Connection } from "@solana/web3.js";
 import { AnchorProvider, Wallet } from "@coral-xyz/anchor";
 import { ConditionalVaultClient, AmmClient, LaunchpadClient, AutocratClient } from "@metadaoproject/futarchy/v0.5";
+import { TokenMigratorClient } from "@metadaoproject/token-migrator/v0.1";
 import dns from 'dns';
 import { promisify } from 'util';
 
@@ -36,3 +37,8 @@ export const ammClient = AmmClient.createClient({ provider });
 export const conditionalVaultClient = ConditionalVaultClient.createClient({ provider });
 export const launchpadClient = LaunchpadClient.createClient({ provider });
 export const autocratClient = AutocratClient.createClient({ provider });
+
+export const tokenMigratorClient = TokenMigratorClient.createClient({
+  connection: RPC_ENDPOINT,            
+  commitment: "confirmed",
+});

@@ -1,24 +1,26 @@
 import { AMM_PROGRAM_ID, CONDITIONAL_VAULT_PROGRAM_ID, LAUNCHPAD_PROGRAM_ID, AUTOCRAT_PROGRAM_ID } from "@metadaoproject/futarchy/v0.5";
+import { TOKEN_MIGRATOR_PROGRAM_ID, TokenMigrationEvents } from "@metadaoproject/token-migrator/v0.1";
 import * as anchor from "@coral-xyz/anchor";
 import { CompiledInnerInstruction, PublicKey, TransactionResponse, VersionedTransactionResponse, Context, Logs, } from "@solana/web3.js";
 
 import { schema, db } from "@metadaoproject/indexer-db";
-import { connection, ammClient, conditionalVaultClient, launchpadClient, autocratClient } from "./connection";
+import { connection, ammClient, conditionalVaultClient, launchpadClient, autocratClient, tokenMigratorClient } from "./connection";
 
 import { log } from "../logger/logger";
 
-import { processAmmEvent, processAutocratEvent, processLaunchpadEvent, processVaultEvent } from "./processor";
+import { processAmmEvent, processAutocratEvent, processLaunchpadEvent, processVaultEvent, processTokenMigratorEvent } from "./processor";
 
 const logger = log.child({
   module: "v5_indexer"
 });
 type DBConnection = any; // TODO: Fix typing..
 
-const parseEvents = (transactionResponse: VersionedTransactionResponse | TransactionResponse): { ammEvents: any, vaultEvents: any, launchpadEvents: any, autocratEvents: any } => {
+const parseEvents = (transactionResponse: VersionedTransactionResponse | TransactionResponse): { ammEvents: any, vaultEvents: any, launchpadEvents: any, autocratEvents: any , tokenMigratorEvents: any} => {
   const ammEvents: { name: string; data: any }[] = [];
   const vaultEvents: { name: string; data: any }[] = [];
   const launchpadEvents: { name: string; data: any }[] = [];
   const autocratEvents: { name: string; data: any }[] = [];
+  const tokenMigratorEvents: { name: string; data: any}[] = [];
 
   try {
     const inner: CompiledInnerInstruction[] =
@@ -27,6 +29,7 @@ const parseEvents = (transactionResponse: VersionedTransactionResponse | Transac
     const vaultIdlProgramId = conditionalVaultClient.vaultProgram.programId;
     const launchpadIdlProgramId = launchpadClient.launchpad.programId;
     const autocratIdlProgramId = autocratClient.autocrat.programId;
+    const tokenMigratorIdlProgramId = tokenMigratorClient.tokenMigrator.programId;
 
     for (let i = 0; i < inner.length; i++) {
       for (let j = 0; j < inner[i].instructions.length; j++) {
@@ -87,6 +90,17 @@ const parseEvents = (transactionResponse: VersionedTransactionResponse | Transac
           if (event) {
             autocratEvents.push(event);
           }
+        } else if (programPubkey.equals(tokenMigratorIdlProgramId)) {
+          program = tokenMigratorClient.tokenMigrator;
+          const ixData = anchor.utils.bytes.bs58.decode(
+            ix.data
+          );
+          const eventData = anchor.utils.bytes.base64.encode(ixData.slice(8));
+          const event = program.coder.events.decode(eventData);
+
+          if (event) {
+            tokenMigratorEvents.push(event);
+          }
         } else {
           logger.info(`Unknown program pubkey  ${programPubkey.toBase58()}`);
         }
@@ -104,14 +118,15 @@ const parseEvents = (transactionResponse: VersionedTransactionResponse | Transac
     ammEvents,
     vaultEvents,
     launchpadEvents,
-    autocratEvents
+    autocratEvents,
+    tokenMigratorEvents
   };
 }
 
 //indexes signature
 export async function index(signature: string, programId: PublicKey) {
   try {
-    if (!programId.equals(AMM_PROGRAM_ID) && !programId.equals(CONDITIONAL_VAULT_PROGRAM_ID) && !programId.equals(LAUNCHPAD_PROGRAM_ID) && !programId.equals(AUTOCRAT_PROGRAM_ID)) {
+    if (!programId.equals(AMM_PROGRAM_ID) && !programId.equals(CONDITIONAL_VAULT_PROGRAM_ID) && !programId.equals(LAUNCHPAD_PROGRAM_ID) && !programId.equals(AUTOCRAT_PROGRAM_ID) && !programId.equals(TOKEN_MIGRATOR_PROGRAM_ID)) {
       logger.info("Unknown program id: ", programId.toBase58());
       return;
     }
@@ -147,7 +162,7 @@ export async function index(signature: string, programId: PublicKey) {
 
     const events = parseEvents(transactionResponse);
     
-    const { ammEvents, vaultEvents, launchpadEvents, autocratEvents } = events;
+    const { ammEvents, vaultEvents, launchpadEvents, autocratEvents, tokenMigratorEvents } = events;
 
     Promise.all(ammEvents.map(async (event: any) => {
       await processAmmEvent(event, signature, transactionResponse);
@@ -163,6 +178,9 @@ export async function index(signature: string, programId: PublicKey) {
 
     Promise.all(autocratEvents.map(async (event: any) => {
       await processAutocratEvent(event, signature, transactionResponse);
+    }));
+    Promise.all(tokenMigratorEvents.map(async (event: any) => {
+      await processTokenMigratorEvent(event, signature, transactionResponse);
     }));
   } catch (error) {
     logger.error(

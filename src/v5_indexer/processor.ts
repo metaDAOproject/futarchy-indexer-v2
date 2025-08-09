@@ -1,11 +1,12 @@
 import { AddLiquidityEvent, AmmEvent, ConditionalVaultEvent, CreateAmmEvent, getVaultAddr, InitializeConditionalVaultEvent, InitializeQuestionEvent, SwapEvent, PriceMath, RedeemTokensEvent, SplitTokensEvent, MergeTokensEvent, RemoveLiquidityEvent, ResolveQuestionEvent, LaunchpadEvent, LaunchInitializedEvent, LaunchClaimEvent, LaunchCompletedEvent, LaunchFundedEvent, LaunchRefundedEvent, LaunchStartedEvent, CrankThatTwapEvent, AutocratEvent, InitializeProposalEvent, UpdateDaoEvent, InitializeDaoEvent, FinalizeProposalEvent, ExecuteProposalEvent, Dao, Proposal } from "@metadaoproject/futarchy/v0.5";
+import { TokenMigrationEvents, TOKEN_MIGRATOR_PROGRAM_ID, MigrateEvent } from "@metadaoproject/token-migrator/v0.1";
 import { schema, db, eq, and, or, DBTransaction } from "@metadaoproject/indexer-db";
 import { PublicKey } from "@solana/web3.js";
 import type { VersionedTransactionResponse } from "@solana/web3.js";
-import { PricesType, TwapRecord, V05LaunchState, V05ProposalState, V05SwapType, V04SwapType } from "@metadaoproject/indexer-db/lib/schema";
+import { PricesType, TwapRecord, V05LaunchState, V05ProposalState, V04SwapType } from "@metadaoproject/indexer-db/lib/schema";
 import * as token from "@solana/spl-token";
 
-import { connection, conditionalVaultClient, autocratClient, ammClient } from "./connection";
+import { connection, conditionalVaultClient, autocratClient, ammClient, tokenMigratorClient } from "./connection";
 
 import { log } from "../logger/logger";
 import { BN } from "@coral-xyz/anchor";
@@ -798,6 +799,50 @@ async function insertConditionalVault(db: DBConnection, event: InitializeConditi
   }
 }
 
+async function getVaultBalances(
+    vaultAddress: PublicKey,
+    mintFrom: PublicKey,
+    mintTo: PublicKey
+  ): Promise<{ fromBalance: BN; toBalance: BN }> {
+    try {
+      // Derive the vault ATAs
+      const vaultFromAta = token.getAssociatedTokenAddressSync(
+        mintFrom,
+        vaultAddress,
+        true
+      );
+      
+      const vaultToAta = token.getAssociatedTokenAddressSync(
+        mintTo,
+        vaultAddress,
+        true
+      );
+
+      // Fetch the token account balances
+      let fromBalance = new BN(0);
+      let toBalance = new BN(0);
+
+      try {
+        const fromAccount = await token.getAccount(connection, vaultFromAta);
+        fromBalance = new BN(fromAccount.amount.toString());
+      } catch (error) {
+        console.log(`Vault from ATA doesn't exist or has 0 balance`);
+      }
+
+      try {
+        const toAccount = await token.getAccount(connection, vaultToAta);
+        toBalance = new BN(toAccount.amount.toString());
+      } catch (error) {
+        console.log(`Vault to ATA doesn't exist or has 0 balance`);
+      }
+
+      return { fromBalance, toBalance };
+    } catch (error) {
+      console.error("Error fetching vault balances:", error);
+      throw error;
+    }
+  }
+
 
 // async function fetchTransactionResponses(eligibleSignatures: { signature: string }[]) {
 //   try {
@@ -1284,4 +1329,76 @@ async function upsertProposal(proposalAcct: Proposal, proposalAddr: PublicKey, s
     target: schema.v0_5_proposals.proposalAddr,
     set: proposal,
   });
+}
+
+export async function processTokenMigratorEvent(event: { name: string; data: TokenMigrationEvents }, signature: string, transactionResponse: VersionedTransactionResponse) {
+  switch (event.name) {
+    case "migrateEvent":
+      await handleMigrateEvent(event.data as MigrateEvent, signature, transactionResponse); // here
+      break;
+    default:
+      logger.info("Unknown Token Migration event", event.name);
+      logger.info("Event log", event);
+  }
+}
+
+export async function handleMigrateEvent(
+  event: MigrateEvent,
+  signature: string,
+  transactionResponse: VersionedTransactionResponse,
+) {
+  try{
+    const adminAddress = new PublicKey("ELT1uRmtFvYP6WSrc4mCZaW7VVbcdkcKAj39aHSVCmwH");
+    const [migratorAddr] = PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("vault"),
+        adminAddress.toBuffer(),
+        event.mintFrom.toBuffer(),
+        event.mintTo.toBuffer()
+      ],
+      TOKEN_MIGRATOR_PROGRAM_ID
+    );
+
+    await db.transaction(async (trx: DBTransaction) => {
+      const [existingMigrator] = await trx
+        .select()
+        .from(schema.v0_1_migrators)
+        .where(eq(schema.v0_1_migrators.migratorAddr, migratorAddr.toString()))
+        .limit(1);
+      
+      const vault = await tokenMigratorClient.getVault(new PublicKey(migratorAddr))
+
+      if (!existingMigrator) {
+        const {fromBalance, toBalance } = await getVaultBalances(migratorAddr, event.mintFrom, event.mintTo)
+
+        await trx.insert(schema.v0_1_migrators).values({
+          migratorAddr: migratorAddr.toString(),
+          mintFrom: event.mintFrom.toString(),
+          mintTo: event.mintTo.toString(),
+          oldAmount: fromBalance.toString(),
+          newAmount: toBalance.toString(),
+          strategy: vault.strategy,  
+          createdAt: new Date(),
+        });
+      }
+
+      // Insert conversion event
+      await trx.insert(schema.v0_1_migrations).values({
+        signature,
+        migratorAddr: migratorAddr.toString(),
+        user: event.user.toString(),
+        slot: BigInt(transactionResponse.slot),
+        blockTime: transactionResponse.blockTime ? new Date(transactionResponse.blockTime * 1000) : new Date(),
+        mintFrom: event.mintFrom.toString(),
+        mintTo: event.mintTo.toString(),
+        depositAmount: event.depositAmount.toString(),
+        withdrawAmount: event.withdrawAmount.toString(),
+        createdAt: new Date(),
+      }).onConflictDoNothing();
+    });
+
+    logger.info(`Processed migrate event in tx ${signature}`);
+  } catch (error) {
+    logger.error(error, "Error in handleMigrateEvent");
+  }
 }

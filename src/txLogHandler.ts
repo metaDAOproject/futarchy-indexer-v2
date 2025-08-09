@@ -5,6 +5,7 @@ import { connection } from "./v3_indexer/connection";
 import { AMM_PROGRAM_ID as V5_AMM_PROGRAM_ID, AUTOCRAT_PROGRAM_ID as V5_AUTOCRAT_PROGRAM_ID, LAUNCHPAD_PROGRAM_ID as V5_LAUNCHPAD_PROGRAM_ID } from "@metadaoproject/futarchy/v0.5";
 import { AMM_PROGRAM_ID as V4_AMM_PROGRAM_ID, AUTOCRAT_PROGRAM_ID as V4_AUTOCRAT_PROGRAM_ID, CONDITIONAL_VAULT_PROGRAM_ID as V4_CONDITIONAL_VAULT_PROGRAM_ID, LAUNCHPAD_PROGRAM_ID as V4_LAUNCHPAD_PROGRAM_ID } from "@metadaoproject/futarchy/v0.4";
 import { AMM_PROGRAM_ID as V3_AMM_PROGRAM_ID, AUTOCRAT_PROGRAM_ID as V3_AUTOCRAT_PROGRAM_ID, CONDITIONAL_VAULT_PROGRAM_ID as V3_CONDITIONAL_VAULT_PROGRAM_ID } from "@metadaoproject/futarchy/v0.3";
+import { TOKEN_MIGRATOR_PROGRAM_ID } from "@metadaoproject/token-migrator/v0.1";
 import { v5IndexFromLogs } from "./v5_indexer/indexer";
 import { v4IndexFromLogs } from "./v4_indexer/indexer";
 import { backfillProposals } from "./v3_indexer/backfill/proposals";
@@ -54,6 +55,7 @@ async function subscribe(accountPubKey: PublicKey) {
 //asynchronously subscribes to logs for all programs
 export async function subscribeAll() {
   const programIds = [
+    TOKEN_MIGRATOR_PROGRAM_ID,
     V5_LAUNCHPAD_PROGRAM_ID,
     V5_AMM_PROGRAM_ID,
     V5_AUTOCRAT_PROGRAM_ID,
@@ -85,7 +87,7 @@ async function processLogs(logs: Logs, ctx: Context, programId: PublicKey) {
 
   if (programId.equals(V4_AMM_PROGRAM_ID) || programId.equals(V4_AUTOCRAT_PROGRAM_ID) || programId.equals(V4_LAUNCHPAD_PROGRAM_ID)) {
     await indexV4(logs, ctx, programId);
-  } else if (programId.equals(V5_AMM_PROGRAM_ID) || programId.equals(V5_AUTOCRAT_PROGRAM_ID) || programId.equals(V5_LAUNCHPAD_PROGRAM_ID)) {
+  } else if (programId.equals(V5_AMM_PROGRAM_ID) || programId.equals(V5_AUTOCRAT_PROGRAM_ID) || programId.equals(V5_LAUNCHPAD_PROGRAM_ID) || programId.equals(TOKEN_MIGRATOR_PROGRAM_ID)) {
     await indexV5(logs, ctx, programId);
   } else if (programId.equals(V3_AMM_PROGRAM_ID) || programId.equals(V3_CONDITIONAL_VAULT_PROGRAM_ID)) {
     await indexV3(logs, ctx, programId);
