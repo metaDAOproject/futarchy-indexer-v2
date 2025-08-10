@@ -1348,6 +1348,18 @@ export async function handleMigrateEvent(
   transactionResponse: VersionedTransactionResponse,
 ) {
   try{
+
+    // Handle odd state from event emitter
+    // TODO: We need to flag the transaction as processed so we don't try to process it again
+    // TODO: Figure out why this is happening, here's the txn: 4rUdeXTeZmdtBpMFw4yekuG2smQ1zYAXU9QW23fQtUS6xgb8ub41sCMaXdEGZzA4QTbbnvurwXs4YfPgWbv2f6Ym
+    if (
+      event.mintFrom.toString() === "11111111111111111111111111111111"
+      || event.mintTo.toString() === "11111111111111111111111111111111"
+      || event.user.toString() === "11111111111111111111111111111111") {
+      logger.info("Skipping migrate event due to odd state from event emitter");
+      return;
+    }
+
     const adminAddress = new PublicKey("ELT1uRmtFvYP6WSrc4mCZaW7VVbcdkcKAj39aHSVCmwH");
     const [migratorAddr] = PublicKey.findProgramAddressSync(
       [
