@@ -1247,6 +1247,8 @@ export const launchDetails = pgTable("launch_details", {
   twitterUrl: text("twitter_url"),
   telegramUrl: text("telegram_url"),
   discordUrl: text("discord_url"),
+  organizationId: bigint("organization_id", { mode: "bigint" })
+    .references(() => organizations.organizationId),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .default(sql`now()`),

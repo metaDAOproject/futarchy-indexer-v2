@@ -344,6 +344,13 @@
       "when": 1754688692502,
       "tag": "0048_high_lord_tyger",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1758319935399,
+      "tag": "0049_special_lizard",
+      "breakpoints": true
     }
   ]
 }
