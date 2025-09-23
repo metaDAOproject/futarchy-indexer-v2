@@ -351,6 +351,13 @@
       "when": 1758319935399,
       "tag": "0049_special_lizard",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1758669264284,
+      "tag": "0050_careless_purple_man",
+      "breakpoints": true
     }
   ]
 }
