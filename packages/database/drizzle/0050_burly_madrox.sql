@@ -69,14 +69,13 @@ CREATE TABLE IF NOT EXISTS "v0_6_funding_records" (
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "v0_6_funds" (
 	"funding_record_addr" varchar(44) NOT NULL,
-	"funding_record_seq_num" bigint NOT NULL,
 	"launch_addr" varchar(44) NOT NULL,
 	"funder_addr" varchar(44) NOT NULL,
 	"slot" bigint NOT NULL,
 	"timestamp" timestamp with time zone NOT NULL,
 	"quote_amount" numeric(20, 0) NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "v0_6_funds_funding_record_addr_funding_record_seq_num_pk" PRIMARY KEY("funding_record_addr","funding_record_seq_num")
+	CONSTRAINT "v0_6_funds_funding_record_addr_pk" PRIMARY KEY("funding_record_addr")
 );
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "v0_6_launches" (
@@ -195,6 +194,8 @@ CREATE TABLE IF NOT EXISTS "v0_6_spot_swaps" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+ALTER TABLE "launch_details" ADD COLUMN "is_featured" boolean DEFAULT false;--> statement-breakpoint
+ALTER TABLE "launch_details" ADD COLUMN "is_permissionless" boolean DEFAULT false;--> statement-breakpoint
 DO $$ BEGIN
  ALTER TABLE "v0_6_claims" ADD CONSTRAINT "v0_6_claims_funding_record_addr_v0_6_funding_records_funding_record_addr_fk" FOREIGN KEY ("funding_record_addr") REFERENCES "public"."v0_6_funding_records"("funding_record_addr") ON DELETE no action ON UPDATE no action;
 EXCEPTION

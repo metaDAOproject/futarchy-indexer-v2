@@ -1262,6 +1262,8 @@ export const launchDetails = pgTable("launch_details", {
   twitterUrl: text("twitter_url"),
   telegramUrl: text("telegram_url"),
   discordUrl: text("discord_url"),
+  isFeatured: boolean('is_featured').default(false),
+  isPermissionless: boolean('is_permissionless').default(false),
   organizationId: bigint("organization_id", { mode: "bigint" })
     .references(() => organizations.organizationId),
   createdAt: timestamp("created_at", { withTimezone: true })
@@ -1690,7 +1692,6 @@ export const v0_6_funding_records = pgTable("v0_6_funding_records", {
 
 export const v0_6_funds = pgTable("v0_6_funds", {
   fundingRecordAddr: pubkey("funding_record_addr").notNull().references(() => v0_6_funding_records.fundingRecordAddr),
-  fundingRecordSeqNum: bigint("funding_record_seq_num", { mode: "bigint" }).notNull(),
   launchAddr: pubkey("launch_addr").notNull().references(() => v0_6_launches.launchAddr),
   funderAddr: pubkey("funder_addr").notNull(),
   slot: slot("slot").notNull(),
@@ -1700,7 +1701,7 @@ export const v0_6_funds = pgTable("v0_6_funds", {
     .notNull()
     .default(sql`now()`),
 }, (table) => ({
-  pk: primaryKey({ columns: [table.fundingRecordAddr, table.fundingRecordSeqNum]}),
+  pk: primaryKey({ columns: [table.fundingRecordAddr]}),
 }));
 
 export const v0_6_refunds = pgTable("v0_6_refunds", {

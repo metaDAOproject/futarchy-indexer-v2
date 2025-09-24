@@ -1,5 +1,5 @@
 {
-  "id": "bee3fcac-e229-4405-b180-012a3d2b6f7d",
+  "id": "f4f37a98-b11b-46cd-a179-9b57a3b7195c",
   "prevId": "c8fffdc0-dc77-40a4-a7d6-54c71b0b006f",
   "version": "7",
   "dialect": "postgresql",
@@ -870,6 +870,20 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "is_featured": {
+          "name": "is_featured",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false,
+          "default": false
+        },
+        "is_permissionless": {
+          "name": "is_permissionless",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false,
+          "default": false
         },
         "organization_id": {
           "name": "organization_id",
@@ -7612,12 +7626,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "funding_record_seq_num": {
-          "name": "funding_record_seq_num",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
         "launch_addr": {
           "name": "launch_addr",
           "type": "varchar(44)",
@@ -7686,11 +7694,10 @@
         }
       },
       "compositePrimaryKeys": {
-        "v0_6_funds_funding_record_addr_funding_record_seq_num_pk": {
-          "name": "v0_6_funds_funding_record_addr_funding_record_seq_num_pk",
+        "v0_6_funds_funding_record_addr_pk": {
+          "name": "v0_6_funds_funding_record_addr_pk",
           "columns": [
-            "funding_record_addr",
-            "funding_record_seq_num"
+            "funding_record_addr"
           ]
         }
       },
