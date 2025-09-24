@@ -1,5 +1,5 @@
 {
-  "id": "f4f37a98-b11b-46cd-a179-9b57a3b7195c",
+  "id": "1f5039d0-4a14-43f8-ab12-389b9c7076dc",
   "prevId": "c8fffdc0-dc77-40a4-a7d6-54c71b0b006f",
   "version": "7",
   "dialect": "postgresql",
@@ -7355,14 +7355,14 @@
           "primaryKey": false,
           "notNull": true
         },
-        "base_mint": {
-          "name": "base_mint",
+        "base_mint_acct": {
+          "name": "base_mint_acct",
           "type": "varchar(44)",
           "primaryKey": false,
           "notNull": true
         },
-        "quote_mint": {
-          "name": "quote_mint",
+        "quote_mint_acct": {
+          "name": "quote_mint_acct",
           "type": "varchar(44)",
           "primaryKey": false,
           "notNull": true
@@ -7481,16 +7481,22 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {},
       "foreignKeys": {
-        "v0_6_daos_base_mint_tokens_mint_acct_fk": {
-          "name": "v0_6_daos_base_mint_tokens_mint_acct_fk",
+        "v0_6_daos_base_mint_acct_tokens_mint_acct_fk": {
+          "name": "v0_6_daos_base_mint_acct_tokens_mint_acct_fk",
           "tableFrom": "v0_6_daos",
           "tableTo": "tokens",
           "columnsFrom": [
-            "base_mint"
+            "base_mint_acct"
           ],
           "columnsTo": [
             "mint_acct"
@@ -7498,12 +7504,12 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "v0_6_daos_quote_mint_tokens_mint_acct_fk": {
-          "name": "v0_6_daos_quote_mint_tokens_mint_acct_fk",
+        "v0_6_daos_quote_mint_acct_tokens_mint_acct_fk": {
+          "name": "v0_6_daos_quote_mint_acct_tokens_mint_acct_fk",
           "tableFrom": "v0_6_daos",
           "tableTo": "tokens",
           "columnsFrom": [
-            "quote_mint"
+            "quote_mint_acct"
           ],
           "columnsTo": [
             "mint_acct"
@@ -7520,6 +7526,19 @@
           ],
           "columnsTo": [
             "mint_acct"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "v0_6_daos_organization_id_organizations_organization_id_fk": {
+          "name": "v0_6_daos_organization_id_organizations_organization_id_fk",
+          "tableFrom": "v0_6_daos",
+          "tableTo": "organizations",
+          "columnsFrom": [
+            "organization_id"
+          ],
+          "columnsTo": [
+            "organization_id"
           ],
           "onDelete": "no action",
           "onUpdate": "no action"

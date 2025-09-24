@@ -32,8 +32,8 @@ CREATE TABLE IF NOT EXISTS "v0_6_daos" (
 	"pda_bump" smallint NOT NULL,
 	"squads_multisig" varchar(44) NOT NULL,
 	"squads_multisig_vault" varchar(44) NOT NULL,
-	"base_mint" varchar(44) NOT NULL,
-	"quote_mint" varchar(44) NOT NULL,
+	"base_mint_acct" varchar(44) NOT NULL,
+	"quote_mint_acct" varchar(44) NOT NULL,
 	"proposal_count" integer NOT NULL,
 	"pass_threshold_bps" smallint NOT NULL,
 	"seconds_per_proposal" integer NOT NULL,
@@ -52,7 +52,8 @@ CREATE TABLE IF NOT EXISTS "v0_6_daos" (
 	"amm_seq_num" bigint NOT NULL,
 	"amm_vault_ata_base" varchar(44) NOT NULL,
 	"amm_vault_ata_quote" varchar(44) NOT NULL,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"organization_id" bigint
 );
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "v0_6_funding_records" (
@@ -227,19 +228,25 @@ EXCEPTION
 END $$;
 --> statement-breakpoint
 DO $$ BEGIN
- ALTER TABLE "v0_6_daos" ADD CONSTRAINT "v0_6_daos_base_mint_tokens_mint_acct_fk" FOREIGN KEY ("base_mint") REFERENCES "public"."tokens"("mint_acct") ON DELETE no action ON UPDATE no action;
+ ALTER TABLE "v0_6_daos" ADD CONSTRAINT "v0_6_daos_base_mint_acct_tokens_mint_acct_fk" FOREIGN KEY ("base_mint_acct") REFERENCES "public"."tokens"("mint_acct") ON DELETE no action ON UPDATE no action;
 EXCEPTION
  WHEN duplicate_object THEN null;
 END $$;
 --> statement-breakpoint
 DO $$ BEGIN
- ALTER TABLE "v0_6_daos" ADD CONSTRAINT "v0_6_daos_quote_mint_tokens_mint_acct_fk" FOREIGN KEY ("quote_mint") REFERENCES "public"."tokens"("mint_acct") ON DELETE no action ON UPDATE no action;
+ ALTER TABLE "v0_6_daos" ADD CONSTRAINT "v0_6_daos_quote_mint_acct_tokens_mint_acct_fk" FOREIGN KEY ("quote_mint_acct") REFERENCES "public"."tokens"("mint_acct") ON DELETE no action ON UPDATE no action;
 EXCEPTION
  WHEN duplicate_object THEN null;
 END $$;
 --> statement-breakpoint
 DO $$ BEGIN
  ALTER TABLE "v0_6_daos" ADD CONSTRAINT "v0_6_daos_amm_lp_mint_tokens_mint_acct_fk" FOREIGN KEY ("amm_lp_mint") REFERENCES "public"."tokens"("mint_acct") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "v0_6_daos" ADD CONSTRAINT "v0_6_daos_organization_id_organizations_organization_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("organization_id") ON DELETE no action ON UPDATE no action;
 EXCEPTION
  WHEN duplicate_object THEN null;
 END $$;

@@ -1781,8 +1781,8 @@ export const v0_6_daos = pgTable("v0_6_daos", {
   pdaBump: smallint("pda_bump").notNull(),
   squadsMultisig: pubkey("squads_multisig").notNull(),
   squadsMultisigVault: pubkey("squads_multisig_vault").notNull(),
-  baseMint: pubkey("base_mint").notNull().references(() => tokens.mintAcct),
-  quoteMint: pubkey("quote_mint").notNull().references(() => tokens.mintAcct),
+  baseMintAcct: pubkey("base_mint_acct").notNull().references(() => tokens.mintAcct),
+  quoteMintAcct: pubkey("quote_mint_acct").notNull().references(() => tokens.mintAcct),
   proposalCount: integer("proposal_count").notNull(),
   passThresholdBps: smallint("pass_threshold_bps").notNull(),
   secondsPerProposal: integer("seconds_per_proposal").notNull(),
@@ -1805,6 +1805,8 @@ export const v0_6_daos = pgTable("v0_6_daos", {
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .default(sql`now()`),
+  organizationId: bigint("organization_id", { mode: "bigint" })
+    .references(() => organizations.organizationId),
 });
 
 export const v0_6_merges = pgTable("v0_6_merges", {
