@@ -60,7 +60,7 @@ async function main() {
 
   // healthMap.set("backfillV3", new CronRunResult("backfillV3", message, error, start, end, error ? 1 : 0));
 
-  //now lets do v4
+  // now lets do v4
   let start = new Date();
   let res = await backfillV4()
   let end = new Date();
