@@ -287,6 +287,39 @@ async function handleLaunchFundedEvent(event: LaunchFundedEvent, signature: stri
         return;
       }
 
+      // Ensure the launch exists before inserting funding record
+      const [existingLaunch] = await trx.select()
+        .from(schema.v0_6_launches)
+        .where(eq(schema.v0_6_launches.launchAddr, event.launch.toString()))
+        .limit(1);
+        
+      if (!existingLaunch) {
+        logger.warn(`Launch ${event.launch.toString()} does not exist, creating minimal record for funding event`);
+        await trx.insert(schema.v0_6_launches).values({
+          launchAddr: event.launch.toString(),
+          seqNum: BigInt(event.common.launchSeqNum.toString()),
+          state: V06LaunchState.Live, // Assume live since we're getting funding
+          updatedAtSlot: BigInt(event.common.slot.toString()),
+          // Other required fields will be filled when LaunchInitializedEvent is processed
+          minimumRaiseAmount: 0n,
+          monthlySpendingLimitAmount: 0n,
+          monthlySpendingLimitMembers: [],
+          launchAuthority: "",
+          launchSigner: "",
+          launchSignerPdaBump: 0,
+          launchQuoteVault: "",
+          launchBaseVault: "",
+          totalCommittedAmount: 0n,
+          baseMintAcct: "",
+          quoteMintAcct: "",
+          pdaBump: 0,
+          secondsForLaunch: 0,
+          performancePackageGrantee: "",
+          performancePackageTokenAmount: 0n,
+          monthsUntilInsidersCanUnlock: 0,
+        }).onConflictDoNothing();
+      }
+
       await trx.insert(schema.v0_6_funding_records).values({
         fundingRecordAddr: event.fundingRecord.toString(),
         launchAddr: event.launch.toString(),
