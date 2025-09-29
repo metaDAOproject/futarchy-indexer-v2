@@ -108,6 +108,21 @@ export enum V05LaunchState {
   Refunding = "Refunding",
 }
 
+export enum V06LaunchState {
+  Initialized = "Initialized",
+  Live = "Live",
+  Closed = "Closed",
+  Complete = "Complete",
+  Refunding = "Refunding",
+}
+
+export enum V06ProposalState {
+  Draft = "Draft",
+  Pending = "Pending",
+  Passed = "Passed",
+  Failed = "Failed",
+}
+
 type NonEmptyList<E> = [E, ...E[]];
 
 function pgEnum<T extends string>(columnName: string, enumObj: Record<any, T>) {
@@ -1247,6 +1262,8 @@ export const launchDetails = pgTable("launch_details", {
   twitterUrl: text("twitter_url"),
   telegramUrl: text("telegram_url"),
   discordUrl: text("discord_url"),
+  isFeatured: boolean('is_featured').default(false),
+  isPermissionless: boolean('is_permissionless').default(false),
   organizationId: bigint("organization_id", { mode: "bigint" })
     .references(() => organizations.organizationId),
   createdAt: timestamp("created_at", { withTimezone: true })
@@ -1615,6 +1632,216 @@ export const v0_1_migrations = pgTable("v0_1_migrations", {
   mintTo: pubkey("mint_to").notNull(),
   depositAmount: numeric("deposit_amount", { precision: 20, scale: 0 }).notNull(),
   withdrawAmount: numeric("withdraw_amount", { precision: 20, scale: 0 }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .default(sql`now()`),
+});
+
+export const v0_6_launches = pgTable("v0_6_launches", {
+  launchAddr: pubkey("launch_addr").primaryKey(),
+  minimumRaiseAmount: bigint("minimum_raise_amount", { mode: "bigint" }).notNull(),
+  monthlySpendingLimitAmount: bigint("monthly_spending_limit_amount", { mode: "bigint" }).notNull(),
+  monthlySpendingLimitMembers: varchar("monthly_spending_limit_members", { length: 44 }).array(),
+  launchAuthority: pubkey("launch_authority").notNull(),
+  launchSigner: pubkey("launch_signer").notNull(),
+  launchSignerPdaBump: smallint("launch_signer_pda_bump").notNull(),
+  launchQuoteVault: pubkey("launch_quote_vault").notNull(),
+  launchBaseVault: pubkey("launch_base_vault").notNull(),
+  baseMintAcct: pubkey("base_mint_acct")
+    .notNull()
+    .references(() => tokens.mintAcct),
+  quoteMintAcct: pubkey("quote_mint_acct")
+    .notNull()
+    .references(() => tokens.mintAcct),
+  unixTimestampStarted: bigint("unix_timestamp_started", { mode: "bigint" }),
+  unixTimestampClosed: bigint("unix_timestamp_closed", { mode: "bigint" }),
+  totalCommittedAmount: bigint("total_committed_amount", { mode: "bigint" }).notNull(),
+  finalRaiseAmount: bigint("final_raise_amount", { mode: "bigint" }),
+  state: pgEnum("state", V06LaunchState).notNull(),
+  seqNum: bigint("seq_num", { mode: "bigint" }).notNull(),
+  secondsForLaunch: integer("seconds_for_launch").notNull(),
+  daoAddr: pubkey("dao_addr"),   
+  daoVault: pubkey("dao_vault"),
+  squadsMultisig: pubkey("squads_multisig"),
+  performancePackageGrantee: pubkey("performance_package_grantee").notNull(),
+  performancePackageTokenAmount: bigint("performance_package_token_amount", { mode: "bigint" }).notNull(),
+  monthsUntilInsidersCanUnlock: smallint("months_until_insiders_can_unlock").notNull(),
+  pdaBump: smallint("pda_bump").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .default(sql`now()`),
+  updatedAtSlot: slot("updated_at_slot").default(sql`0`).notNull(),
+  isHidden: boolean("is_hidden").notNull().default(true),
+});
+
+export const v0_6_funding_records = pgTable("v0_6_funding_records", {
+  fundingRecordAddr: pubkey("funding_record_addr").primaryKey(),
+  launchAddr: pubkey("launch_addr")
+    .notNull()
+    .references(() => v0_6_launches.launchAddr),
+  funderAddr: pubkey("funder_addr").notNull(),
+  committedAmount: bigint("committed_amount", { mode: "bigint" }).notNull(),
+  seqNum: bigint("seq_num", { mode: "bigint" }).notNull(),
+  isTokensClaimed: boolean("is_tokens_claimed").notNull().default(false),
+  isUsdcRefunded: boolean("is_usdc_refunded").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .default(sql`now()`),
+  updatedAtSlot: slot("updated_at_slot").default(sql`0`).notNull(),
+});
+
+export const v0_6_funds = pgTable("v0_6_funds", {
+  fundingRecordAddr: pubkey("funding_record_addr").notNull().references(() => v0_6_funding_records.fundingRecordAddr),
+  txSignature: transaction("tx_signature").notNull().references(() => signatures.signature),
+  launchAddr: pubkey("launch_addr").notNull().references(() => v0_6_launches.launchAddr),
+  funderAddr: pubkey("funder_addr").notNull(),
+  slot: slot("slot").notNull(),
+  timestamp: timestamp("timestamp", { withTimezone: true }).notNull(),
+  quoteAmount: numeric("quote_amount", { precision: 20, scale: 0 }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .default(sql`now()`),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.fundingRecordAddr, table.txSignature]}),
+}));
+
+export const v0_6_refunds = pgTable("v0_6_refunds", {
+  fundingRecordAddr: pubkey("funding_record_addr").primaryKey().notNull().references(() => v0_6_funding_records.fundingRecordAddr),
+  launchAddr: pubkey("launch_addr").notNull().references(() => v0_6_launches.launchAddr),
+  funderAddr: pubkey("funder_addr").notNull(),
+  slot: slot("slot").notNull(),
+  timestamp: timestamp("timestamp", { withTimezone: true }).notNull(),
+  quoteAmount: numeric("quote_amount", { precision: 20, scale: 0 }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .default(sql`now()`),
+});
+
+export const v0_6_claims = pgTable("v0_6_claims", {
+  fundingRecordAddr: pubkey("funding_record_addr").primaryKey().notNull().references(() => v0_6_funding_records.fundingRecordAddr),
+  launchAddr: pubkey("launch_addr").notNull().references(() => v0_6_launches.launchAddr),
+  funderAddr: pubkey("funder_addr").notNull(),
+  tokensClaimed: numeric("tokens_claimed", { precision: 20, scale: 0 }).notNull(),
+  slot: slot("slot").notNull(),
+  timestamp: timestamp("timestamp", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .default(sql`now()`),
+});
+
+
+export const v0_6_conditional_swaps = pgTable("v0_6_conditional_swaps", {
+  id: bigserial("id", { mode: "bigint" }).primaryKey(),
+  signature: transaction("signature").notNull().references(() => signatures.signature),
+  slot: slot("slot").notNull(),
+  unixTimestamp: bigint("unix_timestamp", { mode: "bigint" }).notNull(),
+  daoAddr: pubkey("dao_addr").notNull().references(() => v0_6_daos.daoAddr),
+  proposalAddr: pubkey("proposal_addr").notNull().references(() => v0_6_proposals.proposalAddr),
+  userAddr: pubkey("user_addr").notNull(),
+  market: varchar("market", { length: 4 }).notNull(), 
+  swapType: pgEnum("swap_type", V04SwapType).notNull(),
+  inputAmount: biggerTokenAmount("input_amount").notNull(),
+  outputAmount: biggerTokenAmount("output_amount").notNull(),
+  minOutputAmount: biggerTokenAmount("min_output_amount").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .default(sql`now()`),
+}, (table) => ({
+  daoIdx: index("v0_6_conditional_swaps_dao_index").on(table.daoAddr),
+  proposalIdx: index("v0_6_conditional_swaps_proposal_index").on(table.proposalAddr),
+  userIdx: index("v0_6_conditional_swaps_user_index").on(table.userAddr),
+  signatureIdx: index("v0_6_conditional_swaps_signature_index").on(table.signature),
+}));
+
+export const v0_6_spot_swaps = pgTable("v0_6_spot_swaps", {
+  id: bigserial("id", { mode: "bigint" }).primaryKey(),
+  signature: transaction("signature").notNull().references(() => signatures.signature),
+  slot: slot("slot").notNull(),
+  unixTimestamp: bigint("unix_timestamp", { mode: "bigint" }).notNull(),
+  daoAddr: pubkey("dao_addr").notNull().references(() => v0_6_daos.daoAddr),
+  userAddr: pubkey("user_addr").notNull(),
+  swapType: pgEnum("swap_type", V04SwapType).notNull(),
+  inputAmount: biggerTokenAmount("input_amount").notNull(),
+  outputAmount: biggerTokenAmount("output_amount").notNull(),
+  minOutputAmount: biggerTokenAmount("min_output_amount").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .default(sql`now()`),
+}, (table) => ({
+  daoIdx: index("v0_6_spot_swaps_dao_index").on(table.daoAddr),
+  userIdx: index("v0_6_spot_swaps_user_index").on(table.userAddr),
+  signatureIdx: index("v0_6_spot_swaps_signature_index").on(table.signature),
+}));
+
+export const v0_6_daos = pgTable("v0_6_daos", {
+  daoAddr: pubkey("dao_addr").primaryKey(),
+  ammAddr: pubkey("amm_addr").notNull(), 
+  // DAO fields
+  nonce: bigint("nonce", { mode: "bigint" }).notNull(),
+  daoCreator: pubkey("dao_creator").notNull(),
+  pdaBump: smallint("pda_bump").notNull(),
+  squadsMultisig: pubkey("squads_multisig").notNull(),
+  squadsMultisigVault: pubkey("squads_multisig_vault").notNull(),
+  baseMintAcct: pubkey("base_mint_acct").notNull().references(() => tokens.mintAcct),
+  quoteMintAcct: pubkey("quote_mint_acct").notNull().references(() => tokens.mintAcct),
+  proposalCount: integer("proposal_count").notNull(),
+  passThresholdBps: smallint("pass_threshold_bps").notNull(),
+  secondsPerProposal: integer("seconds_per_proposal").notNull(),
+  twapInitialObservation: numeric("twap_initial_observation", { precision: 39, scale: 0 }).notNull(),
+  twapMaxObservationChangePerUpdate: numeric("twap_max_observation_change_per_update", { precision: 39, scale: 0 }).notNull(),
+  twapStartDelaySeconds: integer("twap_start_delay_seconds").notNull(),
+  minQuoteFutarchicLiquidity: bigint("min_quote_futarchic_liquidity", { mode: "bigint" }).notNull(),
+  minBaseFutarchicLiquidity: bigint("min_base_futarchic_liquidity", { mode: "bigint" }).notNull(),
+  baseToStake: bigint("base_to_stake", { mode: "bigint" }).notNull(),
+  seqNum: bigint("seq_num", { mode: "bigint" }).notNull(),
+  initialSpendingLimit: jsonb("initial_spending_limit"),
+  // Embedded AMM fields (1:1 relationship)
+  ammLpMint: pubkey("amm_lp_mint").notNull().references(() => tokens.mintAcct),
+  ammBaseAmount: bigint("amm_base_amount", { mode: "bigint" }).notNull(),
+  ammQuoteAmount: bigint("amm_quote_amount", { mode: "bigint" }).notNull(),
+  ammOracle: pubkey("amm_oracle").notNull(),
+  ammSeqNum: bigint("amm_seq_num", { mode: "bigint" }).notNull(),
+  ammVaultAtaBase: pubkey("amm_vault_ata_base").notNull(),
+  ammVaultAtaQuote: pubkey("amm_vault_ata_quote").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .default(sql`now()`),
+  organizationId: bigint("organization_id", { mode: "bigint" })
+    .references(() => organizations.organizationId),
+});
+
+export const v0_6_proposals = pgTable("v0_6_proposals", {
+  proposalAddr: pubkey("proposal_addr").primaryKey(),
+  number: integer("number").notNull(),
+  proposer: pubkey("proposer").notNull(),
+  timestampEnqueued: bigint("timestamp_enqueued", { mode: "bigint" }).notNull(),
+  state: pgEnum("state", V06ProposalState).notNull(),
+  baseVaultAddr: pubkey("base_vault_addr").notNull(),
+  quoteVaultAddr: pubkey("quote_vault_addr").notNull(),
+  daoAddr: pubkey("dao_addr").notNull().references(() => v0_6_daos.daoAddr),
+  pdaBump: smallint("pda_bump").notNull(),
+  questionAddr: pubkey("question_addr").notNull(),
+  durationInSeconds: integer("duration_in_seconds").notNull(),
+  squadsProposal: pubkey("squads_proposal").notNull(),
+  passBaseMint: pubkey("pass_base_mint").notNull().references(() => tokens.mintAcct),
+  passQuoteMint: pubkey("pass_quote_mint").notNull().references(() => tokens.mintAcct),
+  failBaseMint: pubkey("fail_base_mint").notNull().references(() => tokens.mintAcct),
+  failQuoteMint: pubkey("fail_quote_mint").notNull().references(() => tokens.mintAcct),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .default(sql`now()`),
+}, (table) => ({
+  daoIdx: index("v0_6_proposals_dao_index").on(table.daoAddr),
+  proposerIdx: index("v0_6_proposals_proposer_index").on(table.proposer),
+  questionIdx: index("v0_6_proposals_question_index").on(table.questionAddr),
+}));
+
+export const v0_6_questions = pgTable("v0_6_questions", {
+  questionAddr: pubkey("question_addr").primaryKey(),
+  questionId: jsonb("question_id").notNull(),
+  oracleAddr: pubkey("oracle").notNull(),
+  payoutNumerators: jsonb("payout_numerators").notNull(),
+  payoutDenominator: bigint("payout_denominator", { mode: "bigint" }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .default(sql`now()`),

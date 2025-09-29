@@ -351,6 +351,27 @@
       "when": 1758319935399,
       "tag": "0049_special_lizard",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1758737132619,
+      "tag": "0050_faulty_salo",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1759164406927,
+      "tag": "0051_sour_wind_dancer",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1759167378639,
+      "tag": "0052_early_hobgoblin",
+      "breakpoints": true
     }
   ]
 }
