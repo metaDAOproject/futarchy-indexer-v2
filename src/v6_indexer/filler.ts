@@ -1,5 +1,5 @@
 import { ConfirmedSignatureInfo, Connection, PublicKey, SignaturesForAddressOptions } from "@solana/web3.js";
-import { AMM_PROGRAM_ID as V5_AMM_PROGRAM_ID, AUTOCRAT_PROGRAM_ID as V5_AUTOCRAT_PROGRAM_ID, LAUNCHPAD_PROGRAM_ID as V5_LAUNCHPAD_PROGRAM_ID, CONDITIONAL_VAULT_PROGRAM_ID as V4_CONDITIONAL_VAULT_PROGRAM_ID } from "@metadaoproject/futarchy/v0.5";
+import { FUTARCHY_PROGRAM_ID as V6_FUTARCHY_PROGRAM_ID, LAUNCHPAD_PROGRAM_ID as V6_LAUNCHPAD_PROGRAM_ID, CONDITIONAL_VAULT_PROGRAM_ID as V4_CONDITIONAL_VAULT_PROGRAM_ID } from "@metadaoproject/futarchy/v0.6";
 import { TOKEN_MIGRATOR_PROGRAM_ID } from "@metadaoproject/token-migrator/v0.1";
 import { db, schema, eq, asc } from "@metadaoproject/indexer-db";
 import { log } from "../logger/logger";
@@ -15,19 +15,8 @@ if (!RPC_ENDPOINT) {
 }
 const connection = new Connection(RPC_ENDPOINT);
 const logger = log.child({
-  module: "v5_filler"
+  module: "v6_filler"
 });
-
-// it's possible that there are signatures BEFORE the oldest signature
-// because the indexer may not have been running when those signatures were created
-
-// it's also possible that there are signatures AFTER the newest signature
-
-// we assume that there aren't signatures between the oldest and newest signatures
-
-// we split these into two functions:
-// - backfillHistoricalSignatures
-// - insertNewSignatures
 
 /**
  * Utility function to create a delay
@@ -201,7 +190,7 @@ const insertSignatures = async (signatures: ConfirmedSignatureInfo[], queriedAdd
 async function setLatestTxSigProcessed(signature: string) {
   try {
     logger.info(`setting latestTxSigProcessed to ${signature}`);
-    await db.update(schema.indexers).set({ latestTxSigProcessed: signature }).where(eq(schema.indexers.name, "v0_5_amm_indexer")).execute(); //here
+    await db.update(schema.indexers).set({ latestTxSigProcessed: signature }).where(eq(schema.indexers.name, "v0_6_dao_indexer")).execute(); //here ?
   } catch (e) {
     logger.error(e, "Error setting the latest processed signature");
   }
@@ -214,13 +203,13 @@ async function setLatestTxSigProcessed(signature: string) {
 async function getLatestTxSigProcessed() {
   return await db.select({ signature: schema.indexers.latestTxSigProcessed })
       .from(schema.indexers)
-      .where(eq(schema.indexers.name, "v0_5_amm_indexer")) //here
+      .where(eq(schema.indexers.name, "v0_6_dao_indexer")) //here
       .then(signatures => signatures[0] ? signatures[0].signature as string : undefined);
 
 }
 
 
-const programIds = [ V5_LAUNCHPAD_PROGRAM_ID, V5_AMM_PROGRAM_ID, V5_AUTOCRAT_PROGRAM_ID, TOKEN_MIGRATOR_PROGRAM_ID]; 
+const programIds = [ V6_LAUNCHPAD_PROGRAM_ID, V6_FUTARCHY_PROGRAM_ID]; 
 
 /**
  * Backfills historical signatures for all configured program IDs

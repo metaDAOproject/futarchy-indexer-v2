@@ -1660,7 +1660,7 @@ export const v0_6_launches = pgTable("v0_6_launches", {
   state: pgEnum("state", V06LaunchState).notNull(),
   seqNum: bigint("seq_num", { mode: "bigint" }).notNull(),
   secondsForLaunch: integer("seconds_for_launch").notNull(),
-  daoAddr: pubkey("dao"),   
+  daoAddr: pubkey("dao_addr"),   
   daoVault: pubkey("dao_vault"),
   squadsMultisig: pubkey("squads_multisig"),
   performancePackageGrantee: pubkey("performance_package_grantee").notNull(),
@@ -1692,6 +1692,7 @@ export const v0_6_funding_records = pgTable("v0_6_funding_records", {
 
 export const v0_6_funds = pgTable("v0_6_funds", {
   fundingRecordAddr: pubkey("funding_record_addr").notNull().references(() => v0_6_funding_records.fundingRecordAddr),
+  txSignature: transaction("tx_signature").notNull().references(() => signatures.signature),
   launchAddr: pubkey("launch_addr").notNull().references(() => v0_6_launches.launchAddr),
   funderAddr: pubkey("funder_addr").notNull(),
   slot: slot("slot").notNull(),
@@ -1701,7 +1702,7 @@ export const v0_6_funds = pgTable("v0_6_funds", {
     .notNull()
     .default(sql`now()`),
 }, (table) => ({
-  pk: primaryKey({ columns: [table.fundingRecordAddr]}),
+  pk: primaryKey({ columns: [table.fundingRecordAddr, table.txSignature]}),
 }));
 
 export const v0_6_refunds = pgTable("v0_6_refunds", {
@@ -1789,15 +1790,15 @@ export const v0_6_daos = pgTable("v0_6_daos", {
   twapInitialObservation: numeric("twap_initial_observation", { precision: 39, scale: 0 }).notNull(),
   twapMaxObservationChangePerUpdate: numeric("twap_max_observation_change_per_update", { precision: 39, scale: 0 }).notNull(),
   twapStartDelaySeconds: integer("twap_start_delay_seconds").notNull(),
-  minQuoteFutarchicLiquidity: biggerTokenAmount("min_quote_futarchic_liquidity").notNull(),
-  minBaseFutarchicLiquidity: biggerTokenAmount("min_base_futarchic_liquidity").notNull(),
-  baseToStake: biggerTokenAmount("base_to_stake").notNull(),
+  minQuoteFutarchicLiquidity: bigint("min_quote_futarchic_liquidity", { mode: "bigint" }).notNull(),
+  minBaseFutarchicLiquidity: bigint("min_base_futarchic_liquidity", { mode: "bigint" }).notNull(),
+  baseToStake: bigint("base_to_stake", { mode: "bigint" }).notNull(),
   seqNum: bigint("seq_num", { mode: "bigint" }).notNull(),
   initialSpendingLimit: jsonb("initial_spending_limit"),
   // Embedded AMM fields (1:1 relationship)
   ammLpMint: pubkey("amm_lp_mint").notNull().references(() => tokens.mintAcct),
-  ammBaseAmount: biggerTokenAmount("amm_base_amount").notNull(),
-  ammQuoteAmount: biggerTokenAmount("amm_quote_amount").notNull(),
+  ammBaseAmount: bigint("amm_base_amount", { mode: "bigint" }).notNull(),
+  ammQuoteAmount: bigint("amm_quote_amount", { mode: "bigint" }).notNull(),
   ammOracle: pubkey("amm_oracle").notNull(),
   ammSeqNum: bigint("amm_seq_num", { mode: "bigint" }).notNull(),
   ammVaultAtaBase: pubkey("amm_vault_ata_base").notNull(),
@@ -1812,13 +1813,13 @@ export const v0_6_daos = pgTable("v0_6_daos", {
 export const v0_6_merges = pgTable("v0_6_merges", {
   id: bigserial("id", { mode: "bigint" }).primaryKey(),
   signature: transaction("signature").notNull().references(() => signatures.signature),
-  slot: slot("slot").notNull(),
+  slot: biggerSlot("slot").notNull(),
   unixTimestamp: bigint("unix_timestamp", { mode: "bigint" }).notNull(),
   userAddr: pubkey("user_addr").notNull(),
   vaultAddr: pubkey("vault_addr").notNull(),
-  amount: biggerTokenAmount("amount").notNull(),
-  postUserUnderlyingBalance: biggerTokenAmount("post_user_underlying_balance").notNull(),
-  postVaultUnderlyingBalance: biggerTokenAmount("post_vault_underlying_balance").notNull(),
+  amount: bigint("amount", { mode: "bigint" }).notNull(),
+  postUserUnderlyingBalance: bigint("post_user_underlying_balance", { mode: "bigint" }).notNull(),
+  postVaultUnderlyingBalance: bigint("post_vault_underlying_balance", { mode: "bigint" }).notNull(),
   postUserConditionalTokenBalances: jsonb("post_user_conditional_token_balances").notNull(),
   postConditionalTokenSupplies: jsonb("post_conditional_token_supplies").notNull(),
   seqNum: bigint("seq_num", { mode: "bigint" }).notNull(),
@@ -1837,11 +1838,11 @@ export const v0_6_proposals = pgTable("v0_6_proposals", {
   proposer: pubkey("proposer").notNull(),
   timestampEnqueued: bigint("timestamp_enqueued", { mode: "bigint" }).notNull(),
   state: pgEnum("state", V06ProposalState).notNull(),
-  baseVault: pubkey("base_vault").notNull(),
-  quoteVault: pubkey("quote_vault").notNull(),
+  baseVaultAddr: pubkey("base_vault_addr").notNull(),
+  quoteVaultAddr: pubkey("quote_vault_addr").notNull(),
   daoAddr: pubkey("dao_addr").notNull().references(() => v0_6_daos.daoAddr),
   pdaBump: smallint("pda_bump").notNull(),
-  question: pubkey("question").notNull(),
+  questionAddr: pubkey("question_addr").notNull(),
   durationInSeconds: integer("duration_in_seconds").notNull(),
   squadsProposal: pubkey("squads_proposal").notNull(),
   passBaseMint: pubkey("pass_base_mint").notNull().references(() => tokens.mintAcct),
@@ -1854,15 +1855,15 @@ export const v0_6_proposals = pgTable("v0_6_proposals", {
 }, (table) => ({
   daoIdx: index("v0_6_proposals_dao_index").on(table.daoAddr),
   proposerIdx: index("v0_6_proposals_proposer_index").on(table.proposer),
-  questionIdx: index("v0_6_proposals_question_index").on(table.question),
+  questionIdx: index("v0_6_proposals_question_index").on(table.questionAddr),
 }));
 
 export const v0_6_questions = pgTable("v0_6_questions", {
   questionAddr: pubkey("question_addr").primaryKey(),
-  questionId: text("question_id").notNull(),
+  questionId: jsonb("question_id").notNull(),
   oracleAddr: pubkey("oracle").notNull(),
   payoutNumerators: jsonb("payout_numerators").notNull(),
-  payoutDenominator: integer("payout_denominator").notNull(),
+  payoutDenominator: bigint("payout_denominator", { mode: "bigint" }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .default(sql`now()`),
@@ -1875,9 +1876,9 @@ export const v0_6_splits = pgTable("v0_6_splits", {
   unixTimestamp: bigint("unix_timestamp", { mode: "bigint" }).notNull(),
   userAddr: pubkey("user_addr").notNull(),
   vaultAddr: pubkey("vault_addr").notNull(),
-  amount: biggerTokenAmount("amount").notNull(),
-  postUserUnderlyingBalance: biggerTokenAmount("post_user_underlying_balance").notNull(),
-  postVaultUnderlyingBalance: biggerTokenAmount("post_vault_underlying_balance").notNull(),
+  amount: bigint("amount", { mode: "bigint" }).notNull(),
+  postUserUnderlyingBalance: bigint("post_user_underlying_balance", { mode: "bigint" }).notNull(),
+  postVaultUnderlyingBalance: bigint("post_vault_underlying_balance", { mode: "bigint" }).notNull(),
   postUserConditionalTokenBalances: jsonb("post_user_conditional_token_balances").notNull(),
   postConditionalTokenSupplies: jsonb("post_conditional_token_supplies").notNull(),
   seqNum: bigint("seq_num", { mode: "bigint" }).notNull(),
