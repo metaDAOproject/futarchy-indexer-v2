@@ -1810,28 +1810,6 @@ export const v0_6_daos = pgTable("v0_6_daos", {
     .references(() => organizations.organizationId),
 });
 
-export const v0_6_merges = pgTable("v0_6_merges", {
-  id: bigserial("id", { mode: "bigint" }).primaryKey(),
-  signature: transaction("signature").notNull().references(() => signatures.signature),
-  slot: biggerSlot("slot").notNull(),
-  unixTimestamp: bigint("unix_timestamp", { mode: "bigint" }).notNull(),
-  userAddr: pubkey("user_addr").notNull(),
-  vaultAddr: pubkey("vault_addr").notNull(),
-  amount: bigint("amount", { mode: "bigint" }).notNull(),
-  postUserUnderlyingBalance: bigint("post_user_underlying_balance", { mode: "bigint" }).notNull(),
-  postVaultUnderlyingBalance: bigint("post_vault_underlying_balance", { mode: "bigint" }).notNull(),
-  postUserConditionalTokenBalances: jsonb("post_user_conditional_token_balances").notNull(),
-  postConditionalTokenSupplies: jsonb("post_conditional_token_supplies").notNull(),
-  seqNum: bigint("seq_num", { mode: "bigint" }).notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .default(sql`now()`),
-}, (table) => ({
-  vaultIdx: index("v0_6_merges_vault_index").on(table.vaultAddr),
-  userIdx: index("v0_6_merges_user_index").on(table.userAddr),
-  signatureIdx: index("v0_6_merges_signature_index").on(table.signature),
-}));
-
 export const v0_6_proposals = pgTable("v0_6_proposals", {
   proposalAddr: pubkey("proposal_addr").primaryKey(),
   number: integer("number").notNull(),
@@ -1868,28 +1846,6 @@ export const v0_6_questions = pgTable("v0_6_questions", {
     .notNull()
     .default(sql`now()`),
 });
-
-export const v0_6_splits = pgTable("v0_6_splits", {
-  id: bigserial("id", { mode: "bigint" }).primaryKey(),
-  signature: transaction("signature").notNull().references(() => signatures.signature),
-  slot: slot("slot").notNull(),
-  unixTimestamp: bigint("unix_timestamp", { mode: "bigint" }).notNull(),
-  userAddr: pubkey("user_addr").notNull(),
-  vaultAddr: pubkey("vault_addr").notNull(),
-  amount: bigint("amount", { mode: "bigint" }).notNull(),
-  postUserUnderlyingBalance: bigint("post_user_underlying_balance", { mode: "bigint" }).notNull(),
-  postVaultUnderlyingBalance: bigint("post_vault_underlying_balance", { mode: "bigint" }).notNull(),
-  postUserConditionalTokenBalances: jsonb("post_user_conditional_token_balances").notNull(),
-  postConditionalTokenSupplies: jsonb("post_conditional_token_supplies").notNull(),
-  seqNum: bigint("seq_num", { mode: "bigint" }).notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .default(sql`now()`),
-}, (table) => ({
-  vaultIdx: index("v0_6_splits_vault_index").on(table.vaultAddr),
-  userIdx: index("v0_6_splits_user_index").on(table.userAddr),
-  signatureIdx: index("v0_6_splits_signature_index").on(table.signature),
-}));
 
 // TODO: This is commented out give these are timescale views, but I wanted to include them
 export const twapChartData = pgView("twap_chart_data", {

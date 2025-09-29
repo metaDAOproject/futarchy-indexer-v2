@@ -90,82 +90,6 @@ type DBConnection = any; // TODO: Fix typing..
 //   }
 // }
 
-// async function handleSplitEvent(event: SplitTokensEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
-//   try {
-//     const insertValues = {
-//       vaultAddr: event.vault.toString(),
-//       userAddr: event.user.toString(),
-//       seqNum: BigInt(event.seqNum.toString()),
-//       signature: signature,
-//       slot: BigInt(transactionResponse.slot.toString()),
-//       unixTimestamp: BigInt(event.common.unixTimestamp.toString()),
-//       amount: BigInt(event.amount.toString()),
-//       postUserUnderlyingBalance: BigInt(event.postUserUnderlyingBalance.toString()),
-//       postVaultUnderlyingBalance: BigInt(event.postVaultUnderlyingBalance.toString()),
-//       postUserConditionalTokenBalances: event.postUserConditionalTokenBalances.map(balance => balance.toString()),
-//       postConditionalTokenSupplies: event.postConditionalTokenSupplies.map(supply => supply.toString()),
-//     };
-   
-//     // First verify the vault exists
-//     const vault = await db.select()
-//       .from(schema.v0_4_conditional_vaults)
-//       .where(eq(schema.v0_4_conditional_vaults.conditionalVaultAddr, event.vault.toString()))
-//       .limit(1);
-
-//     if (vault.length === 0) {
-//       logger.warn("Warning: Referenced vault does not exist:", event.vault.toString());
-//     }
-
-//     await db.insert(schema.v0_6_splits)
-//       .values(insertValues)
-//       .onConflictDoNothing();
-
-//     await updateConditionalTokenBalancesForVaultEvents(
-//       db,
-//       new PublicKey(event.vault.toString()),
-//       new PublicKey(event.user.toString()),
-//       signature,
-//       transactionResponse.slot.toString(),
-//       transactionResponse.blockTime ?? null
-//     );
-    
-//   } catch (error) {
-//     logger.error(error, "Error in handleSplitEvent");
-//   }
-// }
-
-// async function handleMergeEvent(event: MergeTokensEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
-//   try {
-    
-//     await db.insert(schema.v0_6_merges).values({
-//       vaultAddr: event.vault.toString(),
-//       userAddr: event.user.toString(),
-//       seqNum: BigInt(event.seqNum.toString()),
-//       signature: signature,
-//       slot: transactionResponse.slot.toString(),
-//       unixTimestamp: BigInt(event.common.unixTimestamp.toString()),
-//       amount: BigInt(event.amount.toString()),
-//       postUserUnderlyingBalance: BigInt(event.postUserUnderlyingBalance.toString()),
-//       postVaultUnderlyingBalance: BigInt(event.postVaultUnderlyingBalance.toString()),
-//       postUserConditionalTokenBalances: event.postUserConditionalTokenBalances.map(balance => balance.toString()),
-//       postConditionalTokenSupplies: event.postConditionalTokenSupplies.map(supply => supply.toString()),
-//     }).onConflictDoNothing();
-
-//     await updateConditionalTokenBalancesForVaultEvents(
-//       db,
-//       new PublicKey(event.vault.toString()),
-//       new PublicKey(event.user.toString()),
-//       signature,
-//       transactionResponse.slot.toString(),
-//       transactionResponse.blockTime ?? null
-//     );
-    
-//   } catch (error) {
-//     logger.error(error, "Error in handleMergeEvent");
-//   }
-// }
-
-
 // async function handleResolveQuestionEvent(event: ResolveQuestionEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
 //   try {
 //     logger.info("Resolving question", event.question.toString());
@@ -192,24 +116,6 @@ type DBConnection = any; // TODO: Fix typing..
 
 //   } catch (error) {
 //     logger.error(error, "Error in handleResolveQuestionEvent");
-//   }
-// }
-
-// async function handleInitializeConditionalVaultEvent(event: InitializeConditionalVaultEvent) {
-//   try {
-//     const vaultAddr = getVaultAddr(conditionalVaultClient.vaultProgram.programId, event.question, event.underlyingTokenMint)[0];
-    
-//     await db.transaction(async (trx: DBTransaction) => {
-//       if (!await doesQuestionExist(trx, event)) {
-//         return;
-//       }
-//       await insertTokenIfNotExists(trx, event.underlyingTokenMint);
-//       await insertTokenAccountIfNotExists(trx, event);
-//       await insertConditionalVault(trx, event, vaultAddr);
-//     });
-    
-//   } catch (error) {
-//     logger.error(error, "Error in handleInitializeConditionalVaultEvent");
 //   }
 // }
 

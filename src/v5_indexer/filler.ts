@@ -220,7 +220,7 @@ async function getLatestTxSigProcessed() {
 }
 
 
-const programIds = [ V5_LAUNCHPAD_PROGRAM_ID, V5_AMM_PROGRAM_ID, V5_AUTOCRAT_PROGRAM_ID, TOKEN_MIGRATOR_PROGRAM_ID]; 
+const programIds = [ V5_LAUNCHPAD_PROGRAM_ID, V5_AMM_PROGRAM_ID, V5_AUTOCRAT_PROGRAM_ID, V4_CONDITIONAL_VAULT_PROGRAM_ID, TOKEN_MIGRATOR_PROGRAM_ID]; 
 
 /**
  * Backfills historical signatures for all configured program IDs

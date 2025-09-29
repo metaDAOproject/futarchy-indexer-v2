@@ -190,7 +190,7 @@ const insertSignatures = async (signatures: ConfirmedSignatureInfo[], queriedAdd
 async function setLatestTxSigProcessed(signature: string) {
   try {
     logger.info(`setting latestTxSigProcessed to ${signature}`);
-    await db.update(schema.indexers).set({ latestTxSigProcessed: signature }).where(eq(schema.indexers.name, "v0_6_dao_indexer")).execute(); //here ?
+    await db.update(schema.indexers).set({ latestTxSigProcessed: signature }).where(eq(schema.indexers.name, "v0_6_dao_indexer")).execute(); 
   } catch (e) {
     logger.error(e, "Error setting the latest processed signature");
   }

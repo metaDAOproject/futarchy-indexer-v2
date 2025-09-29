@@ -108,7 +108,7 @@ const parseEvents = (transactionResponse: VersionedTransactionResponse | Transac
 //indexes signature
 export async function index(signature: string, programId: PublicKey) {
   try {
-    if (!programId.equals(FUTARCHY_PROGRAM_ID) && !programId.equals(CONDITIONAL_VAULT_PROGRAM_ID) && !programId.equals(LAUNCHPAD_PROGRAM_ID)) {
+    if (!programId.equals(FUTARCHY_PROGRAM_ID) || !programId.equals(LAUNCHPAD_PROGRAM_ID)) {
       logger.info("Unknown program id: ", programId.toBase58());
       return;
     }
