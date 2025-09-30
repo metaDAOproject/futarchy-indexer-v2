@@ -236,12 +236,9 @@ async function handleLaunchCompletedEvent(event: LaunchCompletedEvent, signature
               baseToStake: BigInt(dao.baseToStake?.toString() || '0'),
               seqNum: BigInt(dao.seqNum.toString()),
               initialSpendingLimit: dao.initialSpendingLimit || null,
-              // AMM fields from embedded AMM
-              ammLpMint: "",
+              // AMM fields that actually exist
               ammBaseAmount: 0n,
               ammQuoteAmount: 0n, 
-              ammOracle: "", 
-              ammSeqNum: 0n, 
               ammVaultAtaBase: token.getAssociatedTokenAddressSync(
                 dao.baseMint,
                 new PublicKey(dao.amm.ammBaseVault.toString()),
@@ -275,15 +272,11 @@ async function handleLaunchFundedEvent(event: LaunchFundedEvent, signature: stri
     await db.transaction(async (trx: DBTransaction) => {
       const [existingFund] = await trx.select()
         .from(schema.v0_6_funds)
-        .where(and(
-          eq(schema.v0_6_funds.funderAddr, event.funder.toString()),
-          eq(schema.v0_6_funds.launchAddr, event.launch.toString()),
-          eq(schema.v0_6_funds.slot, BigInt(event.common.slot.toString()))
-        ))
+        .where(eq(schema.v0_6_funds.txSignature, signature))
         .limit(1);
 
       if (existingFund) {
-        logger.info(`Fund already exists for launch ${event.launch.toString()} by ${event.funder.toString()} at slot ${existingFund.slot.toString()}`);
+        logger.info(`Fund already exists for transaction ${signature}`);
         return;
       }
 
@@ -475,7 +468,7 @@ async function handleLaunchCloseEvent(event: LaunchCloseEvent, signature: string
       // Map the newState from the event to V06LaunchState
       let mappedState: V06LaunchState;
       if ('closed' in event.newState) {
-        mappedState = V06LaunchState.Complete;
+        mappedState = V06LaunchState.Closed;
       } else if ('refunding' in event.newState) {
         mappedState = V06LaunchState.Refunding;
       } else {
