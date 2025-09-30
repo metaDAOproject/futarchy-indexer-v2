@@ -1796,11 +1796,8 @@ export const v0_6_daos = pgTable("v0_6_daos", {
   seqNum: bigint("seq_num", { mode: "bigint" }).notNull(),
   initialSpendingLimit: jsonb("initial_spending_limit"),
   // Embedded AMM fields (1:1 relationship)
-  ammLpMint: pubkey("amm_lp_mint").notNull().references(() => tokens.mintAcct),
   ammBaseAmount: bigint("amm_base_amount", { mode: "bigint" }).notNull(),
   ammQuoteAmount: bigint("amm_quote_amount", { mode: "bigint" }).notNull(),
-  ammOracle: pubkey("amm_oracle").notNull(),
-  ammSeqNum: bigint("amm_seq_num", { mode: "bigint" }).notNull(),
   ammVaultAtaBase: pubkey("amm_vault_ata_base").notNull(),
   ammVaultAtaQuote: pubkey("amm_vault_ata_quote").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true })
@@ -1982,6 +1979,8 @@ export const organizations = pgTable("organizations", {
     .notNull()
     .default(sql`now()`),
   telegramChannel: text("telegram_channel"),
+  foundedBy: text("founded_by"),
+  founderUrl: varchar("founder_url"),
 },
 (table) => ({
   uniqueId: unique("id_name_url").on(table.organizationId, table.url, table.name),
