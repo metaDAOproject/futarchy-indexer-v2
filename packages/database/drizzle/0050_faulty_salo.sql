@@ -200,18 +200,14 @@ ALTER TABLE "launch_details" ADD COLUMN IF NOT EXISTS "is_permissionless" boolea
 ALTER TABLE "v0_6_daos" ADD COLUMN IF NOT EXISTS "base_mint_acct" varchar(44);
 ALTER TABLE "v0_6_daos" ADD COLUMN IF NOT EXISTS "quote_mint_acct" varchar(44); 
 ALTER TABLE "v0_6_daos" ADD COLUMN IF NOT EXISTS "organization_id" bigint;
-ALTER TABLE "v0_6_daos" DROP COLUMN "base_mint";
-ALTER TABLE "v0_6_daos" DROP COLUMN "quote_mint";
 ALTER TABLE "v0_6_daos" DROP CONSTRAINT IF EXISTS "v0_6_daos_base_mint_tokens_mint_acct_fk";
 ALTER TABLE "v0_6_daos" DROP CONSTRAINT IF EXISTS "v0_6_daos_quote_mint_tokens_mint_acct_fk";
 ALTER TABLE "v0_6_launches" ADD COLUMN IF NOT EXISTS "dao_addr" varchar(44);
-ALTER TABLE "v0_6_launches" DROP COLUMN "dao";
 ALTER TABLE "v0_6_proposals" ADD COLUMN IF NOT EXISTS "base_vault_addr" varchar(44);
 ALTER TABLE "v0_6_proposals" DROP COLUMN "base_vault";
 ALTER TABLE "v0_6_proposals" ADD COLUMN IF NOT EXISTS "quote_vault_addr" varchar(44);
 ALTER TABLE "v0_6_proposals" DROP COLUMN "quote_vault";
 ALTER TABLE "v0_6_proposals" ADD COLUMN IF NOT EXISTS "question_addr" varchar(44);
-ALTER TABLE "v0_6_proposals" DROP COLUMN "question";
 
 DO $$ BEGIN
  ALTER TABLE "v0_6_claims" ADD CONSTRAINT "v0_6_claims_funding_record_addr_v0_6_funding_records_funding_record_addr_fk" FOREIGN KEY ("funding_record_addr") REFERENCES "public"."v0_6_funding_records"("funding_record_addr") ON DELETE no action ON UPDATE no action;
