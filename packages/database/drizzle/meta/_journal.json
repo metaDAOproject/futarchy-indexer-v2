@@ -372,6 +372,13 @@
       "when": 1759167378639,
       "tag": "0052_early_hobgoblin",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1759263257352,
+      "tag": "0053_wakeful_korg",
+      "breakpoints": true
     }
   ]
 }
