@@ -379,6 +379,13 @@
       "when": 1759263257352,
       "tag": "0053_wakeful_korg",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1759427089827,
+      "tag": "0054_chubby_romulus",
+      "breakpoints": true
     }
   ]
 }

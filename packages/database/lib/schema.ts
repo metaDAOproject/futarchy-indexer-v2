@@ -1775,7 +1775,6 @@ export const v0_6_spot_swaps = pgTable("v0_6_spot_swaps", {
 
 export const v0_6_daos = pgTable("v0_6_daos", {
   daoAddr: pubkey("dao_addr").primaryKey(),
-  ammAddr: pubkey("amm_addr").notNull(), 
   // DAO fields
   nonce: bigint("nonce", { mode: "bigint" }).notNull(),
   daoCreator: pubkey("dao_creator").notNull(),

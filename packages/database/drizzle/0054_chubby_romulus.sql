@@ -1,0 +1,1 @@
+ALTER TABLE "v0_6_daos" DROP COLUMN IF EXISTS "amm_addr";

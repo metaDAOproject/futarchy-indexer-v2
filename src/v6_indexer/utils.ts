@@ -415,11 +415,8 @@ export async function upsertV06Dao(daoAcct: any, daoAddr: PublicKey, trx: DBTran
       seqNum: BigInt(daoAcct.seqNum.toString()),
       initialSpendingLimit: daoAcct.initialSpendingLimit ? JSON.stringify(daoAcct.initialSpendingLimit) : null,
       // AMM fields from embedded AMM
-      ammLpMint: daoAcct.amm.lpMint.toString(),
       ammBaseAmount: BigInt(daoAcct.amm.state.spot?.baseReserves?.toString() || "0"),
       ammQuoteAmount: BigInt(daoAcct.amm.state.spot?.quoteReserves?.toString() || "0"),
-      ammOracle: daoAcct.amm.oracle.toString(),
-      ammSeqNum: BigInt(daoAcct.amm.seqNum.toString()),
       ammVaultAtaBase: ammBaseVaultAta.toString(),
       ammVaultAtaQuote: ammQuoteVaultAta.toString(),
     };
