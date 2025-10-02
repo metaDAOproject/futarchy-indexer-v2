@@ -1,5 +1,5 @@
 import { AddLiquidityEvent, AmmEvent, ConditionalVaultEvent, CreateAmmEvent, getVaultAddr, InitializeConditionalVaultEvent, InitializeQuestionEvent, SwapEvent, PriceMath, RedeemTokensEvent, SplitTokensEvent, MergeTokensEvent, RemoveLiquidityEvent, ResolveQuestionEvent, LaunchpadEvent, LaunchInitializedEvent, LaunchClaimEvent, LaunchCompletedEvent, LaunchFundedEvent, LaunchRefundedEvent, LaunchStartedEvent, LaunchCloseEvent, CrankThatTwapEvent, InitializeProposalEvent, UpdateDaoEvent, InitializeDaoEvent, FinalizeProposalEvent, Dao, Proposal, CollectFeesEvent, StakeToProposalEvent, UnstakeFromProposalEvent, LaunchProposalEvent, SpotSwapEvent, ConditionalSwapEvent, ProvideLiquidityEvent, WithdrawLiquidityEvent, FutarchyEvent } from "@metadaoproject/futarchy/v0.6";
-import { schema, db, eq, and, or, DBTransaction } from "@metadaoproject/indexer-db";
+import { schema, db, eq, and, or, sql, DBTransaction } from "@metadaoproject/indexer-db";
 import { PublicKey } from "@solana/web3.js";
 import type { VersionedTransactionResponse } from "@solana/web3.js";
 import { V06LaunchState, V06ProposalState, V04SwapType } from "@metadaoproject/indexer-db/lib/schema";
@@ -272,11 +272,15 @@ async function handleLaunchFundedEvent(event: LaunchFundedEvent, signature: stri
     await db.transaction(async (trx: DBTransaction) => {
       const [existingFund] = await trx.select()
         .from(schema.v0_6_funds)
-        .where(eq(schema.v0_6_funds.txSignature, signature))
+        .where(and(
+          eq(schema.v0_6_funds.funderAddr, event.funder.toString()),
+          eq(schema.v0_6_funds.launchAddr, event.launch.toString()),
+          eq(schema.v0_6_funds.slot, BigInt(event.common.slot.toString()))
+        ))
         .limit(1);
 
       if (existingFund) {
-        logger.info(`Fund already exists for transaction ${signature}`);
+        logger.info(`Fund already exists for launch ${event.launch.toString()} by ${event.funder.toString()} at slot ${existingFund.slot.toString()}`);
         return;
       }
 
@@ -293,7 +297,6 @@ async function handleLaunchFundedEvent(event: LaunchFundedEvent, signature: stri
           seqNum: BigInt(event.common.launchSeqNum.toString()),
           state: V06LaunchState.Live, // Assume live since we're getting funding
           updatedAtSlot: BigInt(event.common.slot.toString()),
-          // Other required fields will be filled when LaunchInitializedEvent is processed
           minimumRaiseAmount: 0n,
           monthlySpendingLimitAmount: 0n,
           monthlySpendingLimitMembers: [],
@@ -325,8 +328,9 @@ async function handleLaunchFundedEvent(event: LaunchFundedEvent, signature: stri
       }).onConflictDoUpdate({
         target: schema.v0_6_funding_records.fundingRecordAddr,
         set: {
-          committedAmount: BigInt(event.totalCommittedByFunder.toString()),
-          seqNum: BigInt(event.common.launchSeqNum.toString()),
+          committedAmount: sql`CASE WHEN ${BigInt(event.common.slot.toString())} >= ${schema.v0_6_funding_records.updatedAtSlot} THEN ${BigInt(event.totalCommittedByFunder.toString())} ELSE ${schema.v0_6_funding_records.committedAmount} END`,
+          seqNum: sql`CASE WHEN ${BigInt(event.common.slot.toString())} >= ${schema.v0_6_funding_records.updatedAtSlot} THEN ${BigInt(event.common.launchSeqNum.toString())} ELSE ${schema.v0_6_funding_records.seqNum} END`,
+          updatedAtSlot: sql`GREATEST(${BigInt(event.common.slot.toString())}, ${schema.v0_6_funding_records.updatedAtSlot})`
         }
       });
 
