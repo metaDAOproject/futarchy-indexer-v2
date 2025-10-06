@@ -331,12 +331,7 @@ async function handleLaunchFundedEvent(event: LaunchFundedEvent, signature: stri
       }).onConflictDoUpdate({
         target: schema.v0_6_funding_records.fundingRecordAddr,
         set: {
-          committedAmount: sql`
-            CASE 
-              WHEN ${BigInt(event.common.slot.toString())} >= ${schema.v0_6_funding_records.updatedAtSlot} AND ${schema.v0_6_funding_records.committedAmount} < ${BigInt(event.totalCommittedByFunder.toString())}
-              THEN ${BigInt(event.totalCommittedByFunder.toString())}
-              ELSE ${schema.v0_6_funding_records.committedAmount}
-            END`,
+          committedAmount: sql`CASE WHEN ${BigInt(event.common.slot.toString())} >= ${schema.v0_6_funding_records.updatedAtSlot} THEN ${BigInt(event.totalCommittedByFunder.toString())} ELSE ${schema.v0_6_funding_records.committedAmount} END`,
           seqNum: sql`CASE WHEN ${BigInt(event.common.slot.toString())} >= ${schema.v0_6_funding_records.updatedAtSlot} THEN ${BigInt(event.common.launchSeqNum.toString())} ELSE ${schema.v0_6_funding_records.seqNum} END`,
           updatedAtSlot: sql`GREATEST(${BigInt(event.common.slot.toString())}, ${schema.v0_6_funding_records.updatedAtSlot})`
         }
