@@ -217,7 +217,7 @@ async function handleLaunchCompletedEvent(event: LaunchCompletedEvent, signature
 
             await trx.insert(schema.v0_6_daos).values({
               daoAddr: event.dao.toString(),
-              ammAddr: dao.amm.toString(),
+              // ammAddr: dao.amm.toString(), // Temporarily commented until types are regenerated
               nonce: BigInt(dao.nonce.toString()),
               daoCreator: dao.daoCreator.toString(),
               pdaBump: dao.pdaBump,
@@ -284,6 +284,9 @@ async function handleLaunchFundedEvent(event: LaunchFundedEvent, signature: stri
         return;
       }
 
+      let highestSquenceNumber = BigInt(event.common.launchSeqNum.toString())
+
+
       // Ensure the launch exists before inserting funding record
       const [existingLaunch] = await trx.select()
         .from(schema.v0_6_launches)
@@ -344,10 +347,12 @@ async function handleLaunchFundedEvent(event: LaunchFundedEvent, signature: stri
         quoteAmount: event.amount.toString(),
       }).onConflictDoNothing();
 
-      await trx.update(schema.v0_6_launches).set({
-        totalCommittedAmount: BigInt(event.totalCommitted.toString()),
-        seqNum: BigInt(event.common.launchSeqNum.toString()),
-      }).where(eq(schema.v0_6_launches.launchAddr, event.launch.toString()));
+      if (existingLaunch && highestSquenceNumber > existingLaunch.seqNum) {
+        await trx.update(schema.v0_6_launches).set({
+          totalCommittedAmount: BigInt(event.totalCommitted.toString()),
+          seqNum: BigInt(event.common.launchSeqNum.toString()),
+        }).where(eq(schema.v0_6_launches.launchAddr, event.launch.toString()));
+      } 
     });
   } catch (error) {
     logger.error(error, "Error in handleLaunchFundedEvent");
