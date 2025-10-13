@@ -46,12 +46,12 @@ let subscriptionHealth: any = null;
 let subscriptionLastHealthUpdate: Date | null = null;
 
 async function main() {
-  // if (process.env.IS_SUBSCRIPTION_WORKER === 'true') {
-  //   await runSubscriptionWorker();
-  //   return; 
-  // }
+  if (process.env.IS_SUBSCRIPTION_WORKER === 'true') {
+    await runSubscriptionWorker();
+    return; 
+  }
 
-  // startSubscriptionWorker();
+  startSubscriptionWorker();
 
   // let start = new Date();
   // let res = await backfillV3()
