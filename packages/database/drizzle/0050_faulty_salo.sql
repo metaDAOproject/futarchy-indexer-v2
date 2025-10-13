@@ -208,6 +208,7 @@ ALTER TABLE "v0_6_proposals" DROP COLUMN "base_vault";
 ALTER TABLE "v0_6_proposals" ADD COLUMN IF NOT EXISTS "quote_vault_addr" varchar(44);
 ALTER TABLE "v0_6_proposals" DROP COLUMN "quote_vault";
 ALTER TABLE "v0_6_proposals" ADD COLUMN IF NOT EXISTS "question_addr" varchar(44);
+ALTER TABLE "v0_6_proposals" DROP COLUMN "question";
 
 DO $$ BEGIN
  ALTER TABLE "v0_6_claims" ADD CONSTRAINT "v0_6_claims_funding_record_addr_v0_6_funding_records_funding_record_addr_fk" FOREIGN KEY ("funding_record_addr") REFERENCES "public"."v0_6_funding_records"("funding_record_addr") ON DELETE no action ON UPDATE no action;
