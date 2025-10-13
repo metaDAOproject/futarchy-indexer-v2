@@ -342,8 +342,6 @@ export async function upsertV06Proposal(proposalAcct: any, proposalAddr: PublicK
       state: proposalAcct.state.pending ? V06ProposalState.Pending :
              proposalAcct.state.passed ? V06ProposalState.Passed :
              proposalAcct.state.failed ? V06ProposalState.Failed : V06ProposalState.Pending,
-      baseVaultAddr: proposalAcct.baseVault.toString(),
-      quoteVaultAddr: proposalAcct.quoteVault.toString(),
       daoAddr: proposalAcct.dao.toString(),
       pdaBump: proposalAcct.pdaBump,
       questionAddr: proposalAcct.question.toString(),
@@ -354,6 +352,8 @@ export async function upsertV06Proposal(proposalAcct: any, proposalAddr: PublicK
       failBaseMint: proposalAcct.failBaseMint.toString(),
       failQuoteMint: proposalAcct.failQuoteMint.toString(),
       createdAt: blockTime || new Date(),
+      baseVaultAddr: proposalAcct.baseVault.toString(),
+      quoteVaultAddr: proposalAcct.quoteVault.toString(),
     };
 
     if (existingProposal.length === 0) {

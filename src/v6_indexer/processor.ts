@@ -619,8 +619,12 @@ async function handleInitializeProposalEvent(event: InitializeProposalEvent, sig
       logger.warn(`Proposal account not found for ${event.proposal.toString()}`);
       return;
     }
-
     await db.transaction(async (trx: DBTransaction) => {
+      await insertTokenIfNotExists(trx, proposalAcct.passBaseMint);
+      await insertTokenIfNotExists(trx, proposalAcct.passQuoteMint);
+      await insertTokenIfNotExists(trx, proposalAcct.failBaseMint);
+      await insertTokenIfNotExists(trx, proposalAcct.failQuoteMint);
+
       const blockTime = transactionResponse.blockTime ? new Date(transactionResponse.blockTime * 1000) : null;
       await upsertV06Proposal(proposalAcct, event.proposal, BigInt(event.common.slot.toString()), blockTime, trx);
     });
