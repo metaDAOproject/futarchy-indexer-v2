@@ -633,40 +633,40 @@ async function handleInitializeProposalEvent(event: InitializeProposalEvent, sig
   }
 }
 
-async function handleStakeToProposalEvent(event: StakeToProposalEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
-  try {
-    await db.transaction(async (trx: DBTransaction) => {
-      // Update proposal's totalStaked amount and state if it transitions to Pending
-      const proposal = await trx.select()
-        .from(schema.v0_6_proposals)
-        .where(eq(schema.v0_6_proposals.proposalAddr, event.proposal.toString()))
-        .limit(1);
+// async function handleStakeToProposalEvent(event: StakeToProposalEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+//   try {
+//     await db.transaction(async (trx: DBTransaction) => {
+//       // Update proposal's totalStaked amount and state if it transitions to Pending
+//       const proposal = await trx.select()
+//         .from(schema.v0_6_proposals)
+//         .where(eq(schema.v0_6_proposals.proposalAddr, event.proposal.toString()))
+//         .limit(1);
 
-      if (proposal.length === 0) {
-        logger.warn(`Proposal ${event.proposal.toString()} not found for stake event`);
-        return;
-      }
+//       if (proposal.length === 0) {
+//         logger.warn(`Proposal ${event.proposal.toString()} not found for stake event`);
+//         return;
+//       }
 
-      // For simplicity, we'll just log the stake event
-      // Full implementation would track individual stakes in a separate table
-      logger.info(`Stake event: ${event.amount.toString()} staked to proposal ${event.proposal.toString()}, total staked: ${event.totalStaked.toString()}`);
-    });
-  } catch (error) {
-    logger.error(error, "Error in handleStakeToProposalEvent");
-  }
-}
+//       // For simplicity, we'll just log the stake event
+//       // Full implementation would track individual stakes in a separate table
+//       logger.info(`Stake event: ${event.amount.toString()} staked to proposal ${event.proposal.toString()}, total staked: ${event.totalStaked.toString()}`);
+//     });
+//   } catch (error) {
+//     logger.error(error, "Error in handleStakeToProposalEvent");
+//   }
+// }
 
-async function handleUnstakeFromProposalEvent(event: UnstakeFromProposalEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
-  try {
-    await db.transaction(async (trx: DBTransaction) => {
-      // Log the unstake event
-      // Full implementation would track individual stakes in a separate table
-      logger.info(`Unstake event: ${event.amount.toString()} unstaked from proposal ${event.proposal.toString()}, total remaining: ${event.totalStaked.toString()}`);
-    });
-  } catch (error) {
-    logger.error(error, "Error in handleUnstakeFromProposalEvent");
-  }
-}
+// async function handleUnstakeFromProposalEvent(event: UnstakeFromProposalEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+//   try {
+//     await db.transaction(async (trx: DBTransaction) => {
+//       // Log the unstake event
+//       // Full implementation would track individual stakes in a separate table
+//       logger.info(`Unstake event: ${event.amount.toString()} unstaked from proposal ${event.proposal.toString()}, total remaining: ${event.totalStaked.toString()}`);
+//     });
+//   } catch (error) {
+//     logger.error(error, "Error in handleUnstakeFromProposalEvent");
+//   }
+// }
 
 async function handleLaunchProposalEvent(event: LaunchProposalEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
