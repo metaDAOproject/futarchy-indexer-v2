@@ -340,6 +340,7 @@ export async function upsertV06Proposal(proposalAcct: any, proposalAddr: PublicK
       proposer: proposalAcct.proposer.toString(),
       timestampEnqueued: BigInt(proposalAcct.timestampEnqueued.toString()),
       state: proposalAcct.state.pending ? V06ProposalState.Pending :
+             proposalAcct.state.draft ? V06ProposalState.Draft :
              proposalAcct.state.passed ? V06ProposalState.Passed :
              proposalAcct.state.failed ? V06ProposalState.Failed : V06ProposalState.Pending,
       daoAddr: proposalAcct.dao.toString(),
@@ -395,7 +396,7 @@ export async function upsertV06Dao(daoAcct: any, daoAddr: PublicKey, trx: DBTran
 
     const daoValues: typeof schema.v0_6_daos.$inferInsert = {
       daoAddr: daoAddr.toString(),
-      ammAddr: daoAddr.toString(), // In v0.6, AMM is embedded in DAO
+      // ammAddr: daoAddr.toString(), 
       nonce: BigInt(daoAcct.nonce.toString()),
       daoCreator: daoAcct.daoCreator.toString(),
       pdaBump: daoAcct.pdaBump,

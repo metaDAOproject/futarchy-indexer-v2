@@ -1,12 +1,6 @@
-// import { backfillDaos, backfillProposals, backfillTokenSupply, backfillTransactions } from "./v3_indexer";
 import { log } from "./logger/logger";
 import { mapLogHealth, subscribeAll } from "./txLogHandler";
-import { gapFill as v4_gapfill, backfill as v4_backfill } from "./v4_indexer/filler";
-import { gapFill as v5_gapfill, backfill as v5_backfill } from "./v5_indexer/filler";
 import { gapFill as v6_gapfill, backfill as v6_backfill } from "./v6_indexer/filler";
-// import { captureTokenBalanceSnapshotV3 } from "./v3_indexer/snapshot";
-import { captureTokenBalanceSnapshotV4 } from "./v4_indexer/snapshot";
-import { captureTokenBalanceSnapshotV5 } from "./v5_indexer/snapshot";
 import { captureTokenBalanceSnapshotV6 } from "./v6_indexer/snapshot";
 import { CronJob } from "cron";
 import http from "http";
@@ -53,47 +47,11 @@ async function main() {
 
   startSubscriptionWorker();
 
-  // let start = new Date();
-  // let res = await backfillV3()
-  // let end = new Date();
-  // let { message, error } = res;
-
-  // healthMap.set("backfillV3", new CronRunResult("backfillV3", message, error, start, end, error ? 1 : 0));
-
-  // now lets do v4
+   // time for v6
   let start = new Date();
-  let res = await backfillV4()
+  let res = await backfillV6()
   let end = new Date();
   let { message, error } = res;
-  let totalPreviousErrors = error ? 1 : 0;
-  healthMap.set("backfillV4", new CronRunResult("backfillV4", message, error, start, end, error ? 1 : 0));
-
-  // now lets frontfill v4
-  start = new Date();
-  res = await gapFillV4()
-  end = new Date();
-  ({ message, error } = res);
-  healthMap.set("gapFillV4", new CronRunResult("gapFillV4", message, error, start, end, error ? 1 : 0));
-
-  // time for v5
-  start = new Date();
-  res = await backfillV5()
-  end = new Date();
-  ({ message, error } = res);
-  healthMap.set("backfillV5", new CronRunResult("backfillV5", message, error, start, end, error ? 1 : 0));
-
-  //now lets frontfill v5
-  start = new Date();
-  res = await gapFillV5()
-  end = new Date();
-  ({ message, error } = res);
-  healthMap.set("gapFillV5", new CronRunResult("gapFillV5", message, error, start, end, error ? 1 : 0));
-
-   // time for v6
-  start = new Date();
-  res = await backfillV6()
-  end = new Date();
-  ({ message, error } = res);
   healthMap.set("backfillV6", new CronRunResult("backfillV6", message, error, start, end, error ? 1 : 0));
 
   //now lets frontfill v6
@@ -104,17 +62,9 @@ async function main() {
   healthMap.set("gapFillV6", new CronRunResult("gapFillV6", message, error, start, end, error ? 1 : 0));
 
   //lets start our crons now
-  // startCron("backfillV3", "*/10 * * * *", backfillV3);
-  startCron("backfillV4", "*/12 * * * *", backfillV4);
-  startCron("backfillV5", "*/14 * * * *", backfillV5);
   startCron("backfillV6", "*/20 * * * *", backfillV6);
-  startCron("gapFillV4", "*/16 * * * *", gapFillV4);
-  startCron("gapFillV5", "*/18 * * * *", gapFillV5);
   startCron("gapFillV6", "*/20 * * * *", gapFillV6);
   startCron("priceHandler", "* * * * *", priceHandler);
-  // startCron("snapshotV3", "0 */23 * * *", snapshotV3);
-  startCron("snapshotV4", "5 */12 * * *", snapshotV4);
-  startCron("snapshotV5", "10 */12 * * *", snapshotV5);
   startCron("snapshotV6", "0 */23 * * *", snapshotV6);
 
   const server = http.createServer((req: any, res: any) => {
@@ -310,59 +260,8 @@ function startCron(cronName: string, cronFrequency: string, cf: cronFunction) {
   cronJob.start();
 }
 
-/**
- * Backfill V3
- * @returns {Promise<string | Error>}
- */
-// async function backfillV3(): Promise<{ message:string, error: Error | undefined }> {
-//   const backfillTasks = [
-//     { fn: backfillDaos, name: 'backfillDaos' },
-//     { fn: backfillProposals, name: 'backfillProposals' },
-//     { fn: backfillTokenSupply, name: 'backfillTokenSupply' },
-//     { fn: backfillTransactions, name: 'backfillTransactions' }
-//   ];
-
-//   let errors: string[] = [];
-//   let messages: string[] = [];
-//   for (const task of backfillTasks) {
-//     try {
-//       await task.fn()
-//         .then((data) => {
-//           messages.push(data.message);
-//           if (data.error) {
-//             errors.push(data.error.message);
-//           }
-//         })
-//         .catch((e) => errors.push(e?.toString() || 'Unknown error'));
-     
-//     } catch (error) {
-//       errors.push(`${task.name}: ${error}`);
-//     }
-//   }
-
-//   const errorMessage = errors.filter(Boolean).join('');
-//   const message = messages.join('<br>');
-//   return { message:message, error: errorMessage ? new Error(errorMessage) : undefined };
-// }
-
-async function backfillV4(): Promise<{message:string, error: Error|undefined}> {
-  return await v4_backfill();
-}
-
-async function backfillV5(): Promise<{message:string, error: Error|undefined}> {
-  return await v5_backfill();
-}
-
 async function backfillV6(): Promise<{message:string, error: Error|undefined}> {
   return await v6_backfill();
-}
-
-async function gapFillV4(): Promise<{message:string, error: Error|undefined}> {
-  return await v4_gapfill();
-}
-
-async function gapFillV5(): Promise<{message:string, error: Error|undefined}> {
-  return await v5_gapfill();
 }
 
 async function gapFillV6(): Promise<{message:string, error: Error|undefined}> {
@@ -373,29 +272,9 @@ async function priceHandler(): Promise<{message:string, error: Error|undefined}>
   return await updatePrices();
 }
 
-// async function snapshotV3(): Promise<{message:string, error: Error|undefined}> {
-//   return await captureTokenBalanceSnapshotV3();
-// }
-
-async function snapshotV4(): Promise<{message:string, error: Error|undefined}> {
-  return await captureTokenBalanceSnapshotV4();
-}
-
-async function snapshotV5(): Promise<{message:string, error: Error|undefined}> {
-  return await captureTokenBalanceSnapshotV5();
-}
-
 async function snapshotV6(): Promise<{message:string, error: Error|undefined}> {
   return await captureTokenBalanceSnapshotV6();
 }
-
-// async function reprocess() {
-//   console.log("Reprocessing called")
-//   let start = new Date();
-//   let res = await backfillTransactions(true);
-//   let end = new Date();
-//   console.log("Reprocessing complete")
-// }
 
 // Run the main function
 if (process.env.REPROCESS == "true") {

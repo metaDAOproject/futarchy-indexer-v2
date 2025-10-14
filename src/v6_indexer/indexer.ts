@@ -7,7 +7,11 @@ import * as anchor from "@coral-xyz/anchor";
 import { CompiledInnerInstruction, PublicKey, TransactionResponse, VersionedTransactionResponse, Context, Logs, } from "@solana/web3.js";
 
 import { schema, db } from "@metadaoproject/indexer-db";
-import { connection, conditionalVaultClient, launchpadClient, futarchyClient } from "./connection";
+import { connection,
+  //  conditionalVaultClient,
+   launchpadClient,
+   futarchyClient,
+   } from "./connection";
 
 import { log } from "../logger/logger";
 
