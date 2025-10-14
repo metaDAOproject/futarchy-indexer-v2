@@ -1832,37 +1832,6 @@ export const v0_6_proposals = pgTable("v0_6_proposals", {
   questionIdx: index("v0_6_proposals_question_index").on(table.questionAddr),
 }));
 
-export const v0_6_funding_records = pgTable("v0_6_funding_records", {
-  fundingRecordAddr: pubkey("funding_record_addr").primaryKey(),
-  launchAddr: pubkey("launch_addr")
-    .notNull()
-    .references(() => v0_6_launches.launchAddr),
-  funderAddr: pubkey("funder_addr").notNull(),
-  committedAmount: bigint("committed_amount", { mode: "bigint" }).notNull(),
-  seqNum: bigint("seq_num", { mode: "bigint" }).notNull(),
-  isTokensClaimed: boolean("is_tokens_claimed").notNull().default(false),
-  isUsdcRefunded: boolean("is_usdc_refunded").notNull().default(false),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .default(sql`now()`),
-  updatedAtSlot: slot("updated_at_slot").default(sql`0`).notNull(),
-});
-
-export const v0_6_funds = pgTable("v0_6_funds", {
-  fundingRecordAddr: pubkey("funding_record_addr").notNull().references(() => v0_6_funding_records.fundingRecordAddr),
-  txSignature: transaction("tx_signature").notNull().references(() => signatures.signature),
-  launchAddr: pubkey("launch_addr").notNull().references(() => v0_6_launches.launchAddr),
-  funderAddr: pubkey("funder_addr").notNull(),
-  slot: slot("slot").notNull(),
-  timestamp: timestamp("timestamp", { withTimezone: true }).notNull(),
-  quoteAmount: numeric("quote_amount", { precision: 20, scale: 0 }).notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .default(sql`now()`),
-}, (table) => ({
-  pk: primaryKey({ columns: [table.fundingRecordAddr, table.txSignature]}),
-}));
-
 export const v0_6_staking_record = pgTable("v0_6_staking_record", {
   stakeAddr: pubkey("stake_addr").primaryKey(),
   proposalAddr: pubkey("proposal_addr")
@@ -1879,9 +1848,7 @@ export const v0_6_staking_record = pgTable("v0_6_staking_record", {
 
 export const v0_6_stakes = pgTable("v0_6_stakes", {
   stakeAddr: pubkey("stake_addr").notNull().references(() => v0_6_staking_record.stakeAddr),
-  proposalAddr: pubkey("proposal_addr")
-    .notNull()
-    .references(() => v0_6_proposals.proposalAddr),
+  proposalAddr: pubkey("proposal_addr").notNull().references(() => v0_6_proposals.proposalAddr),
   txSignature: transaction("tx_signature").notNull().references(() => signatures.signature),
   stakerAddr: pubkey("stake_addr").notNull(),
   amount: biggerTokenAmount("amount"),
