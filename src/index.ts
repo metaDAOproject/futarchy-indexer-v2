@@ -55,11 +55,15 @@ async function main() {
   let res = await backfillV3()
   let end = new Date();
   let { message, error } = res;
-
+  let totalPreviousErrors = error ? 1 : 0;
   healthMap.set("backfillV3", new CronRunResult("backfillV3", message, error, start, end, error ? 1 : 0));
 
   // now lets do v4
-  let totalPreviousErrors = error ? 1 : 0;
+  start = new Date();
+  res = await backfillV4()
+  end = new Date();
+  ({ message, error } = res);
+  totalPreviousErrors = error ? 1 : 0;
   healthMap.set("backfillV4", new CronRunResult("backfillV4", message, error, start, end, error ? 1 : 0));
 
   // now lets frontfill v4
@@ -67,6 +71,7 @@ async function main() {
   res = await gapFillV4()
   end = new Date();
   ({ message, error } = res);
+  totalPreviousErrors = error ? 1 : 0;
   healthMap.set("gapFillV4", new CronRunResult("gapFillV4", message, error, start, end, error ? 1 : 0));
 
   // time for v5
@@ -74,6 +79,7 @@ async function main() {
   res = await backfillV5()
   end = new Date();
   ({ message, error } = res);
+  totalPreviousErrors = error ? 1 : 0;
   healthMap.set("backfillV5", new CronRunResult("backfillV5", message, error, start, end, error ? 1 : 0));
 
   //now lets frontfill v5
@@ -81,6 +87,7 @@ async function main() {
   res = await gapFillV5()
   end = new Date();
   ({ message, error } = res);
+  totalPreviousErrors = error ? 1 : 0;
   healthMap.set("gapFillV5", new CronRunResult("gapFillV5", message, error, start, end, error ? 1 : 0));
 
   //lets start our crons now
