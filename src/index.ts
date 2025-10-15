@@ -302,7 +302,7 @@ async function backfillV3(): Promise<{ message:string, error: Error | undefined 
   const backfillTasks = [
     { fn: backfillDaos, name: 'backfillDaos' },
     { fn: backfillProposals, name: 'backfillProposals' },
-    { fn: backfillTokenSupply, name: 'backfillTokenSupply' },
+    // { fn: backfillTokenSupply, name: 'backfillTokenSupply' },
     { fn: backfillTransactions, name: 'backfillTransactions' }
   ];
 
