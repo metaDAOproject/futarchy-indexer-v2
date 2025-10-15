@@ -30,18 +30,18 @@ export async function updatePrices(): Promise<{
   try {
     const startTime = performance.now();
     //get all the daos that are not hidden
-    // const v3Query = db.$with("v3").as(
-    //   db
-    //     .select({
-    //       baseAcct: schema.daos.baseAcct,
-    //     })
-    //     .from(schema.daos)
-    //     .leftJoin(
-    //       schema.daoDetails,
-    //       eq(schema.daoDetails.daoId, schema.daos.daoId)
-    //     )
-    //     .where(eq(schema.daoDetails.isHide, false))
-    // );
+    const v3Query = db.$with("v3").as(
+      db
+        .select({
+          baseAcct: schema.daos.baseAcct,
+        })
+        .from(schema.daos)
+        .leftJoin(
+          schema.daoDetails,
+          eq(schema.daoDetails.daoId, schema.daos.daoId)
+        )
+        .where(eq(schema.daoDetails.isHide, false))
+    );
 
     const v4Query = db.$with("v4").as(
       db
@@ -75,28 +75,12 @@ export async function updatePrices(): Promise<{
         .where(eq(schema.organizations.isHide, false))
     );
 
-    const v6Query = db.$with("v6").as(
-      db
-        .select({
-          baseAcct: schema.v0_6_daos.baseMintAcct,
-        })
-        .from(schema.v0_6_daos)
-        .leftJoin(
-          schema.organizations,
-          eq(
-            schema.v0_6_daos.organizationId,
-            schema.organizations.organizationId
-          )
-        )
-        .where(eq(schema.organizations.isHide, false))
-    );
 
     const results = await db
-      .with(v4Query, v5Query, v6Query) 
+      .with(v4Query, v5Query) 
       .select()
       .from(v4Query)
       .union(db.with(v5Query).select().from(v5Query))
-      .union(db.with(v6Query).select().from(v6Query)) 
       .execute();
 
     let ids = "";
