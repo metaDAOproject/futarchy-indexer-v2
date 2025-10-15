@@ -86,7 +86,6 @@ export async function updatePrices(): Promise<{
     let missingPrices = [];
     let errors = [];
     
-    // v3 response structure is different - no nested data object
     for (const [tokenId, priceData] of Object.entries(data)) {
       if (priceData) {
         const pd = priceData as PriceData;

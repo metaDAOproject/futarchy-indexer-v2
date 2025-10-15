@@ -1,8 +1,7 @@
 import { Context, Logs, PublicKey } from "@solana/web3.js";
 import { log } from "./logger/logger";
 import { connection } from "./v6_indexer/connection";
-import { FUTARCHY_PROGRAM_ID as V6_FUTARCHY_PROGRAM_ID, LAUNCHPAD_PROGRAM_ID as V6_LAUNCHPAD_PROGRAM_ID} from "@metadaoproject/futarchy/v0.6";
-import { TOKEN_MIGRATOR_PROGRAM_ID } from "@metadaoproject/token-migrator/v0.1";
+import { FUTARCHY_PROGRAM_ID as V6_FUTARCHY_PROGRAM_ID, LAUNCHPAD_PROGRAM_ID as V6_LAUNCHPAD_PROGRAM_ID, CONDITIONAL_VAULT_PROGRAM_ID as V4_CONDITIONAL_VAULT_PROGRAM_ID} from "@metadaoproject/futarchy/v0.6";
 import { v6IndexFromLogs } from "./v6_indexer/indexer";
 
 const logger = log.child({
@@ -50,8 +49,7 @@ export async function subscribeAll() {
   const programIds = [
     V6_FUTARCHY_PROGRAM_ID,
     V6_LAUNCHPAD_PROGRAM_ID,
-    // TOKEN_MIGRATOR_PROGRAM_ID,
-    // V4_CONDITIONAL_VAULT_PROGRAM_ID, might still need this
+    // V4_CONDITIONAL_VAULT_PROGRAM_ID, 
   ];
   console.log("Subscribing to logs");
   for (const programId of programIds) {
@@ -61,13 +59,6 @@ export async function subscribeAll() {
 }
 
 async function processLogs(logs: Logs, ctx: Context, programId: PublicKey) {
-  // if (programId.equals(V4_CONDITIONAL_VAULT_PROGRAM_ID)) {
-    
-  //   await indexV6(logs, ctx, programId); if needed
-    
-  //   return; 
-  // }
-
   if (programId.equals(V6_FUTARCHY_PROGRAM_ID) || programId.equals(V6_LAUNCHPAD_PROGRAM_ID)) {
     await indexV6(logs, ctx, programId);
   } 
