@@ -5,6 +5,7 @@ import { captureTokenBalanceSnapshotV6 } from "./v6_indexer/snapshot";
 import { CronJob } from "cron";
 import http from "http";
 import { updatePrices } from "./priceHandler";
+import { backfillMissing } from "./v6_indexer/backfillMissing";
 
 const appStartTime = new Date();
 
@@ -40,6 +41,10 @@ let subscriptionHealth: any = null;
 let subscriptionLastHealthUpdate: Date | null = null;
 
 async function main() {
+  if (process.env.BACKFILL_MISSING === 'true' && process.env.LAUNCH_ADDR) {
+    await backfillMissing(process.env.LAUNCH_ADDR);
+    return;
+  }
   if (process.env.IS_SUBSCRIPTION_WORKER === 'true') {
     await runSubscriptionWorker();
     return; 
