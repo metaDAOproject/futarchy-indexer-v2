@@ -354,14 +354,13 @@ async function handleLaunchFundedEvent(event: LaunchFundedEvent, signature: stri
       const [existingFund] = await trx.select()
         .from(schema.v0_6_funds)
         .where(and(
-          eq(schema.v0_6_funds.funderAddr, event.funder.toString()),
-          eq(schema.v0_6_funds.launchAddr, event.launch.toString()),
-          eq(schema.v0_6_funds.slot, BigInt(event.common.slot.toString()))
+          eq(schema.v0_6_funds.fundingRecordAddr, event.fundingRecord.toString()),
+          eq(schema.v0_6_funds.txSignature, signature)
         ))
         .limit(1);
 
       if (existingFund) {
-        logger.info(`Fund already exists for launch ${event.launch.toString()} by ${event.funder.toString()} at slot ${existingFund.slot.toString()}`);
+        logger.info(`Fund already exists for funding record ${event.fundingRecord.toString()} with signature: ${signature}`);
         return;
       }
 
@@ -426,7 +425,9 @@ async function handleLaunchFundedEvent(event: LaunchFundedEvent, signature: stri
         slot: BigInt(event.common.slot.toString()),
         timestamp: new Date(event.common.unixTimestamp.mul(new BN(1000)).toNumber()),
         quoteAmount: event.amount.toString(),
-      }).onConflictDoNothing();
+      }).onConflictDoNothing({
+        target: [schema.v0_6_funds.fundingRecordAddr, schema.v0_6_funds.txSignature]
+      });
 
       if (existingLaunch && highestSquenceNumber > existingLaunch.seqNum) {
         await trx.update(schema.v0_6_launches).set({
@@ -836,7 +837,7 @@ async function handleUnstakeFromProposalEvent(event: UnstakeFromProposalEvent, s
         proposalAddr: event.proposal.toString(),
         txSignature: signature,
         stakerAddr: event.staker.toString(),
-        amount: event.amount.toString(),
+        amount: (event.amount).toString(), // Negative amount for unstake
         type: "unstake",
         slot: BigInt(event.common.slot.toString()),
         timestamp: new Date(event.common.unixTimestamp.mul(new BN(1000)).toNumber()),
