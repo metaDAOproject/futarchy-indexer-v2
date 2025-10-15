@@ -1837,8 +1837,7 @@ export const v0_6_staking_record = pgTable("v0_6_staking_record", {
   proposalAddr: pubkey("proposal_addr")
     .notNull()
     .references(() => v0_6_proposals.proposalAddr),
-  stakerAddr: pubkey("stake_addr").notNull(),
-  amount: biggerTokenAmount("amount"),
+  stakerAddr: pubkey("staker_addr").notNull(),
   totalStaked: biggerTokenAmount("total_staked"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
@@ -1850,9 +1849,11 @@ export const v0_6_stakes = pgTable("v0_6_stakes", {
   stakeAddr: pubkey("stake_addr").notNull().references(() => v0_6_staking_record.stakeAddr),
   proposalAddr: pubkey("proposal_addr").notNull().references(() => v0_6_proposals.proposalAddr),
   txSignature: transaction("tx_signature").notNull().references(() => signatures.signature),
-  stakerAddr: pubkey("stake_addr").notNull(),
+  stakerAddr: pubkey("staker_addr").notNull(),
   amount: biggerTokenAmount("amount"),
+  type: varchar("type", { length: 10 }).notNull(), // "stake" or "unstake"
   slot: slot("slot").notNull(),
+  timestamp: timestamp("timestamp", { withTimezone: true }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .default(sql`now()`),

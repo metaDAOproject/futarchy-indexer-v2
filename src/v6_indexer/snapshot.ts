@@ -5,7 +5,6 @@ import { updateOrInsertTokenBalance } from "./utils";
 import { connection, conditionalVaultClient, futarchyClient } from "./connection";
 import { db, schema, eq, inArray, and } from "@metadaoproject/indexer-db";
 import * as splToken from '@solana/spl-token';
-import { ammClient } from "src/connection";
 
 const logger = log.child({
   module: "V6_Dashboard_Snapshots",

@@ -30,94 +30,175 @@ const logger = log.child({
 
 type DBConnection = any; // TODO: Fix typing..
 
-// export async function processVaultEvent(event: { name: string; data: ConditionalVaultEvent }, signature: string, transactionResponse: VersionedTransactionResponse) {
-//   switch (event.name) {
-//     case "InitializeQuestionEvent":
-//       await handleInitializeQuestionEvent(event.data as InitializeQuestionEvent);
-//       break;
-//     case "RedeemTokensEvent":
-//       await handleRedeemEvent(event.data as RedeemTokensEvent, signature, transactionResponse);
-//       break;
-//     case "InitializeConditionalVaultEvent":
-//       await handleInitializeConditionalVaultEvent(event.data as InitializeConditionalVaultEvent);
-//       break;
-//     case "SplitTokensEvent":
-//       await handleSplitEvent(event.data as SplitTokensEvent, signature, transactionResponse);
-//       break;
-//     case "MergeTokensEvent":
-//       await handleMergeEvent(event.data as MergeTokensEvent, signature, transactionResponse);
-//       break;
-//     case "ResolveQuestionEvent":
-//       await handleResolveQuestionEvent(event.data as ResolveQuestionEvent, signature, transactionResponse);
-//       break;
-//     default:
-//       logger.info("Unknown Vault event", event.name);
-//   }
-// }
+export async function processVaultEvent(event: { name: string; data: ConditionalVaultEvent }, signature: string, transactionResponse: VersionedTransactionResponse) {
+  switch (event.name) {
+    case "InitializeQuestionEvent":
+      await handleInitializeQuestionEvent(event.data as InitializeQuestionEvent);
+      break;
+    case "RedeemTokensEvent":
+      await handleRedeemEvent(event.data as RedeemTokensEvent, signature, transactionResponse);
+      break;
+    case "InitializeConditionalVaultEvent":
+      await handleInitializeConditionalVaultEvent(event.data as InitializeConditionalVaultEvent);
+      break;
+    case "SplitTokensEvent":
+      await handleSplitEvent(event.data as SplitTokensEvent, signature, transactionResponse);
+      break;
+    case "MergeTokensEvent":
+      await handleMergeEvent(event.data as MergeTokensEvent, signature, transactionResponse);
+      break;
+    case "ResolveQuestionEvent":
+      await handleResolveQuestionEvent(event.data as ResolveQuestionEvent, signature, transactionResponse);
+      break;
+    default:
+      logger.info("Unknown Vault event", event.name);
+  }
+}
 
-// async function handleInitializeQuestionEvent(event: InitializeQuestionEvent) {
-//   try {
+async function handleInitializeQuestionEvent(event: InitializeQuestionEvent) {
+  try {
 
-//     const values: typeof schema.v0_6_questions.$inferInsert = {
-//       questionAddr: event.question.toString(),
-//       oracleAddr: event.oracle.toString(),
-//       payoutNumerators: Array(event.numOutcomes).fill(0),
-//       payoutDenominator: 0n,
-//       questionId: event.questionId,
-//     };
+    const values: typeof schema.v0_6_questions.$inferInsert = {
+      questionAddr: event.question.toString(),
+      oracleAddr: event.oracle.toString(),
+      payoutNumerators: Array(event.numOutcomes).fill(0),
+      payoutDenominator: 0n,
+      questionId: event.questionId,
+    };
     
-//     await db.insert(schema.v0_6_questions)
-//       .values(values)
-//       .onConflictDoNothing();
+    await db.insert(schema.v0_6_questions)
+      .values(values)
+      .onConflictDoNothing();
     
-//   } catch (error) {
-//     logger.error(error, "Error in handleInitializeQuestionEvent");
-//   }
-// }
+  } catch (error) {
+    logger.error(error, "Error in handleInitializeQuestionEvent");
+  }
+}
 
-// async function handleRedeemEvent(event: RedeemTokensEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
-//   try {
-//     await updateConditionalTokenBalancesForVaultEvents(
-//       db,
-//       new PublicKey(event.vault.toString()),
-//       new PublicKey(event.user.toString()),
-//       signature,
-//       transactionResponse.slot.toString(),
-//       transactionResponse.blockTime ?? null
-//     );
-//   } catch (error) {
-//     logger.error(error, "Error in handleRedeemEvent");
-//   }
-// }
+async function handleRedeemEvent(event: RedeemTokensEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+  try {
+    await updateConditionalTokenBalancesForVaultEvents(
+      db,
+      new PublicKey(event.vault.toString()),
+      new PublicKey(event.user.toString()),
+      signature,
+      transactionResponse.slot.toString(),
+      transactionResponse.blockTime ?? null
+    );
+  } catch (error) {
+    logger.error(error, "Error in handleRedeemEvent");
+  }
+}
 
-// async function handleResolveQuestionEvent(event: ResolveQuestionEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
-//   try {
-//     logger.info("Resolving question", event.question.toString());
+async function handleResolveQuestionEvent(event: ResolveQuestionEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+  try {
+    logger.info("Resolving question", event.question.toString());
 
-//     let payoutDenominator = 0;
-//     for (const numerator of event.payoutNumerators) {
-//       payoutDenominator += numerator;
-//     }
-//     await db.update(schema.v0_6_questions).set({
-//       payoutNumerators: event.payoutNumerators,
-//       payoutDenominator: BigInt(payoutDenominator),
-//     }).where(eq(schema.v0_6_questions.questionAddr, event.question.toString()));
+    let payoutDenominator = 0;
+    for (const numerator of event.payoutNumerators) {
+      payoutDenominator += numerator;
+    }
+    await db.update(schema.v0_6_questions).set({
+      payoutNumerators: event.payoutNumerators,
+      payoutDenominator: BigInt(payoutDenominator),
+    }).where(eq(schema.v0_6_questions.questionAddr, event.question.toString()));
 
-//     //update v5 metric decisions
-//     //completed at = now
-//     await db.update(schema.v0_5_metric_decisions).set({
-//       completedAt: new Date(),
-//     }).where(
-//       or(
-//         eq(schema.v0_5_metric_decisions.outcomeQuestionAddr, event.question.toString()),
-//         eq(schema.v0_5_metric_decisions.metricQuestionAddr, event.question.toString())
-//       )
-//     );
 
-//   } catch (error) {
-//     logger.error(error, "Error in handleResolveQuestionEvent");
-//   }
-// }
+    await db.update(schema.v0_5_metric_decisions).set({
+      completedAt: new Date(),
+    }).where(
+      or(
+        eq(schema.v0_5_metric_decisions.outcomeQuestionAddr, event.question.toString()),
+        eq(schema.v0_5_metric_decisions.metricQuestionAddr, event.question.toString())
+      )
+    );
+
+  } catch (error) {
+    logger.error(error, "Error in handleResolveQuestionEvent");
+  }
+}
+
+async function handleInitializeConditionalVaultEvent(event: InitializeConditionalVaultEvent) {
+  try {
+    const vaultAddr = getVaultAddr(conditionalVaultClient.vaultProgram.programId, event.question, event.underlyingTokenMint)[0];
+    
+    await db.transaction(async (trx: DBTransaction) => {
+      if (!await doesQuestionExist(trx, event)) {
+        return;
+      }
+      await insertTokenIfNotExists(trx, event.underlyingTokenMint);
+      await insertTokenAccountIfNotExists(trx, event);
+      await insertConditionalVault(trx, event, vaultAddr);
+    });
+    
+  } catch (error) {
+    logger.error(error, "Error in handleInitializeConditionalVaultEvent");
+  }
+}
+
+async function handleSplitEvent(event: SplitTokensEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+  try {
+    const insertValues = {
+      vaultAddr: event.vault.toString(),
+      vaultSeqNum: BigInt(event.seqNum.toString()),
+      signature: signature,
+      slot: transactionResponse.slot.toString(),
+      amount: BigInt(event.amount.toString())
+      // Note: createdAt will be set automatically by the default value
+    };
+   
+    // First verify the vault exists
+    const vault = await db.select()
+      .from(schema.v0_4_conditional_vaults)
+      .where(eq(schema.v0_4_conditional_vaults.conditionalVaultAddr, event.vault.toString()))
+      .limit(1);
+
+    if (vault.length === 0) {
+      logger.warn("Warning: Referenced vault does not exist:", event.vault.toString());
+    }
+
+    await db.insert(schema.v0_5_splits)
+      .values(insertValues)
+      .onConflictDoNothing();
+
+    await updateConditionalTokenBalancesForVaultEvents(
+      db,
+      new PublicKey(event.vault.toString()),
+      new PublicKey(event.user.toString()),
+      signature,
+      transactionResponse.slot.toString(),
+      transactionResponse.blockTime ?? null
+    );
+    
+  } catch (error) {
+    logger.error(error, "Error in handleSplitEvent");
+  }
+}
+
+async function handleMergeEvent(event: MergeTokensEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+  try {
+    
+    await db.insert(schema.v0_5_merges).values({
+      vaultAddr: event.vault.toString(),
+      vaultSeqNum: BigInt(event.seqNum.toString()),
+      signature: signature,
+      slot: transactionResponse.slot.toString(),
+      amount: BigInt(event.amount.toString())
+    }).onConflictDoNothing();
+
+    await updateConditionalTokenBalancesForVaultEvents(
+      db,
+      new PublicKey(event.vault.toString()),
+      new PublicKey(event.user.toString()),
+      signature,
+      transactionResponse.slot.toString(),
+      transactionResponse.blockTime ?? null
+    );
+    
+  } catch (error) {
+    logger.error(error, "Error in handleMergeEvent");
+  }
+}
 
 export async function processLaunchpadEvent(event: { name: string; data: LaunchpadEvent }, signature: string, transactionResponse: VersionedTransactionResponse) { 
   switch (event.name) {
@@ -345,7 +426,9 @@ async function handleLaunchFundedEvent(event: LaunchFundedEvent, signature: stri
         slot: BigInt(event.common.slot.toString()),
         timestamp: new Date(event.common.unixTimestamp.mul(new BN(1000)).toNumber()),
         quoteAmount: event.amount.toString(),
-      }).onConflictDoNothing();
+      }).onConflictDoNothing({
+        target: [schema.v0_6_funds.fundingRecordAddr, schema.v0_6_funds.txSignature]
+      });
 
       if (existingLaunch && highestSquenceNumber > existingLaunch.seqNum) {
         await trx.update(schema.v0_6_launches).set({
@@ -509,12 +592,12 @@ export async function processFutarchyEvent(event: { name: string; data: Futarchy
     case "InitializeProposalEvent":
       await handleInitializeProposalEvent(event.data as InitializeProposalEvent, signature, transactionResponse);
       break;
-    // case "StakeToProposalEvent":
-    //   await handleStakeToProposalEvent(event.data as StakeToProposalEvent, signature, transactionResponse);
-    //   break;
-    // case "UnstakeFromProposalEvent":
-    //   await handleUnstakeFromProposalEvent(event.data as UnstakeFromProposalEvent, signature, transactionResponse);
-    //   break;
+    case "StakeToProposalEvent":
+      await handleStakeToProposalEvent(event.data as StakeToProposalEvent, signature, transactionResponse);
+      break;
+    case "UnstakeFromProposalEvent":
+      await handleUnstakeFromProposalEvent(event.data as UnstakeFromProposalEvent, signature, transactionResponse);
+      break;
     case "LaunchProposalEvent":
       await handleLaunchProposalEvent(event.data as LaunchProposalEvent, signature, transactionResponse);
       break;
@@ -633,40 +716,140 @@ async function handleInitializeProposalEvent(event: InitializeProposalEvent, sig
   }
 }
 
-// async function handleStakeToProposalEvent(event: StakeToProposalEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
-//   try {
-//     await db.transaction(async (trx: DBTransaction) => {
-//       // Update proposal's totalStaked amount and state if it transitions to Pending
-//       const proposal = await trx.select()
-//         .from(schema.v0_6_proposals)
-//         .where(eq(schema.v0_6_proposals.proposalAddr, event.proposal.toString()))
-//         .limit(1);
+async function handleStakeToProposalEvent(event: StakeToProposalEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+  try {
+    await db.transaction(async (trx: DBTransaction) => {
+      // Check if proposal exists, if not fetch and upsert it
+      let proposal = await trx.select()
+        .from(schema.v0_6_proposals)
+        .where(eq(schema.v0_6_proposals.proposalAddr, event.proposal.toString()))
+        .limit(1);
 
-//       if (proposal.length === 0) {
-//         logger.warn(`Proposal ${event.proposal.toString()} not found for stake event`);
-//         return;
-//       }
+      if (proposal.length === 0) {
+        try {
+          const proposalAcct = await futarchyClient.fetchProposal(event.proposal);
+          if (proposalAcct) {
+            const blockTime = transactionResponse.blockTime ? new Date(transactionResponse.blockTime * 1000) : null;
+            await upsertV06Proposal(proposalAcct, event.proposal, BigInt(event.common.slot.toString()), blockTime, trx);
+            
+            // Re-fetch the proposal after upserting
+            proposal = await trx.select()
+              .from(schema.v0_6_proposals)
+              .where(eq(schema.v0_6_proposals.proposalAddr, event.proposal.toString()))
+              .limit(1);
+          } else {
+            logger.warn(`Proposal ${event.proposal.toString()} not found on-chain for stake event`);
+            return;
+          }
+        } catch (error) {
+          logger.error(error, `Error fetching proposal ${event.proposal.toString()} for stake event`);
+          return;
+        }
+      }
 
-//       // For simplicity, we'll just log the stake event
-//       // Full implementation would track individual stakes in a separate table
-//       logger.info(`Stake event: ${event.amount.toString()} staked to proposal ${event.proposal.toString()}, total staked: ${event.totalStaked.toString()}`);
-//     });
-//   } catch (error) {
-//     logger.error(error, "Error in handleStakeToProposalEvent");
-//   }
-// }
+      // Create or update staking record
+      await trx.insert(schema.v0_6_staking_record).values({
+        stakeAddr: event.staker.toString(),
+        proposalAddr: event.proposal.toString(),
+        stakerAddr: event.staker.toString(),
+        totalStaked: event.totalStaked.toString(),
+        updatedAtSlot: BigInt(event.common.slot.toString()),
+      }).onConflictDoUpdate({
+        target: schema.v0_6_staking_record.stakeAddr,
+        set: {
+          totalStaked: sql`CASE WHEN ${BigInt(event.common.slot.toString())} >= ${schema.v0_6_staking_record.updatedAtSlot} THEN ${BigInt(event.totalStaked.toString())} ELSE ${schema.v0_6_staking_record.totalStaked} END`,
+          updatedAtSlot: sql`GREATEST(${BigInt(event.common.slot.toString())}, ${schema.v0_6_staking_record.updatedAtSlot})`
+        }
+      });
 
-// async function handleUnstakeFromProposalEvent(event: UnstakeFromProposalEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
-//   try {
-//     await db.transaction(async (trx: DBTransaction) => {
-//       // Log the unstake event
-//       // Full implementation would track individual stakes in a separate table
-//       logger.info(`Unstake event: ${event.amount.toString()} unstaked from proposal ${event.proposal.toString()}, total remaining: ${event.totalStaked.toString()}`);
-//     });
-//   } catch (error) {
-//     logger.error(error, "Error in handleUnstakeFromProposalEvent");
-//   }
-// }
+      // Insert individual stake transaction
+      await trx.insert(schema.v0_6_stakes).values({
+        stakeAddr: event.staker.toString(),
+        proposalAddr: event.proposal.toString(),
+        txSignature: signature,
+        stakerAddr: event.staker.toString(),
+        amount: event.amount.toString(),
+        type: "stake",
+        slot: BigInt(event.common.slot.toString()),
+        timestamp: new Date(event.common.unixTimestamp.mul(new BN(1000)).toNumber()),
+      }).onConflictDoNothing({
+        target: [schema.v0_6_stakes.proposalAddr, schema.v0_6_stakes.txSignature]
+      });
+    });
+  } catch (error) {
+    logger.error(error, "Error in handleStakeToProposalEvent");
+  }
+}
+
+async function handleUnstakeFromProposalEvent(event: UnstakeFromProposalEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+  try {
+    await db.transaction(async (trx: DBTransaction) => {
+      // Check if proposal exists, if not fetch and upsert it
+      let proposal = await trx.select()
+        .from(schema.v0_6_proposals)
+        .where(eq(schema.v0_6_proposals.proposalAddr, event.proposal.toString()))
+        .limit(1);
+
+      if (proposal.length === 0) {
+        try {
+          const proposalAcct = await futarchyClient.fetchProposal(event.proposal);
+          if (proposalAcct) {
+            const blockTime = transactionResponse.blockTime ? new Date(transactionResponse.blockTime * 1000) : null;
+            await upsertV06Proposal(proposalAcct, event.proposal, BigInt(event.common.slot.toString()), blockTime, trx);
+            
+            // Re-fetch the proposal after upserting
+            proposal = await trx.select()
+              .from(schema.v0_6_proposals)
+              .where(eq(schema.v0_6_proposals.proposalAddr, event.proposal.toString()))
+              .limit(1);
+          } else {
+            logger.warn(`Proposal ${event.proposal.toString()} not found on-chain for unstake event`);
+            return;
+          }
+        } catch (error) {
+          logger.error(error, `Error fetching proposal ${event.proposal.toString()} for unstake event`);
+          return;
+        }
+      }
+
+      if (proposal[0].state !== V06ProposalState.Draft) {
+        logger.warn(`Proposal ${event.proposal.toString()} not in Draft state for unstake event, current state: ${proposal[0].state}`);
+        return;
+      }
+
+      // Update staking record with new totals
+      await trx.insert(schema.v0_6_staking_record).values({
+        stakeAddr: event.staker.toString(),
+        proposalAddr: event.proposal.toString(),
+        stakerAddr: event.staker.toString(),
+        totalStaked: event.totalStaked.toString(),
+        updatedAtSlot: BigInt(event.common.slot.toString()),
+      }).onConflictDoUpdate({
+        target: schema.v0_6_staking_record.stakeAddr,
+        set: {
+          totalStaked: sql`CASE WHEN ${BigInt(event.common.slot.toString())} >= ${schema.v0_6_staking_record.updatedAtSlot} THEN ${BigInt(event.totalStaked.toString())} ELSE ${schema.v0_6_staking_record.totalStaked} END`,
+          updatedAtSlot: sql`GREATEST(${BigInt(event.common.slot.toString())}, ${schema.v0_6_staking_record.updatedAtSlot})`
+        }
+      });
+
+      // Insert individual unstake transaction
+      await trx.insert(schema.v0_6_stakes).values({
+        stakeAddr: event.staker.toString(),
+        proposalAddr: event.proposal.toString(),
+        txSignature: signature,
+        stakerAddr: event.staker.toString(),
+        amount: event.amount.toString(),
+        type: "unstake",
+        slot: BigInt(event.common.slot.toString()),
+        timestamp: new Date(event.common.unixTimestamp.mul(new BN(1000)).toNumber()),
+      }).onConflictDoNothing({
+        target: [schema.v0_6_stakes.proposalAddr, schema.v0_6_stakes.txSignature]
+      });
+    });
+  } catch (error) {
+    logger.error(error, "Error in handleUnstakeFromProposalEvent");
+  }
+}
 
 async function handleLaunchProposalEvent(event: LaunchProposalEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {

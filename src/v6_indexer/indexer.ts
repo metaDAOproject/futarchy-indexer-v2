@@ -1,5 +1,5 @@
 import { 
-  // CONDITIONAL_VAULT_PROGRAM_ID,
+  CONDITIONAL_VAULT_PROGRAM_ID,
   LAUNCHPAD_PROGRAM_ID,
   FUTARCHY_PROGRAM_ID
  } from "@metadaoproject/futarchy/v0.6";
@@ -8,7 +8,7 @@ import { CompiledInnerInstruction, PublicKey, TransactionResponse, VersionedTran
 
 import { schema, db } from "@metadaoproject/indexer-db";
 import { connection,
-  //  conditionalVaultClient,
+   conditionalVaultClient,
    launchpadClient,
    futarchyClient,
    } from "./connection";
@@ -18,7 +18,7 @@ import { log } from "../logger/logger";
 import { 
   processFutarchyEvent, 
   processLaunchpadEvent, 
-  //processVaultEvent 
+  processVaultEvent 
   } from "./processor";
 
 const logger = log.child({
@@ -28,18 +28,18 @@ type DBConnection = any; // TODO: Fix typing..
 
 const parseEvents = (transactionResponse: VersionedTransactionResponse | TransactionResponse): { 
   futarchyEvents: any,
-  // vaultEvents: any,
+  vaultEvents: any,
   launchpadEvents: any 
 } => {
   const futarchyEvents: { name: string; data: any }[] = [];
-  // const vaultEvents: { name: string; data: any }[] = [];
+  const vaultEvents: { name: string; data: any }[] = [];
   const launchpadEvents: { name: string; data: any }[] = [];
 
   try {
     const inner: CompiledInnerInstruction[] =
       transactionResponse?.meta?.innerInstructions ?? [];
     const futarchyIdlProgramId = futarchyClient.autocrat.programId;
-    // const vaultIdlProgramId = conditionalVaultClient.vaultProgram.programId;
+    const vaultIdlProgramId = conditionalVaultClient.vaultProgram.programId;
     const launchpadIdlProgramId = launchpadClient.launchpad.programId;
 
     for (let i = 0; i < inner.length; i++) {
@@ -71,20 +71,20 @@ const parseEvents = (transactionResponse: VersionedTransactionResponse | Transac
           } catch (decodeError) {
             logger.warn(`Failed to decode futarchy event: ${decodeError instanceof Error ? decodeError.message : 'Unknown error'}`);
           }
-        // } else if (programPubkey.equals(vaultIdlProgramId)) {
-        //   program = conditionalVaultClient.vaultProgram;
-        //   const ixData = anchor.utils.bytes.bs58.decode(
-        //     ix.data
-        //   );
-        //   const eventData = anchor.utils.bytes.base64.encode(ixData.slice(8));
-        //   try {
-        //     const event = program.coder.events.decode(eventData);
-        //     if (event) {
-        //       vaultEvents.push(event);
-        //     }
-        //   } catch (decodeError) {
-        //     logger.warn(`Failed to decode vault event: ${decodeError instanceof Error ? decodeError.message : 'Unknown error'}`);
-        //   }
+        } else if (programPubkey.equals(vaultIdlProgramId)) {
+          program = conditionalVaultClient.vaultProgram;
+          const ixData = anchor.utils.bytes.bs58.decode(
+            ix.data
+          );
+          const eventData = anchor.utils.bytes.base64.encode(ixData.slice(8));
+          try {
+            const event = program.coder.events.decode(eventData);
+            if (event) {
+              vaultEvents.push(event);
+            }
+          } catch (decodeError) {
+            logger.warn(`Failed to decode vault event: ${decodeError instanceof Error ? decodeError.message : 'Unknown error'}`);
+          }
         } else if (programPubkey.equals(launchpadIdlProgramId)){
           program = launchpadClient.launchpad;
           const ixData = anchor.utils.bytes.bs58.decode(
@@ -112,7 +112,7 @@ const parseEvents = (transactionResponse: VersionedTransactionResponse | Transac
 
   return {
     futarchyEvents,
-    // vaultEvents,
+    vaultEvents,
     launchpadEvents,
   };
 }
@@ -158,7 +158,7 @@ export async function index(signature: string, programId: PublicKey) {
     
     const { 
       futarchyEvents,
-      // vaultEvents, 
+      vaultEvents, 
       launchpadEvents
       } = events;
 
@@ -166,9 +166,9 @@ export async function index(signature: string, programId: PublicKey) {
       await processFutarchyEvent(event, signature, transactionResponse);
     }));
 
-    // Promise.all(vaultEvents.map(async (event: any) => {
-    //   await processVaultEvent(event, signature, transactionResponse);
-    // }));
+    Promise.all(vaultEvents.map(async (event: any) => {
+      await processVaultEvent(event, signature, transactionResponse);
+    }));
 
     Promise.all(launchpadEvents.map(async (event: any) => {
       await processLaunchpadEvent(event, signature, transactionResponse);
