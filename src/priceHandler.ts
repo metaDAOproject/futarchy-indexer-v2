@@ -18,10 +18,7 @@ interface PriceData {
   priceChange24h: number;
 }
 // Jupiter pro url if we want to use it in the future
-const baseUrl =
-  process.env.JUPITER_API_KEY && process.env.JUPITER_API_KEY.length > 0
-    ? "https://api.jup.ag/price/v3?ids="
-    : "https://lite-api.jup.ag/price/v3?ids=";
+const baseUrl = "https://lite-api.jup.ag/price/v3?ids=";
 
 export async function updatePrices(): Promise<{
   message: string;

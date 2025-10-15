@@ -147,7 +147,8 @@ const insertNewSignatures = async (programId: PublicKey) => {
       oldestSignatureInserted = signatures[signatures.length - 1].signature;
 
       count += signatures.length;
-      logger.info(`inserted ${count} signatures so far for front filling...`);
+      logger.info(`inserted ${count} signatures so far for gap filling...`);
+      if (count >= (process.env.GAP_FILL_LIMIT ? Number(process.env.GAP_FILL_LIMIT) : 500)) break; // THIS SHOULD BE A VARIABLE
     } catch (e) {
       logger.error(`Program: ${programId.toString()} Request options: ${JSON.stringify(signaturesOptions)} Commitment: finalized`);
       throw Error(e as string);

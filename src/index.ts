@@ -62,10 +62,10 @@ async function main() {
   healthMap.set("gapFillV6", new CronRunResult("gapFillV6", message, error, start, end, error ? 1 : 0));
 
   //lets start our crons now
-  startCron("backfillV6", "0/20 * * * *", backfillV6);
-  startCron("gapFillV6", "30/20 * * * *", gapFillV6);
+  startCron("backfillV6", "*/20 * * * *", backfillV6);
+  startCron("gapFillV6", "*/16 * * * *", gapFillV6);
   startCron("priceHandler", "* * * * *", priceHandler);
-  startCron("snapshotV6", "0 */23 * * *", snapshotV6);
+  startCron("snapshotV6", "*/20 * * * *", snapshotV6);
 
   const server = http.createServer((req: any, res: any) => {
     const reqUrl = new URL(req.url, `http://${req.headers.host}`).pathname;
