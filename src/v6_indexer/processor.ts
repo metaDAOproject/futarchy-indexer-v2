@@ -426,9 +426,7 @@ async function handleLaunchFundedEvent(event: LaunchFundedEvent, signature: stri
         slot: BigInt(event.common.slot.toString()),
         timestamp: new Date(event.common.unixTimestamp.mul(new BN(1000)).toNumber()),
         quoteAmount: event.amount.toString(),
-      }).onConflictDoNothing({
-        target: [schema.v0_6_funds.fundingRecordAddr, schema.v0_6_funds.txSignature]
-      });
+      }).onConflictDoNothing();
 
       if (existingLaunch && highestSquenceNumber > existingLaunch.seqNum) {
         await trx.update(schema.v0_6_launches).set({
