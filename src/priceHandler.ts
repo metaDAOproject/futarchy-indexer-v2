@@ -77,9 +77,10 @@ export async function updatePrices(): Promise<{
 
 
     const results = await db
-      .with(v4Query, v5Query) 
+      .with(v3Query, v4Query, v5Query) 
       .select()
-      .from(v4Query)
+      .from(v3Query)
+      .union(db.with(v4Query).select().from(v4Query))
       .union(db.with(v5Query).select().from(v5Query))
       .execute();
 
