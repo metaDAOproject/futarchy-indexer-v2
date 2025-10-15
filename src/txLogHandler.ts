@@ -2,15 +2,13 @@ import { Context, Logs, PublicKey } from "@solana/web3.js";
 import { ptFromSignatureAndSlot } from "./v3_indexer/transaction/persistableTransaction";
 import { log } from "./logger/logger";
 import { connection } from "./v3_indexer/connection";
-import { FUTARCHY_PROGRAM_ID as V6_FUTARCHY_PROGRAM_ID, LAUNCHPAD_PROGRAM_ID as V6_LAUNCHPAD_PROGRAM_ID} from "@metadaoproject/futarchy/v0.6";
 import { AMM_PROGRAM_ID as V5_AMM_PROGRAM_ID, AUTOCRAT_PROGRAM_ID as V5_AUTOCRAT_PROGRAM_ID, LAUNCHPAD_PROGRAM_ID as V5_LAUNCHPAD_PROGRAM_ID } from "@metadaoproject/futarchy/v0.5";
 import { AMM_PROGRAM_ID as V4_AMM_PROGRAM_ID, AUTOCRAT_PROGRAM_ID as V4_AUTOCRAT_PROGRAM_ID, CONDITIONAL_VAULT_PROGRAM_ID as V4_CONDITIONAL_VAULT_PROGRAM_ID, LAUNCHPAD_PROGRAM_ID as V4_LAUNCHPAD_PROGRAM_ID } from "@metadaoproject/futarchy/v0.4";
-// import { AMM_PROGRAM_ID as V3_AMM_PROGRAM_ID, AUTOCRAT_PROGRAM_ID as V3_AUTOCRAT_PROGRAM_ID, CONDITIONAL_VAULT_PROGRAM_ID as V3_CONDITIONAL_VAULT_PROGRAM_ID } from "@metadaoproject/futarchy/v0.3";
+import { AMM_PROGRAM_ID as V3_AMM_PROGRAM_ID, AUTOCRAT_PROGRAM_ID as V3_AUTOCRAT_PROGRAM_ID, CONDITIONAL_VAULT_PROGRAM_ID as V3_CONDITIONAL_VAULT_PROGRAM_ID } from "@metadaoproject/futarchy/v0.3";
 import { TOKEN_MIGRATOR_PROGRAM_ID } from "@metadaoproject/token-migrator/v0.1";
-import { v6IndexFromLogs } from "./v6_indexer/indexer";
 import { v5IndexFromLogs } from "./v5_indexer/indexer";
 import { v4IndexFromLogs } from "./v4_indexer/indexer";
-// import { backfillProposals } from "./v3_indexer/backfill/proposals";
+import { backfillProposals } from "./v3_indexer/backfill/proposals";
 
 
 
@@ -57,8 +55,6 @@ async function subscribe(accountPubKey: PublicKey) {
 //asynchronously subscribes to logs for all programs
 export async function subscribeAll() {
   const programIds = [
-    V6_FUTARCHY_PROGRAM_ID,
-    V6_LAUNCHPAD_PROGRAM_ID,
     TOKEN_MIGRATOR_PROGRAM_ID,
     V5_LAUNCHPAD_PROGRAM_ID,
     V5_AMM_PROGRAM_ID,
@@ -67,9 +63,9 @@ export async function subscribeAll() {
     V4_AMM_PROGRAM_ID,
     V4_AUTOCRAT_PROGRAM_ID,
     V4_CONDITIONAL_VAULT_PROGRAM_ID,
-    // V3_AMM_PROGRAM_ID,
-    // V3_AUTOCRAT_PROGRAM_ID,
-    // V3_CONDITIONAL_VAULT_PROGRAM_ID,
+    V3_AMM_PROGRAM_ID,
+    V3_AUTOCRAT_PROGRAM_ID,
+    V3_CONDITIONAL_VAULT_PROGRAM_ID,
     // driftProgramId
   ];
   console.log("Subscribing to logs");
@@ -92,34 +88,32 @@ async function processLogs(logs: Logs, ctx: Context, programId: PublicKey) {
     await indexV4(logs, ctx, programId);
   } else if (programId.equals(V5_AMM_PROGRAM_ID) || programId.equals(V5_AUTOCRAT_PROGRAM_ID) || programId.equals(V5_LAUNCHPAD_PROGRAM_ID) || programId.equals(TOKEN_MIGRATOR_PROGRAM_ID)) {
     await indexV5(logs, ctx, programId);
-  // } else if (programId.equals(V3_AMM_PROGRAM_ID) || programId.equals(V3_CONDITIONAL_VAULT_PROGRAM_ID)) {
-  //   await indexV3(logs, ctx, programId);
-  // } else if (programId.equals(V3_AUTOCRAT_PROGRAM_ID)) {
-  //   await indexProposal(logs, ctx, programId);
-  } else if (programId.equals(V6_FUTARCHY_PROGRAM_ID) || programId.equals(V6_LAUNCHPAD_PROGRAM_ID)) {
-    await indexV6(logs, ctx, programId);
+  } else if (programId.equals(V3_AMM_PROGRAM_ID) || programId.equals(V3_CONDITIONAL_VAULT_PROGRAM_ID)) {
+    await indexV3(logs, ctx, programId);
+  } else if (programId.equals(V3_AUTOCRAT_PROGRAM_ID)) {
+    await indexProposal(logs, ctx, programId);
   }
   else {
     logger.error(`Unknown programId ${programId.toString()}`);
   }
 }
 
-// async function indexV3(logs: Logs, ctx: Context, programId: PublicKey) {
-//   //console.log("indexV3", logs, ctx, programId);
-//   const pt = await ptFromSignatureAndSlot(logs.signature, ctx.slot, logs, false);
-//   if (!pt) {
-//     return false;
-//   }
-//   await pt.persist();
-//   logger.info(`successfully persisted txLog: ${logs.signature} for account: ${programId.toBase58()}`);
-//   return true;
-// }
+async function indexV3(logs: Logs, ctx: Context, programId: PublicKey) {
+  //console.log("indexV3", logs, ctx, programId);
+  const pt = await ptFromSignatureAndSlot(logs.signature, ctx.slot, logs, false);
+  if (!pt) {
+    return false;
+  }
+  await pt.persist();
+  logger.info(`successfully persisted txLog: ${logs.signature} for account: ${programId.toBase58()}`);
+  return true;
+}
 
-// async function indexProposal(logs: Logs, ctx: Context, programId: PublicKey) {
-//   //this could be done better and properly index from the logs,
-//   //but this is a quick fix for now
-//   await backfillProposals();
-// }
+async function indexProposal(logs: Logs, ctx: Context, programId: PublicKey) {
+  //this could be done better and properly index from the logs,
+  //but this is a quick fix for now
+  await backfillProposals();
+}
 
 async function indexV4(logs: Logs, ctx: Context, programId: PublicKey) {
   await v4IndexFromLogs(logs, ctx, programId);
@@ -127,8 +121,4 @@ async function indexV4(logs: Logs, ctx: Context, programId: PublicKey) {
 
 async function indexV5(logs: Logs, ctx: Context, programId: PublicKey) {
   await v5IndexFromLogs(logs, ctx, programId);
-}
-
-async function indexV6(logs: Logs, ctx: Context, programId: PublicKey) {
-  await v6IndexFromLogs(logs, ctx, programId);
 }
