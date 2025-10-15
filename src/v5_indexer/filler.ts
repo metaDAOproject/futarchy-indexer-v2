@@ -112,7 +112,7 @@ const insertNewSignatures = async (programId: PublicKey) => {
   let count = 0;
 
   let signaturesOptions: SignaturesForAddressOptions = {
-    limit: 500,
+    limit: 1000,
     until: latestRecordedSignature,
   };
 
