@@ -44,7 +44,7 @@ let subscriptionHealth: any = null;
 let subscriptionLastHealthUpdate: Date | null = null;
 
 async function main() {
-  if (process.env.IS_SUBSCRIPTION_WORKER === 'true') {
+  if (process.env.IS_SUBSCRIPTION_WORKER && process.env.IS_SUBSCRIPTION_WORKER === 'true') {
     await runSubscriptionWorker();
     return; 
   }
@@ -302,7 +302,7 @@ async function backfillV3(): Promise<{ message:string, error: Error | undefined 
   const backfillTasks = [
     { fn: backfillDaos, name: 'backfillDaos' },
     { fn: backfillProposals, name: 'backfillProposals' },
-    // { fn: backfillTokenSupply, name: 'backfillTokenSupply' },
+    { fn: backfillTokenSupply, name: 'backfillTokenSupply' },
     { fn: backfillTransactions, name: 'backfillTransactions' }
   ];
 

@@ -15,6 +15,17 @@ const logger = log.child({
 });
 type DBConnection = any; // TODO: Fix typing..
 
+const KNOWN_IGNORED_PROGRAM_IDS = [
+  "11111111111111111111111111111111", // SystemProgram
+  "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", // TokenKeg
+  "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C", // Raydium
+  "reedm8Fd33kVxUUN9zHckwCxMvUPmNhY4A7BJWrCZ5A", // Redemption
+  "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr", // Memo
+  "BPFLoaderUpgradeab1e11111111111111111111111", // BPFLoaderUpgrade
+  "Sysvar1nstructions111111111111111111111", // Sysvar1nstructions
+  "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL", // Associated Token Program
+];
+
 const parseEvents = (transactionResponse: VersionedTransactionResponse | TransactionResponse): { ammEvents: any, vaultEvents: any, launchpadEvents: any, autocratEvents: any } => {
   const ammEvents: { name: string; data: any }[] = [];
   const vaultEvents: { name: string; data: any }[] = [];
@@ -89,7 +100,11 @@ const parseEvents = (transactionResponse: VersionedTransactionResponse | Transac
             autocratEvents.push(event);
           }
         } else {
-          logger.info(`Unknown program pubkey  ${programPubkey.toBase58()}`);
+          if(!KNOWN_IGNORED_PROGRAM_IDS.includes(programPubkey.toBase58())) {
+            // We don't need to log these as they are known to be ignored
+            // to reduce logs..
+            logger.info(`Unknown program pubkey  ${programPubkey.toBase58()}`);
+          }
         }
       }
     }
