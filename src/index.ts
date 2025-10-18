@@ -48,24 +48,24 @@ async function main() {
   startSubscriptionWorker();
 
    // time for v6
-  let start = new Date();
-  let res = await backfillV6()
-  let end = new Date();
-  let { message, error } = res;
-  healthMap.set("backfillV6", new CronRunResult("backfillV6", message, error, start, end, error ? 1 : 0));
+  // let start = new Date();
+  // let res = await backfillV6()
+  // let end = new Date();
+  // let { message, error } = res;
+  // healthMap.set("backfillV6", new CronRunResult("backfillV6", message, error, start, end, error ? 1 : 0));
 
   //now lets frontfill v6
-  start = new Date();
-  res = await gapFillV6()
-  end = new Date();
-  ({ message, error } = res);
-  healthMap.set("gapFillV6", new CronRunResult("gapFillV6", message, error, start, end, error ? 1 : 0));
+  // let start = new Date();
+  // let res  = await gapFillV6()
+  // let end = new Date();
+  // let { message, error } = res;
+  // healthMap.set("gapFillV6", new CronRunResult("gapFillV6", message, error, start, end, error ? 1 : 0));
 
   //lets start our crons now
-  startCron("backfillV6", "*/20 * * * *", backfillV6);
-  startCron("gapFillV6", "*/16 * * * *", gapFillV6);
+  //startCron("backfillV6", "*/20 * * * *", backfillV6);
+  // startCron("gapFillV6", "*/16 * * * *", gapFillV6);
   startCron("priceHandler", "* * * * *", priceHandler);
-  startCron("snapshotV6", "*/20 * * * *", snapshotV6);
+  //startCron("snapshotV6", "*/20 * * * *", snapshotV6);
 
   const server = http.createServer((req: any, res: any) => {
     const reqUrl = new URL(req.url, `http://${req.headers.host}`).pathname;
