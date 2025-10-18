@@ -41,36 +41,37 @@ let subscriptionHealth: any = null;
 let subscriptionLastHealthUpdate: Date | null = null;
 
 async function main() {
-  if (process.env.BACKFILL_MISSING === 'true' && process.env.LAUNCH_ADDR) {
-    await backfillMissing(process.env.LAUNCH_ADDR);
-    return;
-  }
-  if (process.env.IS_SUBSCRIPTION_WORKER === 'true') {
-    await runSubscriptionWorker();
-    return; 
-  }
+  //if (process.env.BACKFILL_MISSING === 'true' && process.env.LAUNCH_ADDR) {
+    
+    // return;
+  // }
+  // if (process.env.IS_SUBSCRIPTION_WORKER === 'true') {
+  //   await runSubscriptionWorker();
+  //   return; 
+  // }
 
-  startSubscriptionWorker();
+  // startSubscriptionWorker();
 
    // time for v6
   let start = new Date();
-  let res = await backfillV6()
+  let res = await backfillMissingV6();
   let end = new Date();
-  let { message, error } = res;
-  healthMap.set("backfillV6", new CronRunResult("backfillV6", message, error, start, end, error ? 1 : 0));
+  // let { message, error } = res;
+  // healthMap.set("backfillV6", new CronRunResult("backfillV6", message, error, start, end, error ? 1 : 0));
 
+  startCron("backfillMissing", "* * * * *", backfillMissingV6);
   //now lets frontfill v6
-  start = new Date();
-  res = await gapFillV6()
-  end = new Date();
-  ({ message, error } = res);
-  healthMap.set("gapFillV6", new CronRunResult("gapFillV6", message, error, start, end, error ? 1 : 0));
+  // start = new Date();
+  // res = await gapFillV6()
+  // end = new Date();
+  // ({ message, error } = res);
+  // healthMap.set("gapFillV6", new CronRunResult("gapFillV6", message, error, start, end, error ? 1 : 0));
 
-  //lets start our crons now
-  startCron("backfillV6", "*/20 * * * *", backfillV6);
-  startCron("gapFillV6", "*/16 * * * *", gapFillV6);
-  startCron("priceHandler", "* * * * *", priceHandler);
-  startCron("snapshotV6", "*/20 * * * *", snapshotV6);
+  // //lets start our crons now
+  // startCron("backfillV6", "*/20 * * * *", backfillV6);
+  // startCron("gapFillV6", "*/16 * * * *", gapFillV6);
+  // startCron("priceHandler", "* * * * *", priceHandler);
+  // startCron("snapshotV6", "*/20 * * * *", snapshotV6);
 
   const server = http.createServer((req: any, res: any) => {
     const reqUrl = new URL(req.url, `http://${req.headers.host}`).pathname;
@@ -265,20 +266,9 @@ function startCron(cronName: string, cronFrequency: string, cf: cronFunction) {
   cronJob.start();
 }
 
-async function backfillV6(): Promise<{message:string, error: Error|undefined}> {
-  return await v6_backfill();
-}
 
-async function gapFillV6(): Promise<{message:string, error: Error|undefined}> {
-  return await v6_gapfill();
-}
-
-async function priceHandler(): Promise<{message:string, error: Error|undefined}> {
-  return await updatePrices();
-}
-
-async function snapshotV6(): Promise<{message:string, error: Error|undefined}> {
-  return await captureTokenBalanceSnapshotV6();
+async function backfillMissingV6(): Promise<{message:string, error: Error|undefined}> {
+  return await backfillMissing(process.env.LAUNCH_ADDR || "");
 }
 
 // Run the main function

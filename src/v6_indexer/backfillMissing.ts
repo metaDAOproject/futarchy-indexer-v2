@@ -51,6 +51,8 @@ export async function backfillMissing(launchAddr: string): Promise<{message:stri
     return { message: `Launch ${launchAddr} does not exist`, error: new Error("Launch not found") };
   }
 
+  // TODO: Check the funding records too...
+
   // Create lookup maps for efficient comparison
   const existingFundsMap = new Map(existingFunds.map(fund => [fund.fundingRecordAddr, fund]));
   const existingFundingRecordsMap = new Map(existingFundingRecords.map(record => [record.fundingRecordAddr, record]));
@@ -63,7 +65,7 @@ export async function backfillMissing(launchAddr: string): Promise<{message:stri
   // Process each funding record
   for (const fundingRecord of filteredFundingRecords) {
     count++;
-    logger.info(`Processing funding record ${count} of ${filteredFundingRecords.length} for launch ${launchAddr}`);
+    logger.debug(`Processing funding record ${count} of ${filteredFundingRecords.length} for launch ${launchAddr}`);
     const fundingRecordAddr = fundingRecord.publicKey.toBase58();
     const existingFund = existingFundsMap.get(fundingRecordAddr);
     const existingFundingRecord = existingFundingRecordsMap.get(fundingRecordAddr);
@@ -94,19 +96,41 @@ export async function backfillMissing(launchAddr: string): Promise<{message:stri
         logger.warn(`Funding record ${fundingRecordAddr} does not exist, manual intervention needed`);
       }
     } else {
-      // New funding record to insert
-      logger.info(`Preparing to insert new funding record ${fundingRecordAddr}`);
       
-      fundingRecordsToInsert.push({
-        fundingRecordAddr,
-        launchAddr: fundingRecord.account.launch.toBase58(),
-        funderAddr: fundingRecord.account.funder.toBase58(),
-        committedAmount: BigInt(fundingRecord.account.committedAmount.toString()),
-        seqNum: BigInt(0),
-        isTokensClaimed: fundingRecord.account.isTokensClaimed,
-        isUsdcRefunded: fundingRecord.account.isUsdcRefunded,
-        updatedAtSlot: BigInt(0),
-      });
+      if (existingFundingRecord) {
+        const newCommittedAmount = BigInt(fundingRecord.account.committedAmount.toString());
+        
+        // Check if we need to update the committed amount
+        if (
+          existingFundingRecord.committedAmount !== newCommittedAmount &&
+          existingFundingRecord.committedAmount <= newCommittedAmount
+        ) {
+          logger.info(`Committed amount for funding record ${fundingRecordAddr} needs to be updated from ${existingFundingRecord.committedAmount} to ${newCommittedAmount}`);
+          
+          fundingRecordsToUpdate.push({
+            fundingRecordAddr,
+            committedAmount: newCommittedAmount,
+            isTokensClaimed: fundingRecord.account.isTokensClaimed,
+            isUsdcRefunded: fundingRecord.account.isUsdcRefunded,
+          });
+        } else {
+          logger.debug(`Committed amount for funding record ${fundingRecordAddr} is up to date`);
+        }
+      } else {
+        // New funding record to insert
+        logger.info(`Preparing to insert new funding record ${fundingRecordAddr}`);
+        fundingRecordsToInsert.push({
+          fundingRecordAddr,
+          launchAddr: fundingRecord.account.launch.toBase58(),
+          funderAddr: fundingRecord.account.funder.toBase58(),
+          committedAmount: BigInt(fundingRecord.account.committedAmount.toString()),
+          seqNum: BigInt(0),
+          isTokensClaimed: fundingRecord.account.isTokensClaimed,
+          isUsdcRefunded: fundingRecord.account.isUsdcRefunded,
+          updatedAtSlot: BigInt(0),
+        });
+      }
+      
     }
   }
 
