@@ -58,7 +58,7 @@ const backfillHistoricalSignatures = async (
         // Add delay between tasks to ensure we don't exceed 1 request per second
         const task = limit(async () => {
           await index(signature.signature, programId);
-          await delay(500); // Add 1 second delay between tasks
+          await delay(1000); // Add 1 second delay between tasks
         });
         tasks.push(task);
     }
@@ -98,7 +98,6 @@ const insertNewSignatures = async (programId: PublicKey) => {
   let latestRecordedSignature = await getLatestTxSigProcessed(programId.toString());
 
   let oldestSignatureInserted: string | undefined;
-  let count = 0;
 
   let signaturesOptions: SignaturesForAddressOptions = {
     limit: 1000,
@@ -130,7 +129,7 @@ const insertNewSignatures = async (programId: PublicKey) => {
           // This ensures we don't exceed 1 request per second
           const task = limit(async () => {
             await index(signature.signature, programId);
-            await delay(500); // Add 1 second delay between tasks
+            await delay(1000); // Add 1 second delay between tasks
           });
           tasks.push(task);
       }
@@ -146,9 +145,6 @@ const insertNewSignatures = async (programId: PublicKey) => {
       // Update the oldest signature we've processed for the next iteration
       oldestSignatureInserted = signatures[signatures.length - 1].signature;
 
-      count += signatures.length;
-      logger.info(`inserted ${count} signatures so far for gap filling...`);
-      if (count >= (process.env.GAP_FILL_LIMIT ? Number(process.env.GAP_FILL_LIMIT) : 500)) break; // THIS SHOULD BE A VARIABLE
     } catch (e) {
       logger.error(`Program: ${programId.toString()} Request options: ${JSON.stringify(signaturesOptions)} Commitment: finalized`);
       throw Error(e as string);
@@ -188,7 +184,7 @@ const insertSignatures = async (signatures: ConfirmedSignatureInfo[], queriedAdd
  * Updates the latest processed transaction signature in the indexers table
  * @param signature - The signature string to set as the latest processed
  */
-async function setLatestTxSigProcessed(signature: string, programId: string) {
+export async function setLatestTxSigProcessed(signature: string, programId: string) {
   try {
     logger.info(`setting latestTxSigProcessed to ${signature}`);
     await db.update(schema.indexers).set({ latestTxSigProcessed: signature }).where(eq(schema.indexers.name, programId)).execute(); 
@@ -201,7 +197,7 @@ async function setLatestTxSigProcessed(signature: string, programId: string) {
  * Retrieves the latest processed transaction signature from the indexers table
  * @returns The latest processed signature string, or undefined if none exists
  */
-async function getLatestTxSigProcessed(programId: string) {
+export async function getLatestTxSigProcessed(programId: string) {
   return await db.select({ signature: schema.indexers.latestTxSigProcessed })
       .from(schema.indexers)
       .where(eq(schema.indexers.name, programId)) //here
@@ -210,7 +206,7 @@ async function getLatestTxSigProcessed(programId: string) {
 }
 
 
-const programIds = [ V6_LAUNCHPAD_PROGRAM_ID, V6_FUTARCHY_PROGRAM_ID, V4_CONDITIONAL_VAULT_PROGRAM_ID]; 
+const programIds = [V6_LAUNCHPAD_PROGRAM_ID, V6_FUTARCHY_PROGRAM_ID]; 
 
 /**
  * Backfills historical signatures for all configured program IDs

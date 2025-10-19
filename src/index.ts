@@ -6,6 +6,9 @@ import { CronJob } from "cron";
 import http from "http";
 import { updatePrices } from "./priceHandler";
 import { backfillMissing } from "./v6_indexer/backfillMissing";
+import { LAUNCHPAD_PROGRAM_ID as V6_LAUNCHPAD_PROGRAM_ID } from "@metadaoproject/futarchy/v0.6";
+import { FUTARCHY_PROGRAM_ID as V6_FUTARCHY_PROGRAM_ID } from "@metadaoproject/futarchy/v0.6";
+import { insertNewSignaturesNew } from "./v6_indexer/fillAllMissing";
 
 const appStartTime = new Date();
 
@@ -52,19 +55,25 @@ async function main() {
 
   // startSubscriptionWorker();
 
-   // time for v6
   let start = new Date();
-  let res = await backfillMissingV6();
+  let res = await fillAllMissingV6();
   let end = new Date();
+  let { message, error } = res;
+  healthMap.set("fillAllMissingV6", new CronRunResult("fillAllMissingV6", message, error, start, end, error ? 1 : 0));
+
+   // time for v6
+  // let start = new Date();
+  // let res = await backfillMissingV6();
+  // let end = new Date();
   // let { message, error } = res;
   // healthMap.set("backfillV6", new CronRunResult("backfillV6", message, error, start, end, error ? 1 : 0));
 
-  startCron("backfillMissing", "* * * * *", backfillMissingV6);
+  // startCron("backfillMissing", "* * * * *", backfillMissingV6);
   //now lets frontfill v6
-  // start = new Date();
-  // res = await gapFillV6()
-  // end = new Date();
-  // ({ message, error } = res);
+  // let start = new Date();
+  // let res = await gapFillV6()
+  // let end = new Date();
+  // let { message, error } = res;
   // healthMap.set("gapFillV6", new CronRunResult("gapFillV6", message, error, start, end, error ? 1 : 0));
 
   // //lets start our crons now
@@ -269,6 +278,18 @@ function startCron(cronName: string, cronFrequency: string, cf: cronFunction) {
 
 async function backfillMissingV6(): Promise<{message:string, error: Error|undefined}> {
   return await backfillMissing(process.env.LAUNCH_ADDR || "");
+}
+
+async function gapFillV6(): Promise<{message:string, error: Error|undefined}> {
+  return await v6_gapfill();
+}
+
+async function fillAllMissingV6(): Promise<{message:string, error: Error|undefined}> {
+  return await insertNewSignaturesNew(V6_LAUNCHPAD_PROGRAM_ID).then(() => {
+    return { message: "fillAllMissingV6 completed", error: undefined };
+  }).catch((error: Error) => {
+    return { message: "fillAllMissingV6 failed", error: error };
+  });
 }
 
 // Run the main function

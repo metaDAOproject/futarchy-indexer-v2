@@ -16,7 +16,7 @@ const ACQUIRE_TIMEOUT = 10000;   // 10 second timeout for acquiring connection
 const poolConfig = {
   connectionString: connectionString,
   min: 3,
-  max: Number(maxDBConnections),
+  max: 12,
   idleTimeoutMillis: 5 * 1000,
   connectionTimeoutMillis: 5 * 1000,
   acquireTimeoutMillis: 60 * 1000,
