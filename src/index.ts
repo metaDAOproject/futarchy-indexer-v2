@@ -286,7 +286,7 @@ async function gapFillV6(): Promise<{message:string, error: Error|undefined}> {
 }
 
 async function fillAllMissingV6(): Promise<{message:string, error: Error|undefined}> {
-  return await insertNewSignaturesNew(V6_FUTARCHY_PROGRAM_ID).then(() => {
+  return await insertNewSignaturesNew(V6_LAUNCHPAD_PROGRAM_ID).then(() => {
     return { message: "fillAllMissingV6 completed", error: undefined };
   }).catch((error: Error) => {
     return { message: "fillAllMissingV6 failed", error: error };
