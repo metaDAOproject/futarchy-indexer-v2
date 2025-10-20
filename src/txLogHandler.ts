@@ -47,7 +47,7 @@ async function subscribe(accountPubKey: PublicKey) {
 //asynchronously subscribes to logs for all programs
 export async function subscribeAll() {
   const programIds = [
-    V6_FUTARCHY_PROGRAM_ID,
+    // V6_FUTARCHY_PROGRAM_ID,
     V6_LAUNCHPAD_PROGRAM_ID,
     // V4_CONDITIONAL_VAULT_PROGRAM_ID, 
   ];
