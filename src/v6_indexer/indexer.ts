@@ -26,6 +26,8 @@ const logger = log.child({
 });
 type DBConnection = any; // TODO: Fix typing..
 
+const FUTARCHY_INDEXABLE_EVENTS = ["InitializeProposal", "CollectFees", "UpdateDao", "InitializeDao", "StakeToProposal", "UnstakeFromProposal", "LaunchProposal", "FinalizeProposal", "ConditionalSwap", "ProvideLiquidity", "WithdrawLiquidity"];
+
 const parseEvents = (transactionResponse: VersionedTransactionResponse | TransactionResponse): { 
   futarchyEvents: any,
   vaultEvents: any,
@@ -190,7 +192,32 @@ export async function v6IndexFromLogs(logs: Logs, ctx: Context, programId: Publi
       logger.error( new Error("No signature found in logs"));
       return;
     }
-    await index(signature, programId);
+    if (programId.toBase58() === FUTARCHY_PROGRAM_ID.toBase58()) {
+      let isOnlySwap = false;
+      if(logs.logs.length === 0){
+        logger.info("No logs found in logs, indexing signature");
+        await index(signature, programId);
+      }
+      await Promise.all(logs.logs.map(async (_log: string) => {
+        // If it doesn't contain ANYTHING but a spotswap, then fail
+        if(_log.includes("SpotSwap")){
+          isOnlySwap = true;
+        } else if(FUTARCHY_INDEXABLE_EVENTS.includes(_log)) {
+          console.log(_log);
+          isOnlySwap = false;
+        }
+      }));
+
+      if(!isOnlySwap){
+        logger.debug("found a signature that is not only a SpotSwap");
+        logger.debug(logs.logs);
+        await index(signature, programId);
+      } else {
+        logger.debug("found a signature that is only a SpotSwap");
+      }
+    } else {
+      await index(signature, programId);
+    }
   } catch (error) {
     logger.error(
       error instanceof Error
