@@ -252,7 +252,7 @@ export async function insertMarketIfNotExists(db: DBConnection, market: Market) 
         marketAcct: market.marketAcct,
         baseMintAcct: market.baseMint,
         quoteMintAcct: market.quoteMint,
-        marketType: market.marketType || 'amm',
+        marketType: market.marketType,
         createTxSig: '',
         baseLotSize: 0n,
         quoteLotSize: 0n,
