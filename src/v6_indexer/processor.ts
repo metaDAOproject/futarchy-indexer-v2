@@ -6,20 +6,21 @@ import { V06LaunchState, V06ProposalState, V04SwapType } from "@metadaoproject/i
 import * as token from "@solana/spl-token";
 import { connection, conditionalVaultClient, futarchyClient, launchpadClient } from "./connection";
 import { 
-  insertTwapIfNotExists,
   updateOrInsertTokenBalance,
   updateConditionalTokenBalancesForVaultEvents,
   insertTokenIfNotExists,
   doesQuestionExist,
   insertTokenAccountIfNotExists,
-  insertMarketIfNotExists,
-  insertPriceIfNotDuplicate,
   insertConditionalVault,
   getVaultBalances,
   extractReservesFromAmmState,
   upsertV06Dao,
   upsertV06Proposal,
-  Market
+  Market,
+  getActiveProposalForDao,
+  insertIfNotExistsMarkets,
+  insertIfNotExistsPrices,
+  insertIfNotExistsTwaps
 } from "./utils";
 
 import { log } from "../logger/logger";
@@ -670,9 +671,6 @@ export async function processFutarchyEvent(event: { name: string; data: Futarchy
 //         }).where(eq(schema.v0_6_daos.daoAddr, event.dao.toString()));
 //       }
 
-//       // Insert TWAP data
-//       await insertTwapIfNotExists(trx, event);
-
 //       logger.info(`Collected fees: ${event.baseFeesCollected.toString()} base, ${event.quoteFeesCollected.toString()} quote from DAO ${event.dao.toString()}`);
 //     });
 //   } catch (error) {
@@ -734,6 +732,17 @@ async function handleInitializeProposalEvent(event: InitializeProposalEvent, sig
 
       const blockTime = transactionResponse.blockTime ? new Date(transactionResponse.blockTime * 1000) : null;
       await upsertV06Proposal(proposalAcct, event.proposal, BigInt(event.common.slot.toString()), blockTime, trx);
+      
+      // Initialize markets for this proposal
+      await insertIfNotExistsMarkets(
+        trx,
+        event.proposal.toString(),
+        event.dao.toString(),
+        proposalAcct.passBaseMint.toString(),
+        proposalAcct.passQuoteMint.toString(),
+        proposalAcct.failBaseMint.toString(),
+        proposalAcct.failQuoteMint.toString()
+      );
     });
   } catch (error) {
     logger.error(error, "Error in handleInitializeProposalEvent");
@@ -922,10 +931,8 @@ async function handleLaunchProposalEvent(event: LaunchProposalEvent, signature: 
           }).where(eq(schema.v0_6_daos.daoAddr, event.dao.toString()));
         }
       }
-
-      // Insert TWAP data
-      await insertTwapIfNotExists(trx, event);
-      await insertPriceIfNotDuplicate(trx, event);
+      
+      await insertIfNotExistsPrices(trx, event, event.proposal.toString(), event.common.slot);
 
       logger.info(`Launched proposal ${event.proposal.toString()}`);
     });
@@ -946,7 +953,8 @@ async function handleFinalizeProposalEvent(event: FinalizeProposalEvent, signatu
     await db.transaction(async (trx: DBTransaction) => {
       const blockTime = transactionResponse.blockTime ? new Date(transactionResponse.blockTime * 1000) : null;
       await upsertV06Proposal(proposalAcct, event.proposal, BigInt(event.common.slot.toString()), blockTime, trx);
-      await insertPriceIfNotDuplicate(trx, event);
+      
+      await insertIfNotExistsPrices(trx, event, event.proposal.toString(), event.common.slot);
     });
     
   } catch (error) {
@@ -981,9 +989,11 @@ async function handleSpotSwapEvent(event: SpotSwapEvent, signature: string, tran
         seqNum: BigInt(event.common.daoSeqNum.toString()),
       }).where(eq(schema.v0_6_daos.daoAddr, event.dao.toString()));
 
-      // Insert TWAP data
-      await insertTwapIfNotExists(trx, event);
-      await insertPriceIfNotDuplicate(trx, event);
+      const proposal = await getActiveProposalForDao(trx, event.dao.toString());
+      
+      if (proposal) {
+        await insertIfNotExistsPrices(trx, event, proposal, event.common.slot, ['spot']);
+      }
 
       logger.info(`Spot swap: ${event.inputAmount.toString()} input, ${event.outputAmount.toString()} output on DAO ${event.dao.toString()}`);
     });
@@ -1024,9 +1034,8 @@ async function handleConditionalSwapEvent(event: ConditionalSwapEvent, signature
         seqNum: BigInt(event.common.daoSeqNum.toString()),
       }).where(eq(schema.v0_6_daos.daoAddr, event.dao.toString()));
 
-      // Insert TWAP data
-      await insertTwapIfNotExists(trx, event);
-      await insertPriceIfNotDuplicate(trx, event);
+      await insertIfNotExistsPrices(trx, event, event.proposal.toString(), event.common.slot, ['pass', 'fail']);
+      await insertIfNotExistsTwaps(trx, event, event.proposal.toString(), event.common.slot);
 
       logger.info(`Conditional swap on ${marketType} market: ${event.inputAmount.toString()} input, ${event.outputAmount.toString()} output`);
     });
@@ -1048,9 +1057,11 @@ async function handleProvideLiquidityEvent(event: ProvideLiquidityEvent, signatu
         seqNum: BigInt(event.common.daoSeqNum.toString()),
       }).where(eq(schema.v0_6_daos.daoAddr, event.dao.toString()));
 
-      // Insert price and TWAP data
-      await insertTwapIfNotExists(trx, event);
-      await insertPriceIfNotDuplicate(trx, event);
+      const proposal = await getActiveProposalForDao(trx, event.dao.toString());
+      
+      if (proposal) {
+        await insertIfNotExistsPrices(trx, event, proposal, event.common.slot, ['pass', 'fail']);
+      }
 
       logger.info(`Liquidity provided: ${event.baseAmount.toString()} base, ${event.quoteAmount.toString()} quote, ${event.liquidityMinted.toString()} LP tokens minted`);
     });
@@ -1072,9 +1083,11 @@ async function handleWithdrawLiquidityEvent(event: WithdrawLiquidityEvent, signa
         seqNum: BigInt(event.common.daoSeqNum.toString()),
       }).where(eq(schema.v0_6_daos.daoAddr, event.dao.toString()));
 
-      // Insert TWAP data
-      await insertTwapIfNotExists(trx, event);
-      await insertPriceIfNotDuplicate(trx, event);
+      const proposal = await getActiveProposalForDao(trx, event.dao.toString());
+      
+      if (proposal) {
+        await insertIfNotExistsPrices(trx, event, proposal, event.common.slot, ['pass', 'fail']);
+      }
 
       logger.info(`Liquidity withdrawn: ${event.liquidityWithdrawn.toString()} LP tokens burned, ${event.baseAmount.toString()} base, ${event.quoteAmount.toString()} quote received`);
     });

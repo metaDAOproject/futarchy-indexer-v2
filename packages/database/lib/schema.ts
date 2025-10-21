@@ -123,6 +123,18 @@ export enum V06ProposalState {
   Failed = "Failed",
 }
 
+export enum V06MarketType {
+  Spot = "Spot",
+  Pass = "Pass",
+  Fail = "Fail",
+}
+
+// export enum V06PriceType {
+//   Conditional = "Conditional",
+//   LiquidityAdd = "Add Liquidity",
+//   LiquiditySub = "Remove Liquidity",
+// }
+
 type NonEmptyList<E> = [E, ...E[]];
 
 function pgEnum<T extends string>(columnName: string, enumObj: Record<any, T>) {
@@ -1871,6 +1883,57 @@ export const v0_6_questions = pgTable("v0_6_questions", {
     .notNull()
     .default(sql`now()`),
 });
+
+export const futarchy_markets = pgTable("futarchy_markets", {
+  daoAddr: pubkey("dao_addr").notNull().references(() => v0_6_daos.daoAddr),
+  proposalAddr: pubkey("proposal_addr").references(() => v0_6_proposals.proposalAddr),
+  marketType: pgEnum("market_type", V06MarketType).notNull(),
+  baseMint: pubkey("base_mint").notNull().references(() => tokens.mintAcct),
+  quoteMint: pubkey("quote_mint").notNull().references(() => tokens.mintAcct),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(sql`now()`),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.daoAddr, table.proposalAddr, table.marketType] }),
+  daoIdx: index("futarchy_markets_dao_index").on(table.daoAddr),
+  proposalIdx: index("futarchy_markets_proposal_index").on(table.proposalAddr),
+}));
+
+export const futarchy_prices = pgTable("futarchy_prices", {
+  daoAddr: pubkey("dao_addr").notNull().references(() => v0_6_daos.daoAddr),
+  proposalAddr: pubkey("proposal_addr").references(() => v0_6_proposals.proposalAddr),
+  marketType: pgEnum("market_type", V06MarketType).notNull(),
+  // priceType: pgEnum("price_stype", V06PriceType).notNull(),
+  slot: biggerSlot("slot").notNull(),
+  baseReserves: biggerTokenAmount("base_reserves").notNull(),
+  quoteReserves: biggerTokenAmount("quote_reserves").notNull(),
+  price: numeric("price", { precision: 40, scale: 20 }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`now()`),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.daoAddr, table.proposalAddr, table.marketType, table.slot] }),
+  daoIdx: index("futarchy_prices_dao_index").on(table.daoAddr),
+  proposalIdx: index("futarchy_prices_proposal_index").on(table.proposalAddr),
+  marketTypeIdx: index("futarchy_prices_market_type_index").on(table.marketType),
+  slotIdx: index("futarchy_prices_slot_index").on(table.slot),
+  createdIdx: index("futarchy_prices_created_index").on(table.createdAt),
+}));
+
+export const futarchy_twaps = pgTable("futarchy_twaps", {
+  daoAddr: pubkey("dao_addr").notNull().references(() => v0_6_daos.daoAddr),
+  proposalAddr: pubkey("proposal_addr").references(() => v0_6_proposals.proposalAddr),
+  marketType: pgEnum("market_type", V06MarketType).notNull(),
+  slot: biggerSlot("slot").notNull(),
+  aggregator: numeric("aggregator", { precision: 40, scale: 0 }).notNull(),
+  lastObservation: numeric("last_observation", { precision: 40, scale: 0 }).notNull(),
+  lastPrice: numeric("last_price", { precision: 40, scale: 0 }).notNull(),
+  twapValue: numeric("twap_value", { precision: 40, scale: 20 }).notNull(),
+  timeElapsedSeconds: numeric("time_elapsed_seconds").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`now()`),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.daoAddr, table.proposalAddr, table.marketType, table.slot] }),
+  daoIdx: index("futarchy_twaps_dao_index").on(table.daoAddr),
+  proposalIdx: index("futarchy_twaps_proposal_index").on(table.proposalAddr),
+  marketTypeIdx: index("futarchy_twaps_market_type_index").on(table.marketType),
+}));
 
 // TODO: This is commented out give these are timescale views, but I wanted to include them
 export const twapChartData = pgView("twap_chart_data", {
