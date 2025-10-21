@@ -645,10 +645,24 @@ export async function insertIfNotExistsPrices(
       });
     }
 
-    // Insert all prices (onConflictDoNothing prevents duplicates per slot)
+    // Insert prices only if they don't already exist for this slot
     if (prices.length > 0) {
-      await db.insert(schema.futarchy_prices).values(prices).onConflictDoNothing();
-      logger.debug(`Inserted ${prices.length} price records for proposal ${proposalAddr} at slot ${slot.toString()}`);
+      for (const price of prices) {
+        const existingPrice = await db.select()
+          .from(schema.futarchy_prices)
+          .where(and(
+            eq(schema.futarchy_prices.daoAddr, price.daoAddr),
+            eq(schema.futarchy_prices.proposalAddr, price.proposalAddr),
+            eq(schema.futarchy_prices.marketType, price.marketType),
+            eq(schema.futarchy_prices.slot, BigInt(price.slot))
+          ))
+          .limit(1);
+
+        if (existingPrice.length === 0) {
+          await db.insert(schema.futarchy_prices).values(price).onConflictDoNothing();
+          logger.debug(`Inserted ${price.marketType} price for slot ${price.slot}`);
+        }
+      }
     }
   } catch (error) {
     logger.error(`Error inserting V6 prices for proposal ${proposalAddr}:`, error);
@@ -727,10 +741,22 @@ export async function insertIfNotExistsTwaps(
       }
     }
 
-    // Insert TWAP records
-    if (twaps.length > 0) {
-      await db.insert(schema.futarchy_twaps).values(twaps).onConflictDoNothing();
-      logger.debug(`Inserted ${twaps.length} TWAP records for proposal ${proposalAddr} at slot ${slot.toString()}`);
+    // Insert TWAP records with existence checks
+    for (const twap of twaps) {
+      const existingTwap = await db.select()
+        .from(schema.futarchy_twaps)
+        .where(and(
+          eq(schema.futarchy_twaps.daoAddr, twap.daoAddr),
+          eq(schema.futarchy_twaps.proposalAddr, twap.proposalAddr),
+          eq(schema.futarchy_twaps.marketType, twap.marketType),
+          eq(schema.futarchy_twaps.slot, BigInt(twap.slot))
+        ))
+        .limit(1);
+
+      if (existingTwap.length === 0) {
+        await db.insert(schema.futarchy_twaps).values(twap);
+        logger.debug(`Inserted TWAP record for ${twap.marketType} market, proposal ${proposalAddr} at slot ${twap.slot}`);
+      }
     }
   } catch (error) {
     logger.error(`Error inserting V6 TWAPs for proposal ${proposalAddr}:`, error);
