@@ -1,4 +1,4 @@
-import { AddLiquidityEvent, AmmEvent, ConditionalVaultEvent, CreateAmmEvent, getVaultAddr, InitializeConditionalVaultEvent, InitializeQuestionEvent, SwapEvent, PriceMath, RedeemTokensEvent, SplitTokensEvent, MergeTokensEvent, RemoveLiquidityEvent, ResolveQuestionEvent, LaunchpadEvent, LaunchInitializedEvent, LaunchClaimEvent, LaunchCompletedEvent, LaunchFundedEvent, LaunchRefundedEvent, LaunchStartedEvent, LaunchCloseEvent, CrankThatTwapEvent, InitializeProposalEvent, UpdateDaoEvent, InitializeDaoEvent, FinalizeProposalEvent, Dao, Proposal, CollectFeesEvent, StakeToProposalEvent, UnstakeFromProposalEvent, LaunchProposalEvent, SpotSwapEvent, ConditionalSwapEvent, ProvideLiquidityEvent, WithdrawLiquidityEvent, FutarchyEvent } from "@metadaoproject/futarchy/v0.6";
+import { AddLiquidityEvent, AmmEvent, ConditionalVaultEvent, CreateAmmEvent, getVaultAddr, InitializeConditionalVaultEvent, InitializeQuestionEvent, SwapEvent, PriceMath, RedeemTokensEvent, SplitTokensEvent, MergeTokensEvent, RemoveLiquidityEvent, ResolveQuestionEvent, LaunchpadEvent, LaunchInitializedEvent, LaunchClaimEvent, LaunchCompletedEvent, LaunchFundedEvent, LaunchRefundedEvent, LaunchStartedEvent, LaunchCloseEvent, CrankThatTwapEvent, InitializeProposalEvent, UpdateDaoEvent, InitializeDaoEvent, FinalizeProposalEvent, Dao, Proposal, CollectFeesEvent, StakeToProposalEvent, UnstakeFromProposalEvent, LaunchProposalEvent, SpotSwapEvent, ConditionalSwapEvent, ProvideLiquidityEvent, WithdrawLiquidityEvent, FutarchyEvent, getStakeAddr } from "@metadaoproject/futarchy/v0.6";
 import { schema, db, eq, and, or, sql, DBTransaction } from "@metadaoproject/indexer-db";
 import { PublicKey } from "@solana/web3.js";
 import type { VersionedTransactionResponse } from "@solana/web3.js";
@@ -746,9 +746,16 @@ async function handleStakeToProposalEvent(event: StakeToProposalEvent, signature
         }
       }
 
+      // Get the correct stake PDA address
+      const [stakePda] = getStakeAddr(
+        futarchyClient.autocrat.programId,
+        event.proposal,
+        event.staker
+      );
+
       // Create or update staking record
       await trx.insert(schema.v0_6_staking_record).values({
-        stakeAddr: event.staker.toString(),
+        stakeAddr: stakePda.toString(),
         proposalAddr: event.proposal.toString(),
         stakerAddr: event.staker.toString(),
         totalStaked: event.totalStaked.toString(),
@@ -763,7 +770,7 @@ async function handleStakeToProposalEvent(event: StakeToProposalEvent, signature
 
       // Insert individual stake transaction
       await trx.insert(schema.v0_6_stakes).values({
-        stakeAddr: event.staker.toString(),
+        stakeAddr: stakePda.toString(),
         proposalAddr: event.proposal.toString(),
         txSignature: signature,
         stakerAddr: event.staker.toString(),
@@ -811,14 +818,16 @@ async function handleUnstakeFromProposalEvent(event: UnstakeFromProposalEvent, s
         }
       }
 
-      if (proposal[0].state !== V06ProposalState.Draft) {
-        logger.warn(`Proposal ${event.proposal.toString()} not in Draft state for unstake event, current state: ${proposal[0].state}`);
-        return;
-      }
+      // Get the correct stake PDA address
+      const [stakePda] = getStakeAddr(
+        futarchyClient.autocrat.programId,
+        event.proposal,
+        event.staker
+      );
 
       // Update staking record with new totals
       await trx.insert(schema.v0_6_staking_record).values({
-        stakeAddr: event.staker.toString(),
+        stakeAddr: stakePda.toString(),
         proposalAddr: event.proposal.toString(),
         stakerAddr: event.staker.toString(),
         totalStaked: event.totalStaked.toString(),
@@ -833,11 +842,11 @@ async function handleUnstakeFromProposalEvent(event: UnstakeFromProposalEvent, s
 
       // Insert individual unstake transaction
       await trx.insert(schema.v0_6_stakes).values({
-        stakeAddr: event.staker.toString(),
+        stakeAddr: stakePda.toString(),
         proposalAddr: event.proposal.toString(),
         txSignature: signature,
         stakerAddr: event.staker.toString(),
-        amount: (event.amount).toString(), // Negative amount for unstake
+        amount: (event.amount).toString(), 
         type: "unstake",
         slot: BigInt(event.common.slot.toString()),
         timestamp: new Date(event.common.unixTimestamp.mul(new BN(1000)).toNumber()),
