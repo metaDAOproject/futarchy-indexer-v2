@@ -1828,6 +1828,7 @@ export const v0_6_proposals = pgTable("v0_6_proposals", {
   passQuoteMint: pubkey("pass_quote_mint").notNull().references(() => tokens.mintAcct),
   failBaseMint: pubkey("fail_base_mint").notNull().references(() => tokens.mintAcct),
   failQuoteMint: pubkey("fail_quote_mint").notNull().references(() => tokens.mintAcct),
+  launchedAt: timestamp("launched_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .default(sql`now()`),

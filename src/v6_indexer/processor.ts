@@ -931,6 +931,10 @@ async function handleLaunchProposalEvent(event: LaunchProposalEvent, signature: 
             ammQuoteAmount: BigInt(quoteAccount.amount.toString()),
             seqNum: BigInt(event.common.daoSeqNum.toString()),
           }).where(eq(schema.v0_6_daos.daoAddr, event.dao.toString()));
+
+          await trx.update(schema.v0_6_proposals).set({
+            launchedAt: new Date(),
+          }).where(eq(schema.v0_6_proposals.proposalAddr, event.proposal.toString()));
           
         } catch (fetchError) {
           logger.warn(`Could not fetch AMM vault balances for DAO ${event.dao.toString()}: ${fetchError}`);
