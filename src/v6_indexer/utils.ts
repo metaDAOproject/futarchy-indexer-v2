@@ -541,7 +541,7 @@ function calculatePriceWithDecimals(
   baseDecimals: number
 ): BN {
   if (baseReserves.isZero() || quoteReserves.isZero()) {
-    return new BN(0);
+    throw new Error("Base reserves or quote reserves are zero");
   }
 
   const PRICE_SCALE = new BN(10).pow(new BN(12)); // 1e12
@@ -573,6 +573,7 @@ export async function insertIfNotExistsPrices(
   marketsToUpdate?: ('spot' | 'pass' | 'fail')[]
 ): Promise<void> {
   try {
+    // TODO: we are currently not handling spot prices and will need to hand efor when postAmmState is spot
     const futarchyState = event.postAmmState?.state?.futarchy as FutarchyState;
     if (!futarchyState) {
       logger.debug('AMM not in futarchy mode, skipping V6 price insertion');
@@ -648,20 +649,8 @@ export async function insertIfNotExistsPrices(
     // Insert prices only if they don't already exist for this slot
     if (prices.length > 0) {
       for (const price of prices) {
-        const existingPrice = await db.select()
-          .from(schema.futarchy_prices)
-          .where(and(
-            eq(schema.futarchy_prices.daoAddr, price.daoAddr),
-            eq(schema.futarchy_prices.proposalAddr, price.proposalAddr),
-            eq(schema.futarchy_prices.marketType, price.marketType),
-            eq(schema.futarchy_prices.slot, BigInt(price.slot))
-          ))
-          .limit(1);
-
-        if (existingPrice.length === 0) {
-          await db.insert(schema.futarchy_prices).values(price).onConflictDoNothing();
-          logger.debug(`Inserted ${price.marketType} price for slot ${price.slot}`);
-        }
+        await db.insert(schema.futarchy_prices).values(price).onConflictDoNothing();
+        logger.debug(`Inserted ${price.marketType} price for slot ${price.slot}`);
       }
     }
   } catch (error) {
@@ -742,18 +731,8 @@ export async function insertIfNotExistsTwaps(
     }
 
     // Insert TWAP records with existence checks
-    for (const twap of twaps) {
-      const existingTwap = await db.select()
-        .from(schema.futarchy_twaps)
-        .where(and(
-          eq(schema.futarchy_twaps.daoAddr, twap.daoAddr),
-          eq(schema.futarchy_twaps.proposalAddr, twap.proposalAddr),
-          eq(schema.futarchy_twaps.marketType, twap.marketType),
-          eq(schema.futarchy_twaps.slot, BigInt(twap.slot))
-        ))
-        .limit(1);
-
-      if (existingTwap.length === 0) {
+    if (twaps.length > 0) {
+      for (const twap of twaps) {
         await db.insert(schema.futarchy_twaps).values(twap);
         logger.debug(`Inserted TWAP record for ${twap.marketType} market, proposal ${proposalAddr} at slot ${twap.slot}`);
       }

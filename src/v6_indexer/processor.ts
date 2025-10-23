@@ -354,12 +354,12 @@ async function handleLaunchCompletedEvent(event: LaunchCompletedEvent, signature
             launchUpdateData = {
               ...launchUpdateData,
               finalRaiseAmount: launchAccount.finalRaiseAmount ? BigInt(launchAccount.finalRaiseAmount.toString()) : null,
-              daoVault: launchAccount.daoVault?.toString() || null,
-              performancePackageGrantee: launchAccount.performancePackageGrantee?.toString() || "",
-              performancePackageTokenAmount: launchAccount.performancePackageTokenAmount ? BigInt(launchAccount.performancePackageTokenAmount.toString()) : 0n,
-              monthsUntilInsidersCanUnlock: launchAccount.monthsUntilInsidersCanUnlock || 0,
-              monthlySpendingLimitAmount: launchAccount.monthlySpendingLimitAmount ? BigInt(launchAccount.monthlySpendingLimitAmount.toString()) : 0n,
-              monthlySpendingLimitMembers: launchAccount.monthlySpendingLimitMembers?.map(pk => pk.toString()) || [],
+              daoVault: launchAccount.daoVault?.toString(),
+              performancePackageGrantee: launchAccount.performancePackageGrantee?.toString(),
+              performancePackageTokenAmount: BigInt(launchAccount.performancePackageTokenAmount.toString()),
+              monthsUntilInsidersCanUnlock: launchAccount.monthsUntilInsidersCanUnlock,
+              monthlySpendingLimitAmount: BigInt(launchAccount.monthlySpendingLimitAmount.toString()),
+              monthlySpendingLimitMembers: launchAccount.monthlySpendingLimitMembers?.map(pk => pk.toString()),
             };
           }
         } catch (fetchError) {

@@ -16,6 +16,7 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 /**
  * Gap fill historical stake transactions by processing all stake-related signatures
  */
+// TODO: if the stakes table grows sufficiently large in size like spot swaps, this will not be performant.
 export async function gapFillStakeTransactions(): Promise<{message:string, error: Error | undefined}> {
   logger.info(`Gap filling all historical stake transactions`);
   
@@ -132,21 +133,14 @@ export async function backfillStakingRecords(): Promise<{message:string, error: 
         .limit(1);
 
       if (existingRecord.length === 0) {
-        // Fetch the latest transaction for this stake account to get the actual slot
+        // Get current slot from the connection
         let latestSlot = 0n;
         try {
-          const signatures = await connection.getSignaturesForAddress(
-            stakeAccount.publicKey,
-            { limit: 1 }, // Just get the most recent transaction
-            "finalized"
-          );
-          
-          if (signatures.length > 0) {
-            latestSlot = BigInt(signatures[0].slot);
-            logger.info(`Found latest slot ${latestSlot} for stake account ${stakeAddr}`);
-          }
+          const currentSlot = await connection.getSlot();
+          latestSlot = BigInt(currentSlot);
+          logger.info(`Using current slot ${latestSlot} for stake account ${stakeAddr}`);
         } catch (error) {
-          logger.warn(`Could not fetch latest slot for ${stakeAddr}, using 0: ${error}`);
+          logger.warn(`Could not fetch current slot for ${stakeAddr}: ${error}`);
         }
         
         // Insert new staking record with actual slot
@@ -169,20 +163,13 @@ export async function backfillStakingRecords(): Promise<{message:string, error: 
         // Check if we need to update the total staked amount
         const existingAmount = existingRecord[0].totalStaked;
         if (existingAmount !== totalStaked) {
-          // Fetch the latest transaction slot for this stake account
+          // Get current slot from the connection
           let latestSlot = existingRecord[0].updatedAtSlot || 0n;
           try {
-            const signatures = await connection.getSignaturesForAddress(
-              stakeAccount.publicKey,
-              { limit: 1 }, // Just get the most recent transaction
-              "finalized"
-            );
-            
-            if (signatures.length > 0) {
-              latestSlot = BigInt(signatures[0].slot);
-            }
+            const currentSlot = await connection.getSlot();
+            latestSlot = BigInt(currentSlot);
           } catch (error) {
-            logger.warn(`Could not fetch latest slot for update of ${stakeAddr}: ${error}`);
+            logger.warn(`Could not fetch current slot for update of ${stakeAddr}: ${error}`);
           }
           
           await db.update(schema.v0_6_staking_record)
