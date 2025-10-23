@@ -1662,7 +1662,6 @@ export const v0_6_launches = pgTable("v0_6_launches", {
   secondsForLaunch: integer("seconds_for_launch").notNull(),
   daoAddr: pubkey("dao_addr"),   
   daoVault: pubkey("dao_vault"),
-  squadsMultisig: pubkey("squads_multisig"),
   performancePackageGrantee: pubkey("performance_package_grantee").notNull(),
   performancePackageTokenAmount: bigint("performance_package_token_amount", { mode: "bigint" }).notNull(),
   monthsUntilInsidersCanUnlock: smallint("months_until_insiders_can_unlock").notNull(),
