@@ -5,7 +5,7 @@ import * as token from "@solana/spl-token";
 import { connection, conditionalVaultClient } from "./connection";
 import { log } from "../logger/logger";
 import { BN } from "@coral-xyz/anchor";
-import { InitializeConditionalVaultEvent, FinalizeProposalEvent, LaunchProposalEvent, ProvideLiquidityEvent, WithdrawLiquidityEvent, ConditionalSwapEvent, SpotSwapEvent, Dao, AmmMath } from "@metadaoproject/futarchy/v0.6";
+import { InitializeConditionalVaultEvent, FinalizeProposalEvent, LaunchProposalEvent, ProvideLiquidityEvent, WithdrawLiquidityEvent, ConditionalSwapEvent, SpotSwapEvent, InitializeProposalEvent , SplitTokensEvent, Dao, AmmMath } from "@metadaoproject/futarchy/v0.6";
 
 const logger = log.child({
   module: "v6_utils"
@@ -483,10 +483,7 @@ export async function insertIfNotExistsMarkets(
   db: DBConnection,
   proposalAddr: string,
   daoAddr: string,
-  passBaseMint: string,
-  passQuoteMint: string,
-  failBaseMint: string,
-  failQuoteMint: string
+  marketTypes: string[] = ['spot', 'pass', 'fail']
 ): Promise<void> {
   try {
     // Get DAO to find base and quote mints for spot market
@@ -500,34 +497,48 @@ export async function insertIfNotExistsMarkets(
       return;
     }
 
-    const markets = [
-      {
+    const markets = [];
+    
+    if (marketTypes.includes('spot')) {
+      markets.push({
         daoAddr,
-        proposalAddr: null, // Spot market has no proposal
+        proposalAddr: null, 
         marketType: 'spot',
         baseMint: dao[0].baseMintAcct,
         quoteMint: dao[0].quoteMintAcct,
-      },
-      {
+      });
+    }
+    
+    if (marketTypes.includes('pass')) {
+      markets.push({
         daoAddr,
         proposalAddr,
         marketType: 'pass',
-        baseMint: passBaseMint,
-        quoteMint: passQuoteMint,
-      },
-      {
+        baseMint: dao[0].baseMintAcct,
+        quoteMint: dao[0].quoteMintAcct,
+      });
+    }
+    
+    if (marketTypes.includes('fail')) {
+      markets.push({
         daoAddr,
         proposalAddr,
         marketType: 'fail',
-        baseMint: failBaseMint,
-        quoteMint: failQuoteMint,
-      }
-    ];
+        baseMint: dao[0].baseMintAcct,
+        quoteMint: dao[0].quoteMintAcct,
+      });
+    }
 
     await db.insert(schema.futarchy_markets).values(markets).onConflictDoNothing();
     logger.info(`Initialized markets for proposal ${proposalAddr}`);
   } catch (error) {
-    logger.error(`Error initializing markets for proposal ${proposalAddr}:`, error);
+    logger.error(`Error initializing markets for proposal ${proposalAddr}:`, {
+      error: error instanceof Error ? error.message : error,
+      stack: error instanceof Error ? error.stack : undefined,
+      proposalAddr,
+      daoAddr,
+    });
+    throw error;
   }
 }
 
@@ -654,7 +665,15 @@ export async function insertIfNotExistsPrices(
       }
     }
   } catch (error) {
-    logger.error(`Error inserting V6 prices for proposal ${proposalAddr}:`, error);
+    logger.error(`Error inserting V6 prices for proposal ${proposalAddr}:`, {
+      error: error instanceof Error ? error.message : error,
+      stack: error instanceof Error ? error.stack : undefined,
+      proposalAddr,
+      marketsRequested: marketsToUpdate,
+      baseMint: event.postAmmState.baseMint.toString(),
+      quoteMint: event.postAmmState.quoteMint.toString()
+    });
+    throw error;
   }
 }
 

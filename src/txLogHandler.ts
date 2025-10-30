@@ -49,7 +49,7 @@ export async function subscribeAll() {
   const programIds = [
     V6_FUTARCHY_PROGRAM_ID,
     V6_LAUNCHPAD_PROGRAM_ID,
-    // V4_CONDITIONAL_VAULT_PROGRAM_ID, 
+    V4_CONDITIONAL_VAULT_PROGRAM_ID, 
   ];
   console.log("Subscribing to logs");
   for (const programId of programIds) {
@@ -59,7 +59,13 @@ export async function subscribeAll() {
 }
 
 async function processLogs(logs: Logs, ctx: Context, programId: PublicKey) {
-  if (programId.equals(V6_FUTARCHY_PROGRAM_ID) || programId.equals(V6_LAUNCHPAD_PROGRAM_ID)) {
+  if (
+    programId.equals(V6_FUTARCHY_PROGRAM_ID)
+    || 
+    programId.equals(V6_LAUNCHPAD_PROGRAM_ID)
+    || 
+    programId.equals(V4_CONDITIONAL_VAULT_PROGRAM_ID)
+  ) {
     await indexV6(logs, ctx, programId);
   } 
   else {

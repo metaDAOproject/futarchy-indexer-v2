@@ -1887,7 +1887,9 @@ export const futarchy_markets = pgTable("futarchy_markets", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`now()`),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(sql`now()`),
 }, (table) => ({
-  pk: primaryKey({ columns: [table.daoAddr, table.proposalAddr, table.marketType] }),
+  uniqueMarket: unique()
+    .on(table.daoAddr, table.proposalAddr, table.marketType)
+    .nullsNotDistinct(),
 }));
 
 export const futarchy_prices = pgTable("futarchy_prices", {
@@ -1900,7 +1902,9 @@ export const futarchy_prices = pgTable("futarchy_prices", {
   price: numeric("price", { precision: 40, scale: 20 }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`now()`),
 }, (table) => ({
-  pk: primaryKey({ columns: [table.daoAddr, table.proposalAddr, table.marketType, table.slot] }),
+  uniquePrice: unique()
+    .on(table.daoAddr, table.proposalAddr, table.marketType, table.slot)
+    .nullsNotDistinct(),
 }));
 
 export const futarchy_twaps = pgTable("futarchy_twaps", {
@@ -1915,7 +1919,9 @@ export const futarchy_twaps = pgTable("futarchy_twaps", {
   timeElapsedSeconds: numeric("time_elapsed_seconds").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`now()`),
 }, (table) => ({
-  pk: primaryKey({ columns: [table.daoAddr, table.proposalAddr, table.marketType, table.slot] }),
+  uniqueTwap: unique()
+    .on(table.daoAddr, table.proposalAddr, table.marketType, table.slot)
+    .nullsNotDistinct(),
 }));
 
 // TODO: This is commented out give these are timescale views, but I wanted to include them

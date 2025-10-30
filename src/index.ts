@@ -46,16 +46,16 @@ async function main() {
   //   await completeStakingDataRecovery();
   //   return;
   // }
-  if (process.env.BACKFILL_DAOS === 'true') {
-    await backfillDaos();
-    return;
-  }
-  // if (process.env.IS_SUBSCRIPTION_WORKER === 'true') {
-  //   await runSubscriptionWorker();
-  //   return; 
+  // if (process.env.BACKFILL_DAOS === 'true') {
+  //   await backfillDaos();
+  //   return;
   // }
+  if (process.env.IS_SUBSCRIPTION_WORKER === 'true') {
+    await runSubscriptionWorker();
+    return; 
+  }
 
-  // startSubscriptionWorker();
+  startSubscriptionWorker();
 
   //  time for v6
   // let start = new Date();
@@ -74,7 +74,7 @@ async function main() {
   //lets start our crons now
   //startCron("backfillV6", "*/20 * * * *", backfillV6);
   // startCron("gapFillV6", "*/16 * * * *", gapFillV6);
-  // startCron("priceHandler", "* * * * *", priceHandler);
+  startCron("priceHandler", "* * * * *", priceHandler);
   //startCron("snapshotV6", "*/20 * * * *", snapshotV6);
 
   const server = http.createServer((req: any, res: any) => {

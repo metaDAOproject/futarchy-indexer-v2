@@ -738,10 +738,6 @@ async function handleInitializeProposalEvent(event: InitializeProposalEvent, sig
         trx,
         event.proposal.toString(),
         event.dao.toString(),
-        proposalAcct.passBaseMint.toString(),
-        proposalAcct.passQuoteMint.toString(),
-        proposalAcct.failBaseMint.toString(),
-        proposalAcct.failQuoteMint.toString()
       );
     });
   } catch (error) {
@@ -945,6 +941,7 @@ async function handleLaunchProposalEvent(event: LaunchProposalEvent, signature: 
         }
       }
       
+      await insertIfNotExistsMarkets(trx, event.proposal.toString(), event.dao.toString())
       await insertIfNotExistsPrices(trx, event, event.proposal.toString(), event.common.slot);
 
       logger.info(`Launched proposal ${event.proposal.toString()}`);
@@ -966,7 +963,7 @@ async function handleFinalizeProposalEvent(event: FinalizeProposalEvent, signatu
     await db.transaction(async (trx: DBTransaction) => {
       const blockTime = transactionResponse.blockTime ? new Date(transactionResponse.blockTime * 1000) : null;
       await upsertV06Proposal(proposalAcct, event.proposal, BigInt(event.common.slot.toString()), blockTime, trx);
-      
+
       await insertIfNotExistsPrices(trx, event, event.proposal.toString(), event.common.slot);
     });
     
@@ -1005,6 +1002,7 @@ async function handleSpotSwapEvent(event: SpotSwapEvent, signature: string, tran
       const proposal = await getActiveProposalForDao(trx, event.dao.toString());
       
       if (proposal) {
+        await insertIfNotExistsMarkets(trx, proposal.toString(), event.dao.toString())
         await insertIfNotExistsPrices(trx, event, proposal, event.common.slot, ['spot']);
       }
 
@@ -1047,7 +1045,8 @@ async function handleConditionalSwapEvent(event: ConditionalSwapEvent, signature
         seqNum: BigInt(event.common.daoSeqNum.toString()),
       }).where(eq(schema.v0_6_daos.daoAddr, event.dao.toString()));
 
-      await insertIfNotExistsPrices(trx, event, event.proposal.toString(), event.common.slot, ['pass', 'fail']);
+      await insertIfNotExistsMarkets(trx, event.proposal.toString(), event.dao.toString(), ['pass', 'fail', 'spot'])
+      await insertIfNotExistsPrices(trx, event, event.proposal.toString(), event.common.slot, ['pass', 'fail', 'spot']);
       await insertIfNotExistsTwaps(trx, event, event.proposal.toString(), event.common.slot);
 
       logger.info(`Conditional swap on ${marketType} market: ${event.inputAmount.toString()} input, ${event.outputAmount.toString()} output`);
@@ -1073,6 +1072,7 @@ async function handleProvideLiquidityEvent(event: ProvideLiquidityEvent, signatu
       const proposal = await getActiveProposalForDao(trx, event.dao.toString());
       
       if (proposal) {
+        await insertIfNotExistsMarkets(trx, proposal.toString(), event.dao.toString())
         await insertIfNotExistsPrices(trx, event, proposal, event.common.slot, ['pass', 'fail']);
       }
 
@@ -1099,6 +1099,7 @@ async function handleWithdrawLiquidityEvent(event: WithdrawLiquidityEvent, signa
       const proposal = await getActiveProposalForDao(trx, event.dao.toString());
       
       if (proposal) {
+        await insertIfNotExistsMarkets(trx, proposal.toString(), event.dao.toString())
         await insertIfNotExistsPrices(trx, event, proposal, event.common.slot, ['pass', 'fail']);
       }
 
