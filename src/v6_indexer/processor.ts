@@ -1,4 +1,4 @@
-import { AddLiquidityEvent, AmmEvent, ConditionalVaultEvent, CreateAmmEvent, getVaultAddr, InitializeConditionalVaultEvent, InitializeQuestionEvent, SwapEvent, PriceMath, RedeemTokensEvent, SplitTokensEvent, MergeTokensEvent, RemoveLiquidityEvent, ResolveQuestionEvent, LaunchpadEvent, LaunchInitializedEvent, LaunchClaimEvent, LaunchCompletedEvent, LaunchFundedEvent, LaunchRefundedEvent, LaunchStartedEvent, LaunchCloseEvent, CrankThatTwapEvent, InitializeProposalEvent, UpdateDaoEvent, InitializeDaoEvent, FinalizeProposalEvent, Dao, Proposal, CollectFeesEvent, StakeToProposalEvent, UnstakeFromProposalEvent, LaunchProposalEvent, SpotSwapEvent, ConditionalSwapEvent, ProvideLiquidityEvent, WithdrawLiquidityEvent, FutarchyEvent, getStakeAddr } from "@metadaoproject/futarchy/v0.6";
+import { AddLiquidityEvent, AmmEvent, ConditionalVaultEvent, CreateAmmEvent, getVaultAddr, InitializeConditionalVaultEvent, InitializeQuestionEvent, SwapEvent, PriceMath, RedeemTokensEvent, SplitTokensEvent, MergeTokensEvent, RemoveLiquidityEvent, ResolveQuestionEvent, LaunchpadEvent, LaunchInitializedEvent, LaunchClaimEvent, LaunchCompletedEvent, LaunchFundedEvent, LaunchRefundedEvent, LaunchStartedEvent, LaunchCloseEvent, CrankThatTwapEvent, InitializeProposalEvent, UpdateDaoEvent, InitializeDaoEvent, FinalizeProposalEvent, Dao, Proposal, CollectFeesEvent, StakeToProposalEvent, UnstakeFromProposalEvent, LaunchProposalEvent, SpotSwapEvent, ConditionalSwapEvent, ProvideLiquidityEvent, WithdrawLiquidityEvent, FutarchyEvent, getDaoAddr, getStakeAddr } from "@metadaoproject/futarchy/v0.6";
 import { schema, db, eq, and, or, sql, DBTransaction } from "@metadaoproject/indexer-db";
 import { PublicKey } from "@solana/web3.js";
 import type { VersionedTransactionResponse } from "@solana/web3.js";
@@ -6,19 +6,21 @@ import { V06LaunchState, V06ProposalState, V04SwapType } from "@metadaoproject/i
 import * as token from "@solana/spl-token";
 import { connection, conditionalVaultClient, futarchyClient, launchpadClient } from "./connection";
 import { 
-  insertTwapIfNotExists,
   updateOrInsertTokenBalance,
   updateConditionalTokenBalancesForVaultEvents,
   insertTokenIfNotExists,
   doesQuestionExist,
   insertTokenAccountIfNotExists,
-  insertMarketIfNotExists,
   insertConditionalVault,
   getVaultBalances,
   extractReservesFromAmmState,
   upsertV06Dao,
   upsertV06Proposal,
-  Market
+  Market,
+  getActiveProposalForDao,
+  insertIfNotExistsMarkets,
+  insertIfNotExistsPrices,
+  insertIfNotExistsTwaps
 } from "./utils";
 
 import { log } from "../logger/logger";
@@ -336,12 +338,36 @@ async function handleLaunchCompletedEvent(event: LaunchCompletedEvent, signature
         }
       }
 
-      await trx.update(schema.v0_6_launches).set({ 
+      // Fetch the launch account to get additional fields
+      let launchUpdateData: Partial<typeof schema.v0_6_launches.$inferInsert> = {
         totalCommittedAmount: BigInt(event.totalCommitted.toString()),
         state: launchState,
         seqNum: BigInt(event.common.launchSeqNum.toString()),
         daoAddr: launchState === V06LaunchState.Complete ? event.dao?.toString() : null,
-      }).where(eq(schema.v0_6_launches.launchAddr, event.launch.toString()));
+      };
+
+      // If launch is complete, fetch additional data from the launch account
+      if (launchState === V06LaunchState.Complete) {
+        try {
+          const launchAccount = await launchpadClient.getLaunch(event.launch);
+          if (launchAccount) {
+            launchUpdateData = {
+              ...launchUpdateData,
+              finalRaiseAmount: launchAccount.finalRaiseAmount ? BigInt(launchAccount.finalRaiseAmount.toString()) : null,
+              daoVault: launchAccount.daoVault?.toString(),
+              performancePackageGrantee: launchAccount.performancePackageGrantee?.toString(),
+              performancePackageTokenAmount: BigInt(launchAccount.performancePackageTokenAmount.toString()),
+              monthsUntilInsidersCanUnlock: launchAccount.monthsUntilInsidersCanUnlock,
+              monthlySpendingLimitAmount: BigInt(launchAccount.monthlySpendingLimitAmount.toString()),
+              monthlySpendingLimitMembers: launchAccount.monthlySpendingLimitMembers?.map(pk => pk.toString()),
+            };
+          }
+        } catch (fetchError) {
+          logger.warn(`Could not fetch launch account data for ${event.launch.toString()}: ${fetchError}`);
+        }
+      }
+
+      await trx.update(schema.v0_6_launches).set(launchUpdateData).where(eq(schema.v0_6_launches.launchAddr, event.launch.toString()));
     });
   } catch (error) {
     logger.error(error, "Error in handleLaunchCompletedEvent");
@@ -645,9 +671,6 @@ export async function processFutarchyEvent(event: { name: string; data: Futarchy
 //         }).where(eq(schema.v0_6_daos.daoAddr, event.dao.toString()));
 //       }
 
-//       // Insert TWAP data
-//       await insertTwapIfNotExists(trx, event);
-
 //       logger.info(`Collected fees: ${event.baseFeesCollected.toString()} base, ${event.quoteFeesCollected.toString()} quote from DAO ${event.dao.toString()}`);
 //     });
 //   } catch (error) {
@@ -709,6 +732,13 @@ async function handleInitializeProposalEvent(event: InitializeProposalEvent, sig
 
       const blockTime = transactionResponse.blockTime ? new Date(transactionResponse.blockTime * 1000) : null;
       await upsertV06Proposal(proposalAcct, event.proposal, BigInt(event.common.slot.toString()), blockTime, trx);
+      
+      // Initialize markets for this proposal
+      await insertIfNotExistsMarkets(
+        trx,
+        event.proposal.toString(),
+        event.dao.toString(),
+      );
     });
   } catch (error) {
     logger.error(error, "Error in handleInitializeProposalEvent");
@@ -897,6 +927,10 @@ async function handleLaunchProposalEvent(event: LaunchProposalEvent, signature: 
             ammQuoteAmount: BigInt(quoteAccount.amount.toString()),
             seqNum: BigInt(event.common.daoSeqNum.toString()),
           }).where(eq(schema.v0_6_daos.daoAddr, event.dao.toString()));
+
+          await trx.update(schema.v0_6_proposals).set({
+            launchedAt: new Date(),
+          }).where(eq(schema.v0_6_proposals.proposalAddr, event.proposal.toString()));
           
         } catch (fetchError) {
           logger.warn(`Could not fetch AMM vault balances for DAO ${event.dao.toString()}: ${fetchError}`);
@@ -906,9 +940,9 @@ async function handleLaunchProposalEvent(event: LaunchProposalEvent, signature: 
           }).where(eq(schema.v0_6_daos.daoAddr, event.dao.toString()));
         }
       }
-
-      // Insert TWAP data
-      await insertTwapIfNotExists(trx, event);
+      
+      await insertIfNotExistsMarkets(trx, event.proposal.toString(), event.dao.toString())
+      await insertIfNotExistsPrices(trx, event, event.proposal.toString(), event.common.slot);
 
       logger.info(`Launched proposal ${event.proposal.toString()}`);
     });
@@ -929,7 +963,10 @@ async function handleFinalizeProposalEvent(event: FinalizeProposalEvent, signatu
     await db.transaction(async (trx: DBTransaction) => {
       const blockTime = transactionResponse.blockTime ? new Date(transactionResponse.blockTime * 1000) : null;
       await upsertV06Proposal(proposalAcct, event.proposal, BigInt(event.common.slot.toString()), blockTime, trx);
+
+      await insertIfNotExistsPrices(trx, event, event.proposal.toString(), event.common.slot);
     });
+    
   } catch (error) {
     logger.error(error, "Error in handleFinalizeProposalEvent");
   }
@@ -962,8 +999,12 @@ async function handleSpotSwapEvent(event: SpotSwapEvent, signature: string, tran
         seqNum: BigInt(event.common.daoSeqNum.toString()),
       }).where(eq(schema.v0_6_daos.daoAddr, event.dao.toString()));
 
-      // Insert TWAP data
-      await insertTwapIfNotExists(trx, event);
+      const proposal = await getActiveProposalForDao(trx, event.dao.toString());
+      
+      if (proposal) {
+        await insertIfNotExistsMarkets(trx, proposal.toString(), event.dao.toString())
+        await insertIfNotExistsPrices(trx, event, proposal, event.common.slot, ['spot']);
+      }
 
       logger.info(`Spot swap: ${event.inputAmount.toString()} input, ${event.outputAmount.toString()} output on DAO ${event.dao.toString()}`);
     });
@@ -1004,8 +1045,9 @@ async function handleConditionalSwapEvent(event: ConditionalSwapEvent, signature
         seqNum: BigInt(event.common.daoSeqNum.toString()),
       }).where(eq(schema.v0_6_daos.daoAddr, event.dao.toString()));
 
-      // Insert TWAP data
-      await insertTwapIfNotExists(trx, event);
+      await insertIfNotExistsMarkets(trx, event.proposal.toString(), event.dao.toString(), ['pass', 'fail', 'spot'])
+      await insertIfNotExistsPrices(trx, event, event.proposal.toString(), event.common.slot, ['pass', 'fail', 'spot']);
+      await insertIfNotExistsTwaps(trx, event, event.proposal.toString(), event.common.slot);
 
       logger.info(`Conditional swap on ${marketType} market: ${event.inputAmount.toString()} input, ${event.outputAmount.toString()} output`);
     });
@@ -1027,8 +1069,12 @@ async function handleProvideLiquidityEvent(event: ProvideLiquidityEvent, signatu
         seqNum: BigInt(event.common.daoSeqNum.toString()),
       }).where(eq(schema.v0_6_daos.daoAddr, event.dao.toString()));
 
-      // Insert TWAP data
-      await insertTwapIfNotExists(trx, event);
+      const proposal = await getActiveProposalForDao(trx, event.dao.toString());
+      
+      if (proposal) {
+        await insertIfNotExistsMarkets(trx, proposal.toString(), event.dao.toString())
+        await insertIfNotExistsPrices(trx, event, proposal, event.common.slot, ['pass', 'fail']);
+      }
 
       logger.info(`Liquidity provided: ${event.baseAmount.toString()} base, ${event.quoteAmount.toString()} quote, ${event.liquidityMinted.toString()} LP tokens minted`);
     });
@@ -1050,8 +1096,12 @@ async function handleWithdrawLiquidityEvent(event: WithdrawLiquidityEvent, signa
         seqNum: BigInt(event.common.daoSeqNum.toString()),
       }).where(eq(schema.v0_6_daos.daoAddr, event.dao.toString()));
 
-      // Insert TWAP data
-      await insertTwapIfNotExists(trx, event);
+      const proposal = await getActiveProposalForDao(trx, event.dao.toString());
+      
+      if (proposal) {
+        await insertIfNotExistsMarkets(trx, proposal.toString(), event.dao.toString())
+        await insertIfNotExistsPrices(trx, event, proposal, event.common.slot, ['pass', 'fail']);
+      }
 
       logger.info(`Liquidity withdrawn: ${event.liquidityWithdrawn.toString()} LP tokens burned, ${event.baseAmount.toString()} base, ${event.quoteAmount.toString()} quote received`);
     });

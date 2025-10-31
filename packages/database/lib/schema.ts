@@ -123,6 +123,12 @@ export enum V06ProposalState {
   Failed = "Failed",
 }
 
+export enum V06MarketType {
+  Spot = "Spot",
+  Pass = "Pass",
+  Fail = "Fail",
+}
+
 type NonEmptyList<E> = [E, ...E[]];
 
 function pgEnum<T extends string>(columnName: string, enumObj: Record<any, T>) {
@@ -1822,6 +1828,7 @@ export const v0_6_proposals = pgTable("v0_6_proposals", {
   passQuoteMint: pubkey("pass_quote_mint").notNull().references(() => tokens.mintAcct),
   failBaseMint: pubkey("fail_base_mint").notNull().references(() => tokens.mintAcct),
   failQuoteMint: pubkey("fail_quote_mint").notNull().references(() => tokens.mintAcct),
+  launchedAt: timestamp("launched_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .default(sql`now()`),
@@ -1870,6 +1877,52 @@ export const v0_6_questions = pgTable("v0_6_questions", {
     .notNull()
     .default(sql`now()`),
 });
+
+export const futarchy_markets = pgTable("futarchy_markets", {
+  daoAddr: pubkey("dao_addr").notNull().references(() => v0_6_daos.daoAddr),
+  proposalAddr: pubkey("proposal_addr").references(() => v0_6_proposals.proposalAddr),
+  marketType: pgEnum("market_type", V06MarketType).notNull(),
+  baseMint: pubkey("base_mint").notNull().references(() => tokens.mintAcct),
+  quoteMint: pubkey("quote_mint").notNull().references(() => tokens.mintAcct),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(sql`now()`),
+}, (table) => ({
+  uniqueMarket: unique()
+    .on(table.daoAddr, table.proposalAddr, table.marketType)
+    .nullsNotDistinct(),
+}));
+
+export const futarchy_prices = pgTable("futarchy_prices", {
+  daoAddr: pubkey("dao_addr").notNull().references(() => v0_6_daos.daoAddr),
+  proposalAddr: pubkey("proposal_addr").references(() => v0_6_proposals.proposalAddr),
+  marketType: pgEnum("market_type", V06MarketType).notNull(),
+  slot: biggerSlot("slot").notNull(),
+  baseReserves: biggerTokenAmount("base_reserves").notNull(),
+  quoteReserves: biggerTokenAmount("quote_reserves").notNull(),
+  price: numeric("price", { precision: 40, scale: 20 }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`now()`),
+}, (table) => ({
+  uniquePrice: unique()
+    .on(table.daoAddr, table.proposalAddr, table.marketType, table.slot)
+    .nullsNotDistinct(),
+}));
+
+export const futarchy_twaps = pgTable("futarchy_twaps", {
+  daoAddr: pubkey("dao_addr").notNull().references(() => v0_6_daos.daoAddr),
+  proposalAddr: pubkey("proposal_addr").references(() => v0_6_proposals.proposalAddr),
+  marketType: pgEnum("market_type", V06MarketType).notNull(),
+  slot: biggerSlot("slot").notNull(),
+  aggregator: numeric("aggregator", { precision: 40, scale: 0 }).notNull(),
+  lastObservation: numeric("last_observation", { precision: 40, scale: 0 }).notNull(),
+  lastPrice: numeric("last_price", { precision: 40, scale: 0 }).notNull(),
+  twapValue: numeric("twap_value", { precision: 40, scale: 20 }).notNull(),
+  timeElapsedSeconds: numeric("time_elapsed_seconds").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`now()`),
+}, (table) => ({
+  uniqueTwap: unique()
+    .on(table.daoAddr, table.proposalAddr, table.marketType, table.slot)
+    .nullsNotDistinct(),
+}));
 
 // TODO: This is commented out give these are timescale views, but I wanted to include them
 export const twapChartData = pgView("twap_chart_data", {

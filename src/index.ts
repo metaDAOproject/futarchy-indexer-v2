@@ -5,6 +5,8 @@ import { captureTokenBalanceSnapshotV6 } from "./v6_indexer/snapshot";
 import { CronJob } from "cron";
 import http from "http";
 import { updatePrices } from "./priceHandler";
+import { completeStakingDataRecovery } from "./v6_indexer/backfillStakingRecords";
+import { backfillDaos } from "./v6_indexer/backfillDaos";
 
 const appStartTime = new Date();
 
@@ -40,6 +42,14 @@ let subscriptionHealth: any = null;
 let subscriptionLastHealthUpdate: Date | null = null;
 
 async function main() {
+  // if (process.env.BACKFILL_STAKING_RECORDS === 'true') {
+  //   await completeStakingDataRecovery();
+  //   return;
+  // }
+  // if (process.env.BACKFILL_DAOS === 'true') {
+  //   await backfillDaos();
+  //   return;
+  // }
   if (process.env.IS_SUBSCRIPTION_WORKER === 'true') {
     await runSubscriptionWorker();
     return; 
@@ -47,14 +57,14 @@ async function main() {
 
   startSubscriptionWorker();
 
-   // time for v6
+  //  time for v6
   // let start = new Date();
   // let res = await backfillV6()
   // let end = new Date();
   // let { message, error } = res;
   // healthMap.set("backfillV6", new CronRunResult("backfillV6", message, error, start, end, error ? 1 : 0));
 
-  //now lets frontfill v6
+  // now lets frontfill v6
   // let start = new Date();
   // let res  = await gapFillV6()
   // let end = new Date();

@@ -1,12 +1,11 @@
 import { schema, db, eq, and, or, DBTransaction } from "@metadaoproject/indexer-db";
 import { PublicKey } from "@solana/web3.js";
-import type { VersionedTransactionResponse } from "@solana/web3.js";
-import { PricesType, TwapRecord, V06LaunchState, V06ProposalState } from "@metadaoproject/indexer-db/lib/schema";
+import { PricesType, TwapRecord, V06LaunchState, V06ProposalState, MarketType } from "@metadaoproject/indexer-db/lib/schema";
 import * as token from "@solana/spl-token";
 import { connection, conditionalVaultClient } from "./connection";
 import { log } from "../logger/logger";
 import { BN } from "@coral-xyz/anchor";
-import { InitializeConditionalVaultEvent, getVaultAddr, PriceMath } from "@metadaoproject/futarchy/v0.6";
+import { InitializeConditionalVaultEvent, FinalizeProposalEvent, LaunchProposalEvent, ProvideLiquidityEvent, WithdrawLiquidityEvent, ConditionalSwapEvent, SpotSwapEvent, InitializeProposalEvent , SplitTokensEvent, Dao, AmmMath } from "@metadaoproject/futarchy/v0.6";
 
 const logger = log.child({
   module: "v6_utils"
@@ -16,66 +15,46 @@ export type Market = {
   marketAcct: string;
   baseMint: string;
   quoteMint: string;
+  marketType?: string;
+}
+
+interface PoolData {
+  baseReserves: BN;
+  quoteReserves: BN;
+  oracle?: {
+    aggregator: BN;
+    lastUpdatedTimestamp: BN;
+    createdAtTimestamp: BN;
+    startDelaySeconds: BN;
+    lastObservation: BN;
+    lastPrice: BN;
+  };
+}
+
+interface FutarchyState {
+  spot?: PoolData;
+  pass?: PoolData;
+  fail?: PoolData;
 }
 
 type DBConnection = any; // TODO: Fix typing..
 
-export async function insertTwapIfNotExists(
-  db: DBConnection,
-  event: { common: { slot: BN }, dao: PublicKey, postAmmState: any }
-) {
-  const ammMarketAccount = event.postAmmState;
-
-  // In v0.6, we need to find the market using the DAO address instead of AMM address
-  const market = await db
-    .select()
-    .from(schema.markets)
-    .where(eq(schema.markets.marketAcct, event.dao.toBase58()))
-    .execute();
-
-  if (market === undefined || market.length === 0) {
-    logger.warn("market not found", event.dao.toBase58());
-    return false;
-  }
-
-  // In v0.6, TWAP calculation needs to be done differently
-  // For now, we'll create a simple price calculation from AMM state
-  // TODO: Implement proper TWAP calculation for v0.6
+// Helper function to get the active (Pending) proposal for a DAO
+export async function getActiveProposalForDao(db: DBConnection, daoAddr: string): Promise<string | null> {
+  const activeProposal = await db.select()
+    .from(schema.v0_6_proposals)
+    .where(and(
+      eq(schema.v0_6_proposals.daoAddr, daoAddr),
+      eq(schema.v0_6_proposals.state, V06ProposalState.Pending)
+    ))
+    .limit(1);
   
-  try {
-    // Get vault balances to calculate current price
-    const { fromBalance, toBalance } = await getVaultBalances(
-      new PublicKey(ammMarketAccount.ammBaseVault),
-      new PublicKey(ammMarketAccount.baseMint),
-      new PublicKey(ammMarketAccount.quoteMint)
-    );
-
-    if (fromBalance.isZero() || toBalance.isZero()) {
-      logger.info("Cannot calculate TWAP - zero balance in vaults");
-      return false;
-    }
-
-    // Simple price calculation - this should be replaced with proper TWAP logic
-    const currentPrice = toBalance.mul(new BN(1e12)).div(fromBalance);
-    
-    const newTwap: TwapRecord = {
-      curTwap: currentPrice.toString(),
-      marketAcct: event.dao.toBase58(),
-      observationAgg: currentPrice.toString(), // Placeholder - needs proper aggregation
-      updatedSlot: event.common.slot.toString(),
-      lastObservation: currentPrice.toString(), // Placeholder
-      lastPrice: currentPrice.toString(),
-    };
-
-    await db.insert(schema.twaps).values(newTwap).onConflictDoNothing({
-      target: [schema.twaps.marketAcct, schema.twaps.updatedSlot]
-    });
-    
-    return true;
-  } catch (e) {
-    logger.error("error upserting twap", e);
-    return false;
+  if (activeProposal.length > 0) {
+    logger.info(`Found active proposal ${activeProposal[0].proposalAddr} for DAO ${daoAddr}`);
+    return activeProposal[0].proposalAddr;
   }
+  
+  return null;
 }
 
 export async function updateOrInsertTokenBalance(
@@ -273,7 +252,7 @@ export async function insertMarketIfNotExists(db: DBConnection, market: Market) 
         marketAcct: market.marketAcct,
         baseMintAcct: market.baseMint,
         quoteMintAcct: market.quoteMint,
-        marketType: 'amm',
+        marketType: market.marketType,
         createTxSig: '',
         baseLotSize: 0n,
         quoteLotSize: 0n,
@@ -281,7 +260,8 @@ export async function insertMarketIfNotExists(db: DBConnection, market: Market) 
         baseMakerFee: 0,
         quoteMakerFee: 0,
         baseTakerFee: 0,
-        quoteTakerFee: 0
+        quoteTakerFee: 0,
+        createdAt: new Date(),
       }).onConflictDoNothing();
     } catch (e) {
       logger.warn(e, "Error inserting the market");
@@ -481,3 +461,302 @@ export async function getVaultBalances(
       throw error;
     }
   }
+
+/**
+ * Gets token decimals from the database
+ */
+async function getTokenDecimals(db: DBConnection, mintAcct: string): Promise<number> {
+  try {
+    const token = await db.select({ decimals: schema.tokens.decimals })
+      .from(schema.tokens)
+      .where(eq(schema.tokens.mintAcct, mintAcct))
+      .limit(1);
+    
+    return token.length > 0 ? token[0].decimals : 0;
+  } catch (error) {
+    logger.warn(`Error fetching decimals for token ${mintAcct}:`, error);
+    return 0;
+  }
+}
+
+export async function insertIfNotExistsMarkets(
+  db: DBConnection,
+  proposalAddr: string,
+  daoAddr: string,
+  marketTypes: string[] = ['spot', 'pass', 'fail']
+): Promise<void> {
+  try {
+    // Get DAO to find base and quote mints for spot market
+    const dao = await db.select()
+      .from(schema.v0_6_daos)
+      .where(eq(schema.v0_6_daos.daoAddr, daoAddr))
+      .limit(1);
+    
+    if (dao.length === 0) {
+      logger.warn(`DAO ${daoAddr} not found when initializing markets`);
+      return;
+    }
+
+    const markets = [];
+    
+    if (marketTypes.includes('spot')) {
+      markets.push({
+        daoAddr,
+        proposalAddr: null, 
+        marketType: 'spot',
+        baseMint: dao[0].baseMintAcct,
+        quoteMint: dao[0].quoteMintAcct,
+      });
+    }
+    
+    if (marketTypes.includes('pass')) {
+      markets.push({
+        daoAddr,
+        proposalAddr,
+        marketType: 'pass',
+        baseMint: dao[0].baseMintAcct,
+        quoteMint: dao[0].quoteMintAcct,
+      });
+    }
+    
+    if (marketTypes.includes('fail')) {
+      markets.push({
+        daoAddr,
+        proposalAddr,
+        marketType: 'fail',
+        baseMint: dao[0].baseMintAcct,
+        quoteMint: dao[0].quoteMintAcct,
+      });
+    }
+
+    await db.insert(schema.futarchy_markets).values(markets).onConflictDoNothing();
+    logger.info(`Initialized markets for proposal ${proposalAddr}`);
+  } catch (error) {
+    logger.error(`Error initializing markets for proposal ${proposalAddr}:`, {
+      error: error instanceof Error ? error.message : error,
+      stack: error instanceof Error ? error.stack : undefined,
+      proposalAddr,
+      daoAddr,
+    });
+    throw error;
+  }
+}
+
+/**
+ * Calculate price from pool reserves with decimal adjustment
+ */
+function calculatePriceWithDecimals(
+  quoteReserves: BN,
+  baseReserves: BN,
+  quoteDecimals: number,
+  baseDecimals: number
+): BN {
+  if (baseReserves.isZero() || quoteReserves.isZero()) {
+    throw new Error("Base reserves or quote reserves are zero");
+  }
+
+  const PRICE_SCALE = new BN(10).pow(new BN(12)); // 1e12
+  const decimalDiff = baseDecimals - quoteDecimals;
+  
+  let adjustedQuoteReserves = quoteReserves;
+  if (decimalDiff !== 0) {
+    const adjustment = new BN(10).pow(new BN(Math.abs(decimalDiff)));
+    if (decimalDiff > 0) {
+      // Base has more decimals, scale quote up
+      adjustedQuoteReserves = quoteReserves.mul(adjustment);
+    } else {
+      // Quote has more decimals, scale quote down
+      adjustedQuoteReserves = quoteReserves.div(adjustment);
+    }
+  }
+  
+  return adjustedQuoteReserves.mul(PRICE_SCALE).div(baseReserves);
+}
+
+/**
+ * Extract and insert prices for specified markets after any event
+ */
+export async function insertIfNotExistsPrices(
+  db: DBConnection,
+  event: LaunchProposalEvent | ConditionalSwapEvent | SpotSwapEvent | ProvideLiquidityEvent | WithdrawLiquidityEvent | FinalizeProposalEvent,
+  proposalAddr: string,
+  slot: BN,
+  marketsToUpdate?: ('spot' | 'pass' | 'fail')[]
+): Promise<void> {
+  try {
+    // TODO: we are currently not handling spot prices and will need to hand efor when postAmmState is spot
+    const futarchyState = event.postAmmState?.state?.futarchy as FutarchyState;
+    if (!futarchyState) {
+      logger.debug('AMM not in futarchy mode, skipping V6 price insertion');
+      return;
+    }
+
+    // Get token decimals
+    const baseMint = event.postAmmState.baseMint.toString();
+    const quoteMint = event.postAmmState.quoteMint.toString();
+    
+    const [baseDecimals, quoteDecimals] = await Promise.all([
+      getTokenDecimals(db, baseMint),
+      getTokenDecimals(db, quoteMint)
+    ]);
+
+    // Default to all markets if not specified
+    const markets = marketsToUpdate || ['spot', 'pass', 'fail'];
+    
+    // Extract pool states and calculate prices
+    const prices = [];
+
+    // Spot pool
+    if (markets.includes('spot') && futarchyState.spot) {
+      const spotBaseReserves = new BN(futarchyState.spot.baseReserves.toString());
+      const spotQuoteReserves = new BN(futarchyState.spot.quoteReserves.toString());
+      const spotPrice = calculatePriceWithDecimals(spotQuoteReserves, spotBaseReserves, quoteDecimals, baseDecimals);
+      
+      prices.push({
+        daoAddr: event.dao.toString(),
+        proposalAddr: null, // Spot market has no proposal
+        marketType: 'spot',
+        slot: slot.toString(),
+        baseReserves: spotBaseReserves.toString(),
+        quoteReserves: spotQuoteReserves.toString(),
+        price: spotPrice.toString()
+      });
+    }
+
+    // Pass pool
+    if (markets.includes('pass') && futarchyState.pass) {
+      const passBaseReserves = new BN(futarchyState.pass.baseReserves.toString());
+      const passQuoteReserves = new BN(futarchyState.pass.quoteReserves.toString());
+      const passPrice = calculatePriceWithDecimals(passQuoteReserves, passBaseReserves, quoteDecimals, baseDecimals);
+      
+      prices.push({
+        daoAddr: event.dao.toString(),
+        proposalAddr,
+        marketType: 'pass',
+        slot: slot.toString(),
+        baseReserves: passBaseReserves.toString(),
+        quoteReserves: passQuoteReserves.toString(),
+        price: passPrice.toString()
+      });
+    }
+
+    // Fail pool
+    if (markets.includes('fail') && futarchyState.fail) {
+      const failBaseReserves = new BN(futarchyState.fail.baseReserves.toString());
+      const failQuoteReserves = new BN(futarchyState.fail.quoteReserves.toString());
+      const failPrice = calculatePriceWithDecimals(failQuoteReserves, failBaseReserves, quoteDecimals, baseDecimals);
+      
+      prices.push({
+        daoAddr: event.dao.toString(),
+        proposalAddr,
+        marketType: 'fail',
+        slot: slot.toString(),
+        baseReserves: failBaseReserves.toString(),
+        quoteReserves: failQuoteReserves.toString(),
+        price: failPrice.toString()
+      });
+    }
+
+    // Insert prices only if they don't already exist for this slot
+    if (prices.length > 0) {
+      for (const price of prices) {
+        await db.insert(schema.futarchy_prices).values(price).onConflictDoNothing();
+        logger.debug(`Inserted ${price.marketType} price for slot ${price.slot}`);
+      }
+    }
+  } catch (error) {
+    logger.error(`Error inserting V6 prices for proposal ${proposalAddr}:`, {
+      error: error instanceof Error ? error.message : error,
+      stack: error instanceof Error ? error.stack : undefined,
+      proposalAddr,
+      marketsRequested: marketsToUpdate,
+      baseMint: event.postAmmState.baseMint.toString(),
+      quoteMint: event.postAmmState.quoteMint.toString()
+    });
+    throw error;
+  }
+}
+
+/**
+ * Extract and insert TWAP data for conditional markets
+ */
+export async function insertIfNotExistsTwaps(
+  db: DBConnection,
+  event: ConditionalSwapEvent | ProvideLiquidityEvent | WithdrawLiquidityEvent | FinalizeProposalEvent,
+  proposalAddr: string,
+  slot: BN
+): Promise<void> {
+  try {
+    const futarchyState = event.postAmmState?.state?.futarchy as FutarchyState;
+    if (!futarchyState) {
+      logger.debug('AMM not in futarchy mode, skipping V6 TWAP insertion');
+      return;
+    }
+
+    const twaps = [];
+
+    // Process pass pool TWAP
+    if (futarchyState.pass?.oracle) {
+      const oracle = futarchyState.pass.oracle;
+      const aggregator = new BN(oracle.aggregator.toString());
+      const lastUpdatedTimestamp = new BN(oracle.lastUpdatedTimestamp.toString());
+      const createdAtTimestamp = new BN(oracle.createdAtTimestamp.toString());
+      const startDelaySeconds = new BN(oracle.startDelaySeconds.toString());
+      
+      const timeElapsed = lastUpdatedTimestamp.sub(createdAtTimestamp.add(startDelaySeconds));
+      
+      if (!aggregator.isZero() && timeElapsed.gt(new BN(0))) {
+        const twapValue = aggregator.div(timeElapsed);
+        
+        twaps.push({
+          daoAddr: event.dao.toString(),
+          proposalAddr,
+          marketType: 'pass',
+          slot: slot.toString(),
+          aggregator: aggregator.toString(),
+          lastObservation: oracle.lastObservation.toString(),
+          lastPrice: oracle.lastPrice.toString(),
+          twapValue: twapValue.toString(),
+          timeElapsedSeconds: timeElapsed.toString()
+        });
+      }
+    }
+
+    // Process fail pool TWAP
+    if (futarchyState.fail?.oracle) {
+      const oracle = futarchyState.fail.oracle;
+      const aggregator = new BN(oracle.aggregator.toString());
+      const lastUpdatedTimestamp = new BN(oracle.lastUpdatedTimestamp.toString());
+      const createdAtTimestamp = new BN(oracle.createdAtTimestamp.toString());
+      const startDelaySeconds = new BN(oracle.startDelaySeconds.toString());
+      
+      const timeElapsed = lastUpdatedTimestamp.sub(createdAtTimestamp.add(startDelaySeconds));
+      
+      if (!aggregator.isZero() && timeElapsed.gt(new BN(0))) {
+        const twapValue = aggregator.div(timeElapsed);
+        
+        twaps.push({
+          daoAddr: event.dao.toString(),
+          proposalAddr,
+          marketType: 'fail',
+          slot: slot.toString(),
+          aggregator: aggregator.toString(),
+          lastObservation: oracle.lastObservation.toString(),
+          lastPrice: oracle.lastPrice.toString(),
+          twapValue: twapValue.toString(),
+          timeElapsedSeconds: timeElapsed.toString()
+        });
+      }
+    }
+
+    // Insert TWAP records with existence checks
+    if (twaps.length > 0) {
+      for (const twap of twaps) {
+        await db.insert(schema.futarchy_twaps).values(twap);
+        logger.debug(`Inserted TWAP record for ${twap.marketType} market, proposal ${proposalAddr} at slot ${twap.slot}`);
+      }
+    }
+  } catch (error) {
+    logger.error(`Error inserting V6 TWAPs for proposal ${proposalAddr}:`, error);
+  }
+} 
