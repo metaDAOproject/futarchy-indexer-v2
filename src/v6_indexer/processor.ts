@@ -485,8 +485,8 @@ async function handleLaunchInitializedEvent(event: LaunchInitializedEvent, signa
       await trx.insert(schema.v0_6_launches).values({
         launchAddr: event.launch.toString(),
         minimumRaiseAmount: BigInt(event.minimumRaiseAmount.toString()),
-        monthlySpendingLimitAmount: 0n, 
-        monthlySpendingLimitMembers: [], 
+        monthlySpendingLimitAmount: BigInt(event.monthlySpendingLimitAmount.toString()),
+        monthlySpendingLimitMembers: event.monthlySpendingLimitMembers.map(pk => pk.toString()),
         launchAuthority: event.launchAuthority.toString(),
         launchSigner: event.launchSigner.toString(),
         launchSignerPdaBump: event.launchSignerPdaBump,
@@ -498,9 +498,9 @@ async function handleLaunchInitializedEvent(event: LaunchInitializedEvent, signa
         state: V06LaunchState.Initialized,
         seqNum: 0n,
         secondsForLaunch: event.secondsForLaunch,
-        performancePackageGrantee: "",
-        performancePackageTokenAmount: 0n,
-        monthsUntilInsidersCanUnlock: 0,
+        performancePackageGrantee: event.performancePackageGrantee.toString(),
+        performancePackageTokenAmount: BigInt(event.performancePackageTokenAmount.toString()),
+        monthsUntilInsidersCanUnlock: event.monthsUntilInsidersCanUnlock,
         pdaBump: event.pdaBump,
       }).onConflictDoNothing();
     });
@@ -562,6 +562,7 @@ async function handleLaunchStartedEvent(event: LaunchStartedEvent, signature: st
       state: V06LaunchState.Live,
       unixTimestampStarted: BigInt(event.common.unixTimestamp.toString()),
       seqNum: BigInt(event.common.launchSeqNum.toString()),
+      updatedAtSlot: BigInt(event.slotStarted.toString()),
     }).where(eq(schema.v0_6_launches.launchAddr, event.launch.toString()));
     });
   } catch (error) {
@@ -929,7 +930,7 @@ async function handleLaunchProposalEvent(event: LaunchProposalEvent, signature: 
           }).where(eq(schema.v0_6_daos.daoAddr, event.dao.toString()));
 
           await trx.update(schema.v0_6_proposals).set({
-            launchedAt: new Date(),
+            launchedAt: new Date(event.timestampEnqueued.mul(new BN(1000)).toNumber()),
           }).where(eq(schema.v0_6_proposals.proposalAddr, event.proposal.toString()));
           
         } catch (fetchError) {
