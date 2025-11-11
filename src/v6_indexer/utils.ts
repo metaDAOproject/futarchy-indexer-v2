@@ -314,7 +314,7 @@ export async function upsertV06Proposal(proposalAcct: any, proposalAddr: PublicK
       .where(eq(schema.v0_6_proposals.proposalAddr, proposalAddr.toString()))
       .limit(1);
 
-    const proposalValues: typeof schema.v0_6_proposals.$inferInsert = {
+    const baseProposalValues = {
       proposalAddr: proposalAddr.toString(),
       number: proposalAcct.number,
       proposer: proposalAcct.proposer.toString(),
@@ -332,19 +332,20 @@ export async function upsertV06Proposal(proposalAcct: any, proposalAddr: PublicK
       passQuoteMint: proposalAcct.passQuoteMint.toString(),
       failBaseMint: proposalAcct.failBaseMint.toString(),
       failQuoteMint: proposalAcct.failQuoteMint.toString(),
-      createdAt: blockTime || new Date(),
       baseVaultAddr: proposalAcct.baseVault.toString(),
       quoteVaultAddr: proposalAcct.quoteVault.toString(),
     };
 
     if (existingProposal.length === 0) {
-      // Insert new proposal
-      await trx.insert(schema.v0_6_proposals).values(proposalValues);
+      const insertValues = {
+        ...baseProposalValues,
+        createdAt: blockTime || new Date(),
+      };
+      await trx.insert(schema.v0_6_proposals).values(insertValues);
       logger.info(`Inserted proposal ${proposalAddr.toString()}`);
     } else {
-      // Update existing proposal
       await trx.update(schema.v0_6_proposals)
-        .set(proposalValues)
+        .set(baseProposalValues)
         .where(eq(schema.v0_6_proposals.proposalAddr, proposalAddr.toString()));
       logger.info(`Updated proposal ${proposalAddr.toString()}`);
     }
