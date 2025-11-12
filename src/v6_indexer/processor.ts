@@ -784,17 +784,26 @@ async function handleStakeToProposalEvent(event: StakeToProposalEvent, signature
         event.staker
       );
 
-      // Create or update staking record
+      // Fetch the actual stake account data from chain
+      let actualStakedAmount: string;
+      try {
+        const stakeAccountData = await futarchyClient.autocrat.account.stakeAccount.fetch(stakePda);
+        actualStakedAmount = stakeAccountData.amount.toString();
+      } catch (fetchError) {
+        actualStakedAmount = event.amount.toString();
+        logger.warn(`Could not fetch stake account ${stakePda.toString()}, using event amount`);
+      }
+
       await trx.insert(schema.v0_6_staking_record).values({
         stakeAddr: stakePda.toString(),
         proposalAddr: event.proposal.toString(),
         stakerAddr: event.staker.toString(),
-        totalStaked: event.totalStaked.toString(),
+        totalStaked: actualStakedAmount,
         updatedAtSlot: BigInt(event.common.slot.toString()),
       }).onConflictDoUpdate({
         target: schema.v0_6_staking_record.stakeAddr,
         set: {
-          totalStaked: sql`CASE WHEN ${BigInt(event.common.slot.toString())} >= ${schema.v0_6_staking_record.updatedAtSlot} THEN ${BigInt(event.totalStaked.toString())} ELSE ${schema.v0_6_staking_record.totalStaked} END`,
+          totalStaked: sql`CASE WHEN ${BigInt(event.common.slot.toString())} >= ${schema.v0_6_staking_record.updatedAtSlot} THEN ${actualStakedAmount} ELSE ${schema.v0_6_staking_record.totalStaked} END`,
           updatedAtSlot: sql`GREATEST(${BigInt(event.common.slot.toString())}, ${schema.v0_6_staking_record.updatedAtSlot})`
         }
       });
@@ -856,17 +865,26 @@ async function handleUnstakeFromProposalEvent(event: UnstakeFromProposalEvent, s
         event.staker
       );
 
-      // Update staking record with new totals
+      let actualStakedAmount: string;
+      try {
+        const stakeAccountData = await futarchyClient.autocrat.account.stakeAccount.fetch(stakePda);
+        actualStakedAmount = stakeAccountData.amount.toString();
+      } catch (fetchError) {
+        // Account might be closed after full unstake
+        actualStakedAmount = "0";
+        logger.info(`Stake account ${stakePda.toString()} might be closed after full unstake`);
+      }
+
       await trx.insert(schema.v0_6_staking_record).values({
         stakeAddr: stakePda.toString(),
         proposalAddr: event.proposal.toString(),
         stakerAddr: event.staker.toString(),
-        totalStaked: event.totalStaked.toString(),
+        totalStaked: actualStakedAmount,
         updatedAtSlot: BigInt(event.common.slot.toString()),
       }).onConflictDoUpdate({
         target: schema.v0_6_staking_record.stakeAddr,
         set: {
-          totalStaked: sql`CASE WHEN ${BigInt(event.common.slot.toString())} >= ${schema.v0_6_staking_record.updatedAtSlot} THEN ${BigInt(event.totalStaked.toString())} ELSE ${schema.v0_6_staking_record.totalStaked} END`,
+          totalStaked: sql`CASE WHEN ${BigInt(event.common.slot.toString())} >= ${schema.v0_6_staking_record.updatedAtSlot} THEN ${actualStakedAmount} ELSE ${schema.v0_6_staking_record.totalStaked} END`,
           updatedAtSlot: sql`GREATEST(${BigInt(event.common.slot.toString())}, ${schema.v0_6_staking_record.updatedAtSlot})`
         }
       });
