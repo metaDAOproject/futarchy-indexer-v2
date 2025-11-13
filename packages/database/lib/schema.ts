@@ -1930,7 +1930,8 @@ export const draft_projects = pgTable("draft_projects", {
   tokenSymbol: varchar("token_symbol", { length: 15 }),
   token: varchar("token", { length: 15 }),
   operatorName: varchar("operator_name", { length: 255 }),
-  projectImageUrl: varchar("project_image_url", { length: 1023}), // max length for an aws s3 bucket url is ~ 1024 so this should be good
+  projectIconImageUrl: varchar("project_image_url", { length: 1023}), // max length for an aws s3 bucket url is ~ 1024 so this should be good
+  projectHeaderImageUrl: varchar("project_image_url", { length: 1023}),
   websiteUrl: varchar("website_url", { length: 511 }),
   shortDescription: text("short_description"),
   longDescription: text("long_description"),
@@ -1939,9 +1940,11 @@ export const draft_projects = pgTable("draft_projects", {
   teamWallets: jsonb("team_wallets"),
   multisigThreshold: integer("multisig_threshold"),
   premineAmount: numeric("premine_amount", { precision: 20, scale: 2 }),
+  performancePackageUnlockDestination: pubkey("performance_package_unlock_destination"),
   unlockMonths: integer("unlock_months"),
   legalTerms: text("legal_terms"),
   metalexTxHash: varchar("metalex_tx_hash", { length: 127 }),
+  termsOfServiceUrl: text("terms_of_service_url"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`now()`),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(sql`now()`),
   });
