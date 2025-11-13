@@ -1,5 +1,5 @@
 {
-  "id": "6ab5fc33-510c-4e4f-af3f-fe5b91150c02",
+  "id": "df22fdbc-b1ba-4be9-8c9f-19e9d9e2e935",
   "prevId": "f860502a-01dc-45a5-9dd2-d619e087824a",
   "version": "7",
   "dialect": "postgresql",
@@ -702,9 +702,15 @@
           "primaryKey": false,
           "notNull": false
         },
-        "operator_name": {
-          "name": "operator_name",
+        "founder_name": {
+          "name": "founder_name",
           "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "project_token_image_url": {
+          "name": "project_token_image_url",
+          "type": "varchar(1023)",
           "primaryKey": false,
           "notNull": false
         },
@@ -789,6 +795,48 @@
         "terms_of_service_url": {
           "name": "terms_of_service_url",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ideal_start_date": {
+          "name": "ideal_start_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "token_address": {
+          "name": "token_address",
+          "type": "varchar(44)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "token_seed": {
+          "name": "token_seed",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ip_details": {
+          "name": "ip_details",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "existing_investors": {
+          "name": "existing_investors",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "existing_investors_allocation": {
+          "name": "existing_investors_allocation",
+          "type": "numeric(20, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "socials": {
+          "name": "socials",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         },

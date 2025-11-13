@@ -18,6 +18,7 @@ import {
   pgView,
   QueryBuilder,
   bigserial,
+  date,
 } from "drizzle-orm/pg-core";
 
 // Implementation discussed here https://github.com/metaDAOproject/futarchy-indexer/pull/1
@@ -1929,7 +1930,8 @@ export const draft_projects = pgTable("draft_projects", {
   projectName: varchar("project_name", { length: 255 }),
   tokenSymbol: varchar("token_symbol", { length: 15 }),
   token: varchar("token", { length: 15 }),
-  operatorName: varchar("operator_name", { length: 255 }),
+  founderName: varchar("founder_name", { length: 255 }),
+  projectTokenImageUrl: varchar("project_token_image_url", { length: 1023 }),
   projectIconImageUrl: varchar("project_image_url", { length: 1023}), // max length for an aws s3 bucket url is ~ 1024 so this should be good
   projectHeaderImageUrl: varchar("project_image_url", { length: 1023}),
   websiteUrl: varchar("website_url", { length: 511 }),
@@ -1945,6 +1947,13 @@ export const draft_projects = pgTable("draft_projects", {
   legalTerms: text("legal_terms"),
   metalexTxHash: varchar("metalex_tx_hash", { length: 127 }),
   termsOfServiceUrl: text("terms_of_service_url"),
+  idealStartDate: date("ideal_start_date"),
+  tokenAddress: pubkey("token_address"),
+  tokenSeed: varchar("token_seed"),
+  ipDetails: text("ip_details"),
+  existingInvestors: jsonb("existing_investors"),
+  existingInvestorsAllocation: numeric("existing_investors_allocation", { precision: 20, scale: 2 }),
+  socials: jsonb("socials"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`now()`),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(sql`now()`),
   });

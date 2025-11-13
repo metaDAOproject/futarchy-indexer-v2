@@ -3,7 +3,8 @@ CREATE TABLE IF NOT EXISTS "draft_projects" (
 	"project_name" varchar(255),
 	"token_symbol" varchar(15),
 	"token" varchar(15),
-	"operator_name" varchar(255),
+	"founder_name" varchar(255),
+	"project_token_image_url" varchar(1023),
 	"project_image_url" varchar(1023),
 	"website_url" varchar(511),
 	"short_description" text,
@@ -18,6 +19,13 @@ CREATE TABLE IF NOT EXISTS "draft_projects" (
 	"legal_terms" text,
 	"metalex_tx_hash" varchar(127),
 	"terms_of_service_url" text,
+	"ideal_start_date" date,
+	"token_address" varchar(44),
+	"token_seed" varchar,
+	"ip_details" text,
+	"existing_investors" jsonb,
+	"existing_investors_allocation" numeric(20, 2),
+	"socials" jsonb,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
