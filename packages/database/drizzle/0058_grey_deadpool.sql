@@ -1,0 +1,21 @@
+CREATE TABLE IF NOT EXISTS "draft_projects" (
+	"draft_id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"project_name" varchar(255),
+	"token_symbol" varchar(15),
+	"token" varchar(15),
+	"operator_name" varchar(255),
+	"project_image_url" varchar(1023),
+	"website_url" varchar(511),
+	"short_description" text,
+	"long_description" text,
+	"minimum_raise" numeric(20, 2),
+	"monthly_spending" numeric(20, 2),
+	"team_wallets" jsonb,
+	"multisig_threshold" integer,
+	"premine_amount" numeric(20, 2),
+	"unlock_months" integer,
+	"legal_terms" text,
+	"metalex_tx_hash" varchar(127),
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);

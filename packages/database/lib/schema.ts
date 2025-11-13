@@ -1924,6 +1924,28 @@ export const futarchy_twaps = pgTable("futarchy_twaps", {
     .nullsNotDistinct(),
 }));
 
+export const draft_projects = pgTable("draft_projects", {
+  draftId: uuid("draft_id").notNull().defaultRandom().primaryKey(),
+  projectName: varchar("project_name", { length: 255 }),
+  tokenSymbol: varchar("token_symbol", { length: 15 }),
+  token: varchar("token", { length: 15 }),
+  operatorName: varchar("operator_name", { length: 255 }),
+  projectImageUrl: varchar("project_image_url", { length: 1023}), // max length for an aws s3 bucket url is ~ 1024 so this should be good
+  websiteUrl: varchar("website_url", { length: 511 }),
+  shortDescription: text("short_description"),
+  longDescription: text("long_description"),
+  minimumRaise: numeric("minimum_raise", { precision: 20, scale: 2 }),
+  monthlySpending: numeric("monthly_spending", { precision: 20, scale: 2 }),
+  teamWallets: jsonb("team_wallets"),
+  multisigThreshold: integer("multisig_threshold"),
+  premineAmount: numeric("premine_amount", { precision: 20, scale: 2 }),
+  unlockMonths: integer("unlock_months"),
+  legalTerms: text("legal_terms"),
+  metalexTxHash: varchar("metalex_tx_hash", { length: 127 }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(sql`now()`),
+  });
+
 // TODO: This is commented out give these are timescale views, but I wanted to include them
 export const twapChartData = pgView("twap_chart_data", {
   interv: timestamp("interv", { withTimezone: true }),
