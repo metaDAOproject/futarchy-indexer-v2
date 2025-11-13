@@ -1,5 +1,5 @@
 {
-  "id": "90153d8f-70b6-4518-bc5c-d3fa7928645b",
+  "id": "6ab5fc33-510c-4e4f-af3f-fe5b91150c02",
   "prevId": "f860502a-01dc-45a5-9dd2-d619e087824a",
   "version": "7",
   "dialect": "postgresql",
@@ -762,6 +762,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "performance_package_unlock_destination": {
+          "name": "performance_package_unlock_destination",
+          "type": "varchar(44)",
+          "primaryKey": false,
+          "notNull": false
+        },
         "unlock_months": {
           "name": "unlock_months",
           "type": "integer",
@@ -777,6 +783,12 @@
         "metalex_tx_hash": {
           "name": "metalex_tx_hash",
           "type": "varchar(127)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "terms_of_service_url": {
+          "name": "terms_of_service_url",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },

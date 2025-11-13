@@ -13,9 +13,11 @@ CREATE TABLE IF NOT EXISTS "draft_projects" (
 	"team_wallets" jsonb,
 	"multisig_threshold" integer,
 	"premine_amount" numeric(20, 2),
+	"performance_package_unlock_destination" varchar(44),
 	"unlock_months" integer,
 	"legal_terms" text,
 	"metalex_tx_hash" varchar(127),
+	"terms_of_service_url" text,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
