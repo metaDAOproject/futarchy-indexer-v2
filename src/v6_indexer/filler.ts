@@ -162,7 +162,7 @@ const insertNewSignatures = async (programId: PublicKey) => {
  * @param signatures - Array of ConfirmedSignatureInfo objects to insert
  * @param queriedAddr - The PublicKey of the account these signatures are associated with
  */
-const insertSignatures = async (signatures: ConfirmedSignatureInfo[], queriedAddr: PublicKey) => {
+export const insertSignatures = async (signatures: ConfirmedSignatureInfo[], queriedAddr: PublicKey) => {
   
   try {
     await db.insert(schema.signatures).values(signatures.map(tx => ({
