@@ -1931,6 +1931,7 @@ export const draft_projects = pgTable("draft_projects", {
   tokenSymbol: varchar("token_symbol", { length: 15 }),
   token: varchar("token", { length: 15 }),
   founderName: varchar("founder_name", { length: 255 }),
+  founderAccr: pubkey("founder_acct"),
   projectTokenImageUrl: varchar("project_token_image_url", { length: 1023 }),
   projectIconImageUrl: varchar("project_image_url", { length: 1023}), // max length for an aws s3 bucket url is ~ 1024 so this should be good
   projectHeaderImageUrl: varchar("project_image_url", { length: 1023}),

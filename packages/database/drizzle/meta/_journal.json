@@ -414,6 +414,13 @@
       "when": 1763077002135,
       "tag": "0058_absurd_pyro",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1763139663355,
+      "tag": "0059_solid_lenny_balinger",
+      "breakpoints": true
     }
   ]
 }
