@@ -1,0 +1,1 @@
+ALTER TABLE "draft_projects" RENAME COLUMN "monthly_spending" TO "monthly_spending_amount";

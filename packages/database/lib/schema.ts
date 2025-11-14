@@ -1948,7 +1948,7 @@ export const draft_projects = pgTable("draft_projects", {
   shortDescription: text("short_description"),
   longDescription: text("long_description"),
   minimumRaise: numeric("minimum_raise", { precision: 20, scale: 2 }),
-  monthlySpending: numeric("monthly_spending", { precision: 20, scale: 2 }),
+  monthlySpendingAmount: numeric("monthly_spending_amount", { precision: 20, scale: 2 }),
   teamWallets: jsonb("team_wallets"),
   multisigThreshold: integer("multisig_threshold"),
   premineAmount: numeric("premine_amount", { precision: 20, scale: 2 }),

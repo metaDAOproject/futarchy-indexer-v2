@@ -435,6 +435,13 @@
       "when": 1763162050316,
       "tag": "0061_glamorous_glorian",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1763162551026,
+      "tag": "0062_outgoing_lord_tyger",
+      "breakpoints": true
     }
   ]
 }
