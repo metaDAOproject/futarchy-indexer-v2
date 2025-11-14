@@ -283,6 +283,13 @@ export enum PricesType {
   Conditional = "conditional",
 }
 
+export enum MetalexStatus {
+  NOT_STARTED = "Not started",
+  IN_PROGRESS = "In progress",
+  CONFIRMED = "Confirmed",
+  ERROR = "Error"
+}
+
 export const prices = pgTable(
   "prices",
   {
@@ -1931,7 +1938,9 @@ export const draft_projects = pgTable("draft_projects", {
   tokenSymbol: varchar("token_symbol", { length: 15 }),
   token: varchar("token", { length: 15 }),
   founderName: varchar("founder_name", { length: 255 }),
-  founderAccr: pubkey("founder_acct"),
+  founderEmail: varchar("founder_email", { length: 127 }),
+  founderSolAcct: pubkey("founder_sol_acct"),
+  founderEthAcct: pubkey("founder_eth_acct"),
   projectTokenImageUrl: varchar("project_token_image_url", { length: 1023 }),
   projectHeaderImageUrl: varchar("project_header_image_url", { length: 1023}),
   projectIconImageUrl: varchar("project_icon_image_url", { length: 1023}), 
@@ -1947,6 +1956,7 @@ export const draft_projects = pgTable("draft_projects", {
   unlockMonths: integer("unlock_months"),
   legalTerms: text("legal_terms"),
   metalexTxHash: varchar("metalex_tx_hash", { length: 127 }),
+  metalexStatus: pgEnum("metalex_status", MetalexStatus),
   termsOfServiceUrl: text("terms_of_service_url"),
   idealStartDate: date("ideal_start_date"),
   tokenAddress: pubkey("token_address"),
