@@ -306,7 +306,7 @@ export function extractReservesFromAmmState(postAmmState: any): { baseReserves: 
   return { baseReserves, quoteReserves };
 }
 
-export async function upsertV06Proposal(proposalAcct: any, proposalAddr: PublicKey, slot: bigint, blockTime: Date | null, trx: DBTransaction) {
+export async function upsertV06Proposal(proposalAcct: any, proposalAddr: PublicKey, slot: bigint, blockTime: Date | null, trx: DBConnection) {
   try {
     // Check if proposal already exists
     const existingProposal = await trx.select()
@@ -354,7 +354,7 @@ export async function upsertV06Proposal(proposalAcct: any, proposalAddr: PublicK
   }
 }
 
-export async function upsertV06Dao(daoAcct: any, daoAddr: PublicKey, trx: DBTransaction) {
+export async function upsertV06Dao(daoAcct: any, daoAddr: PublicKey, trx: DBConnection, slot?: bigint) {
   try {
     // Check if DAO already exists
     const existingDao = await trx.select()
@@ -417,6 +417,175 @@ export async function upsertV06Dao(daoAcct: any, daoAddr: PublicKey, trx: DBTran
   } catch (error) {
     logger.error(error, `Error upserting DAO ${daoAddr.toString()}`);
   }
+}
+
+/**
+ * Extract and insert prices from DAO account's AMM state
+ * Called when processing Geyser account updates for DAO accounts
+ */
+export async function insertPricesFromAmmState(
+  db: DBConnection,
+  daoAddr: string,
+  dao: any,
+  slot: bigint
+): Promise<void> {
+  try {
+    const ammState = dao.amm?.state;
+    if (!ammState) {
+      logger.debug(`No AMM state in DAO ${daoAddr}`);
+      return;
+    }
+
+    const baseMint = dao.baseMint?.toString();
+    const quoteMint = dao.quoteMint?.toString();
+
+    if (!baseMint || !quoteMint) {
+      logger.debug(`Missing base or quote mint in DAO ${daoAddr}`);
+      return;
+    }
+
+    // Get token decimals
+    const [baseDecimals, quoteDecimals] = await Promise.all([
+      getTokenDecimals(db, baseMint),
+      getTokenDecimals(db, quoteMint)
+    ]);
+
+    const prices = [];
+
+    // Check for spot state (direct spot mode)
+    if ('spot' in ammState && ammState.spot) {
+      const spotPool = ammState.spot;
+      const baseReserves = new BN(spotPool.baseReserves?.toString() || "0");
+      const quoteReserves = new BN(spotPool.quoteReserves?.toString() || "0");
+
+      if (!baseReserves.isZero() && !quoteReserves.isZero()) {
+        const spotPrice = calculatePriceWithDecimals(quoteReserves, baseReserves, quoteDecimals, baseDecimals);
+
+        prices.push({
+          daoAddr,
+          proposalAddr: null,
+          marketType: 'spot',
+          slot: slot.toString(),
+          baseReserves: baseReserves.toString(),
+          quoteReserves: quoteReserves.toString(),
+          price: spotPrice.toString()
+        });
+      }
+    }
+
+    // Check for futarchy state (when there's an active proposal)
+    if ('futarchy' in ammState && ammState.futarchy) {
+      const futarchyState = ammState.futarchy;
+
+      // Get active proposal for this DAO to associate pass/fail prices
+      const activeProposalAddr = await getActiveProposalForDao(db, daoAddr);
+
+      // Spot within futarchy
+      if (futarchyState.spot) {
+        const baseReserves = new BN(futarchyState.spot.baseReserves?.toString() || "0");
+        const quoteReserves = new BN(futarchyState.spot.quoteReserves?.toString() || "0");
+
+        if (!baseReserves.isZero() && !quoteReserves.isZero()) {
+          const spotPrice = calculatePriceWithDecimals(quoteReserves, baseReserves, quoteDecimals, baseDecimals);
+
+          prices.push({
+            daoAddr,
+            proposalAddr: null,
+            marketType: 'spot',
+            slot: slot.toString(),
+            baseReserves: baseReserves.toString(),
+            quoteReserves: quoteReserves.toString(),
+            price: spotPrice.toString()
+          });
+        }
+      }
+
+      // Pass pool
+      if (futarchyState.pass && activeProposalAddr) {
+        const baseReserves = new BN(futarchyState.pass.baseReserves?.toString() || "0");
+        const quoteReserves = new BN(futarchyState.pass.quoteReserves?.toString() || "0");
+
+        if (!baseReserves.isZero() && !quoteReserves.isZero()) {
+          const passPrice = calculatePriceWithDecimals(quoteReserves, baseReserves, quoteDecimals, baseDecimals);
+
+          prices.push({
+            daoAddr,
+            proposalAddr: activeProposalAddr,
+            marketType: 'pass',
+            slot: slot.toString(),
+            baseReserves: baseReserves.toString(),
+            quoteReserves: quoteReserves.toString(),
+            price: passPrice.toString()
+          });
+        }
+      }
+
+      // Fail pool
+      if (futarchyState.fail && activeProposalAddr) {
+        const baseReserves = new BN(futarchyState.fail.baseReserves?.toString() || "0");
+        const quoteReserves = new BN(futarchyState.fail.quoteReserves?.toString() || "0");
+
+        if (!baseReserves.isZero() && !quoteReserves.isZero()) {
+          const failPrice = calculatePriceWithDecimals(quoteReserves, baseReserves, quoteDecimals, baseDecimals);
+
+          prices.push({
+            daoAddr,
+            proposalAddr: activeProposalAddr,
+            marketType: 'fail',
+            slot: slot.toString(),
+            baseReserves: baseReserves.toString(),
+            quoteReserves: quoteReserves.toString(),
+            price: failPrice.toString()
+          });
+        }
+      }
+    }
+
+    // Insert prices
+    if (prices.length > 0) {
+      for (const price of prices) {
+        await db.insert(schema.futarchy_prices).values(price).onConflictDoNothing();
+        logger.debug(`Inserted ${price.marketType} price from account update at slot ${price.slot}`);
+      }
+    }
+  } catch (error) {
+    logger.error(`Error inserting prices from AMM state for DAO ${daoAddr}:`, {
+      error: error instanceof Error ? error.message : error,
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+  }
+}
+
+/**
+ * Calculate price from pool reserves with decimal adjustment
+ * (Local helper, moved above insertPricesFromAmmState)
+ */
+function calculatePriceWithDecimals(
+  quoteReserves: BN,
+  baseReserves: BN,
+  quoteDecimals: number,
+  baseDecimals: number
+): BN {
+  if (baseReserves.isZero() || quoteReserves.isZero()) {
+    throw new Error("Base reserves or quote reserves are zero");
+  }
+
+  const PRICE_SCALE = new BN(10).pow(new BN(12)); // 1e12
+  const decimalDiff = baseDecimals - quoteDecimals;
+
+  let adjustedQuoteReserves = quoteReserves;
+  if (decimalDiff !== 0) {
+    const adjustment = new BN(10).pow(new BN(Math.abs(decimalDiff)));
+    if (decimalDiff > 0) {
+      // Base has more decimals, scale quote up
+      adjustedQuoteReserves = quoteReserves.mul(adjustment);
+    } else {
+      // Quote has more decimals, scale quote down
+      adjustedQuoteReserves = quoteReserves.div(adjustment);
+    }
+  }
+
+  return adjustedQuoteReserves.mul(PRICE_SCALE).div(baseReserves);
 }
 
 export async function getVaultBalances(
@@ -541,37 +710,6 @@ export async function insertIfNotExistsMarkets(
     });
     throw error;
   }
-}
-
-/**
- * Calculate price from pool reserves with decimal adjustment
- */
-function calculatePriceWithDecimals(
-  quoteReserves: BN,
-  baseReserves: BN,
-  quoteDecimals: number,
-  baseDecimals: number
-): BN {
-  if (baseReserves.isZero() || quoteReserves.isZero()) {
-    throw new Error("Base reserves or quote reserves are zero");
-  }
-
-  const PRICE_SCALE = new BN(10).pow(new BN(12)); // 1e12
-  const decimalDiff = baseDecimals - quoteDecimals;
-  
-  let adjustedQuoteReserves = quoteReserves;
-  if (decimalDiff !== 0) {
-    const adjustment = new BN(10).pow(new BN(Math.abs(decimalDiff)));
-    if (decimalDiff > 0) {
-      // Base has more decimals, scale quote up
-      adjustedQuoteReserves = quoteReserves.mul(adjustment);
-    } else {
-      // Quote has more decimals, scale quote down
-      adjustedQuoteReserves = quoteReserves.div(adjustment);
-    }
-  }
-  
-  return adjustedQuoteReserves.mul(PRICE_SCALE).div(baseReserves);
 }
 
 /**

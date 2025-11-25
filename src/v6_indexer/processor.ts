@@ -30,6 +30,18 @@ const logger = log.child({
   module: "v6_processor"
 });
 
+// Geyser mode flag - when true, skip RPC calls (account data is in DB from account stream)
+let isGeyser = false;
+
+export function setGeyserMode(enabled: boolean) {
+  isGeyser = enabled;
+  logger.info({ isGeyser: enabled }, "Geyser mode updated");
+}
+
+export function getGeyserMode(): boolean {
+  return isGeyser;
+}
+
 type DBConnection = any; // TODO: Fix typing..
 
 export async function processVaultEvent(event: { name: string; data: ConditionalVaultEvent }, signature: string, transactionResponse: VersionedTransactionResponse) {
@@ -344,6 +356,7 @@ async function handleLaunchCompletedEvent(event: LaunchCompletedEvent, signature
         state: launchState,
         seqNum: BigInt(event.common.launchSeqNum.toString()),
         daoAddr: launchState === V06LaunchState.Complete ? event.dao?.toString() : null,
+        updatedAtSlot: BigInt(event.common.slot.toString()),
       };
 
       // If launch is complete, fetch additional data from the launch account
@@ -597,6 +610,7 @@ async function handleLaunchCloseEvent(event: LaunchCloseEvent, signature: string
         state: mappedState,
         unixTimestampClosed: BigInt(event.common.unixTimestamp.toString()),
         seqNum: BigInt(event.common.launchSeqNum.toString()),
+        updatedAtSlot: BigInt(event.common.slot.toString()),
       }).where(eq(schema.v0_6_launches.launchAddr, event.launch.toString()));
     });
   } catch (error) {
@@ -679,15 +693,28 @@ export async function processFutarchyEvent(event: { name: string; data: Futarchy
 //   }
 // }
 
-async function handleInitializeDaoEvent(event: InitializeDaoEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+async function handleInitializeDaoEvent(event: InitializeDaoEvent, _signature: string, _transactionResponse: VersionedTransactionResponse) {
   try {
+    if (isGeyser) {
+      const existingDao = await db.select()
+        .from(schema.v0_6_daos)
+        .where(eq(schema.v0_6_daos.daoAddr, event.dao.toString()))
+        .limit(1);
+
+      if (existingDao.length > 0) {
+        await db.transaction(async (trx: DBTransaction) => {
+          await insertTokenIfNotExists(trx, new PublicKey(existingDao[0].baseMintAcct));
+          await insertTokenIfNotExists(trx, new PublicKey(existingDao[0].quoteMintAcct));
+        });
+      }
+      return;
+    }
+
     const daoAcct = await futarchyClient.fetchDao(event.dao);
-    
     if (!daoAcct) {
       logger.warn(`DAO account not found for ${event.dao.toString()}`);
       return;
     }
-
     await db.transaction(async (trx: DBTransaction) => {
       await insertTokenIfNotExists(trx, daoAcct.baseMint);
       await insertTokenIfNotExists(trx, daoAcct.quoteMint);
@@ -698,10 +725,11 @@ async function handleInitializeDaoEvent(event: InitializeDaoEvent, signature: st
   }
 }
 
-async function handleUpdateDaoEvent(event: UpdateDaoEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+async function handleUpdateDaoEvent(event: UpdateDaoEvent, _signature: string, _transactionResponse: VersionedTransactionResponse) {
   try {
+    if (isGeyser) return;
+
     const daoAcct = await futarchyClient.fetchDao(event.dao);
-    
     if (!daoAcct) {
       logger.warn(`DAO account not found for ${event.dao.toString()}`);
       return;
@@ -717,10 +745,27 @@ async function handleUpdateDaoEvent(event: UpdateDaoEvent, signature: string, tr
   }
 }
 
-async function handleInitializeProposalEvent(event: InitializeProposalEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+async function handleInitializeProposalEvent(event: InitializeProposalEvent, _signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
+    if (isGeyser) {
+      const existingProposal = await db.select()
+        .from(schema.v0_6_proposals)
+        .where(eq(schema.v0_6_proposals.proposalAddr, event.proposal.toString()))
+        .limit(1);
+
+      if (existingProposal.length > 0) {
+        await db.transaction(async (trx: DBTransaction) => {
+          await insertTokenIfNotExists(trx, new PublicKey(existingProposal[0].passBaseMint));
+          await insertTokenIfNotExists(trx, new PublicKey(existingProposal[0].passQuoteMint));
+          await insertTokenIfNotExists(trx, new PublicKey(existingProposal[0].failBaseMint));
+          await insertTokenIfNotExists(trx, new PublicKey(existingProposal[0].failQuoteMint));
+          await insertIfNotExistsMarkets(trx, event.proposal.toString(), event.dao.toString());
+        });
+      }
+      return;
+    }
+
     const proposalAcct = await futarchyClient.fetchProposal(event.proposal);
-    
     if (!proposalAcct) {
       logger.warn(`Proposal account not found for ${event.proposal.toString()}`);
       return;
@@ -730,16 +775,9 @@ async function handleInitializeProposalEvent(event: InitializeProposalEvent, sig
       await insertTokenIfNotExists(trx, proposalAcct.passQuoteMint);
       await insertTokenIfNotExists(trx, proposalAcct.failBaseMint);
       await insertTokenIfNotExists(trx, proposalAcct.failQuoteMint);
-
       const blockTime = transactionResponse.blockTime ? new Date(transactionResponse.blockTime * 1000) : null;
       await upsertV06Proposal(proposalAcct, event.proposal, BigInt(event.common.slot.toString()), blockTime, trx);
-      
-      // Initialize markets for this proposal
-      await insertIfNotExistsMarkets(
-        trx,
-        event.proposal.toString(),
-        event.dao.toString(),
-      );
+      await insertIfNotExistsMarkets(trx, event.proposal.toString(), event.dao.toString());
     });
   } catch (error) {
     logger.error(error, "Error in handleInitializeProposalEvent");
@@ -748,50 +786,53 @@ async function handleInitializeProposalEvent(event: InitializeProposalEvent, sig
 
 async function handleStakeToProposalEvent(event: StakeToProposalEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
+    const [stakePda] = getStakeAddr(
+      futarchyClient.autocrat.programId,
+      event.proposal,
+      event.staker
+    );
+
+    if (isGeyser) {
+      await db.transaction(async (trx: DBTransaction) => {
+        await trx.insert(schema.v0_6_stakes).values({
+          stakeAddr: stakePda.toString(),
+          proposalAddr: event.proposal.toString(),
+          txSignature: signature,
+          stakerAddr: event.staker.toString(),
+          amount: event.amount.toString(),
+          type: "stake",
+          slot: BigInt(event.common.slot.toString()),
+          timestamp: new Date(event.common.unixTimestamp.mul(new BN(1000)).toNumber()),
+        }).onConflictDoNothing({
+          target: [schema.v0_6_stakes.proposalAddr, schema.v0_6_stakes.txSignature]
+        });
+      });
+      return;
+    }
+
     await db.transaction(async (trx: DBTransaction) => {
-      // Check if proposal exists, if not fetch and upsert it
       let proposal = await trx.select()
         .from(schema.v0_6_proposals)
         .where(eq(schema.v0_6_proposals.proposalAddr, event.proposal.toString()))
         .limit(1);
 
       if (proposal.length === 0) {
-        try {
-          const proposalAcct = await futarchyClient.fetchProposal(event.proposal);
-          if (proposalAcct) {
-            const blockTime = transactionResponse.blockTime ? new Date(transactionResponse.blockTime * 1000) : null;
-            await upsertV06Proposal(proposalAcct, event.proposal, BigInt(event.common.slot.toString()), blockTime, trx);
-            
-            // Re-fetch the proposal after upserting
-            proposal = await trx.select()
-              .from(schema.v0_6_proposals)
-              .where(eq(schema.v0_6_proposals.proposalAddr, event.proposal.toString()))
-              .limit(1);
-          } else {
-            logger.warn(`Proposal ${event.proposal.toString()} not found on-chain for stake event`);
-            return;
-          }
-        } catch (error) {
-          logger.error(error, `Error fetching proposal ${event.proposal.toString()} for stake event`);
+        const proposalAcct = await futarchyClient.fetchProposal(event.proposal);
+        if (proposalAcct) {
+          const blockTime = transactionResponse.blockTime ? new Date(transactionResponse.blockTime * 1000) : null;
+          await upsertV06Proposal(proposalAcct, event.proposal, BigInt(event.common.slot.toString()), blockTime, trx);
+        } else {
+          logger.warn(`Proposal ${event.proposal.toString()} not found for stake event`);
           return;
         }
       }
 
-      // Get the correct stake PDA address
-      const [stakePda] = getStakeAddr(
-        futarchyClient.autocrat.programId,
-        event.proposal,
-        event.staker
-      );
-
-      // Fetch the actual stake account data from chain
       let actualStakedAmount: string;
       try {
         const stakeAccountData = await futarchyClient.autocrat.account.stakeAccount.fetch(stakePda);
         actualStakedAmount = stakeAccountData.amount.toString();
-      } catch (fetchError) {
+      } catch {
         actualStakedAmount = event.amount.toString();
-        logger.warn(`Could not fetch stake account ${stakePda.toString()}, using event amount`);
       }
 
       await trx.insert(schema.v0_6_staking_record).values({
@@ -808,7 +849,6 @@ async function handleStakeToProposalEvent(event: StakeToProposalEvent, signature
         }
       });
 
-      // Insert individual stake transaction
       await trx.insert(schema.v0_6_stakes).values({
         stakeAddr: stakePda.toString(),
         proposalAddr: event.proposal.toString(),
@@ -829,50 +869,53 @@ async function handleStakeToProposalEvent(event: StakeToProposalEvent, signature
 
 async function handleUnstakeFromProposalEvent(event: UnstakeFromProposalEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
+    const [stakePda] = getStakeAddr(
+      futarchyClient.autocrat.programId,
+      event.proposal,
+      event.staker
+    );
+
+    if (isGeyser) {
+      await db.transaction(async (trx: DBTransaction) => {
+        await trx.insert(schema.v0_6_stakes).values({
+          stakeAddr: stakePda.toString(),
+          proposalAddr: event.proposal.toString(),
+          txSignature: signature,
+          stakerAddr: event.staker.toString(),
+          amount: event.amount.toString(),
+          type: "unstake",
+          slot: BigInt(event.common.slot.toString()),
+          timestamp: new Date(event.common.unixTimestamp.mul(new BN(1000)).toNumber()),
+        }).onConflictDoNothing({
+          target: [schema.v0_6_stakes.proposalAddr, schema.v0_6_stakes.txSignature]
+        });
+      });
+      return;
+    }
+
     await db.transaction(async (trx: DBTransaction) => {
-      // Check if proposal exists, if not fetch and upsert it
       let proposal = await trx.select()
         .from(schema.v0_6_proposals)
         .where(eq(schema.v0_6_proposals.proposalAddr, event.proposal.toString()))
         .limit(1);
 
       if (proposal.length === 0) {
-        try {
-          const proposalAcct = await futarchyClient.fetchProposal(event.proposal);
-          if (proposalAcct) {
-            const blockTime = transactionResponse.blockTime ? new Date(transactionResponse.blockTime * 1000) : null;
-            await upsertV06Proposal(proposalAcct, event.proposal, BigInt(event.common.slot.toString()), blockTime, trx);
-            
-            // Re-fetch the proposal after upserting
-            proposal = await trx.select()
-              .from(schema.v0_6_proposals)
-              .where(eq(schema.v0_6_proposals.proposalAddr, event.proposal.toString()))
-              .limit(1);
-          } else {
-            logger.warn(`Proposal ${event.proposal.toString()} not found on-chain for unstake event`);
-            return;
-          }
-        } catch (error) {
-          logger.error(error, `Error fetching proposal ${event.proposal.toString()} for unstake event`);
+        const proposalAcct = await futarchyClient.fetchProposal(event.proposal);
+        if (proposalAcct) {
+          const blockTime = transactionResponse.blockTime ? new Date(transactionResponse.blockTime * 1000) : null;
+          await upsertV06Proposal(proposalAcct, event.proposal, BigInt(event.common.slot.toString()), blockTime, trx);
+        } else {
+          logger.warn(`Proposal ${event.proposal.toString()} not found for unstake event`);
           return;
         }
       }
-
-      // Get the correct stake PDA address
-      const [stakePda] = getStakeAddr(
-        futarchyClient.autocrat.programId,
-        event.proposal,
-        event.staker
-      );
 
       let actualStakedAmount: string;
       try {
         const stakeAccountData = await futarchyClient.autocrat.account.stakeAccount.fetch(stakePda);
         actualStakedAmount = stakeAccountData.amount.toString();
-      } catch (fetchError) {
-        // Account might be closed after full unstake
+      } catch {
         actualStakedAmount = "0";
-        logger.info(`Stake account ${stakePda.toString()} might be closed after full unstake`);
       }
 
       await trx.insert(schema.v0_6_staking_record).values({
@@ -889,13 +932,12 @@ async function handleUnstakeFromProposalEvent(event: UnstakeFromProposalEvent, s
         }
       });
 
-      // Insert individual unstake transaction
       await trx.insert(schema.v0_6_stakes).values({
         stakeAddr: stakePda.toString(),
         proposalAddr: event.proposal.toString(),
         txSignature: signature,
         stakerAddr: event.staker.toString(),
-        amount: (event.amount).toString(), 
+        amount: event.amount.toString(),
         type: "unstake",
         slot: BigInt(event.common.slot.toString()),
         timestamp: new Date(event.common.unixTimestamp.mul(new BN(1000)).toNumber()),
