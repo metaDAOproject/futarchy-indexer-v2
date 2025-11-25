@@ -1,6 +1,6 @@
 import { db, schema } from "@metadaoproject/indexer-db";
 import { futarchyClient } from "../../../connections/v0.6";
-import { upsertV06Dao, upsertV06Proposal, insertTokenIfNotExists } from "../../../v6_indexer/utils";
+import { upsertV06Dao, upsertV06Proposal, insertTokenIfNotExists } from "../../shared/utils";
 import { log } from "../../../logger/logger";
 
 const logger = log.child({ module: "futarchy-v0.6-snapshot" });

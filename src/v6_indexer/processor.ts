@@ -4,7 +4,7 @@ import { PublicKey } from "@solana/web3.js";
 import type { VersionedTransactionResponse } from "@solana/web3.js";
 import { V06LaunchState, V06ProposalState, V04SwapType } from "@metadaoproject/indexer-db/lib/schema";
 import * as token from "@solana/spl-token";
-import { connection, conditionalVaultClient, futarchyClient, launchpadClient } from "./connection";
+import { connection, conditionalVaultClient, futarchyClient, launchpadClient } from "../connections/v0.6";
 import { 
   updateOrInsertTokenBalance,
   updateConditionalTokenBalancesForVaultEvents,
@@ -21,7 +21,7 @@ import {
   insertIfNotExistsMarkets,
   insertIfNotExistsPrices,
   insertIfNotExistsTwaps
-} from "./utils";
+} from "../indexers/shared/utils";
 
 import { log } from "../logger/logger";
 import { BN } from "@coral-xyz/anchor";

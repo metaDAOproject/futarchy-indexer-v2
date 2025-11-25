@@ -10,8 +10,7 @@
     "typescript": "^5.0.0"
   },
   "scripts": {
-    "start": "bun src/index.ts",
-    "geyser": "bun src/v6_indexer/geyser.ts"
+    "start": "bun src/index.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.29.0",

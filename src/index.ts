@@ -1,13 +1,8 @@
 import { log } from "./logger/logger";
-import { mapLogHealth } from "./txLogHandler";
 import { subscriptionManager } from "./core/subscriptionManager";
-import { gapFill as v6_gapfill, backfill as v6_backfill } from "./v6_indexer/filler";
-import { captureTokenBalanceSnapshotV6 } from "./v6_indexer/snapshot";
 import { CronJob } from "cron";
 import http from "http";
 import { updatePrices } from "./priceHandler";
-import { completeStakingDataRecovery } from "./v6_indexer/backfillStakingRecords";
-import { backfillDaos } from "./v6_indexer/backfillDaos";
 
 // Import all program indexers (registers them with the registry)
 import "./indexers/futarchy/v0.6";
@@ -16,6 +11,14 @@ import "./indexers/conditional-vault/v0.4";
 
 // Set to true to log all Geyser data without writing to the database.
 const DRY_RUN = true;
+
+// Enable backfill to run in parallel with Geyser streaming
+const ENABLE_BACKFILL = false;
+// const ENABLE_BACKFILL = process.env.ENABLE_BACKFILL !== 'false';
+
+// Enable auto gap-fill when Geyser reconnects after disconnection
+const AUTO_GAP_FILL = false;
+// const AUTO_GAP_FILL = process.env.AUTO_GAP_FILL !== 'false';
 
 const appStartTime = new Date();
 
@@ -51,15 +54,6 @@ let subscriptionHealth: any = null;
 let subscriptionLastHealthUpdate: Date | null = null;
 
 async function main() {
-
-  // if (process.env.BACKFILL_STAKING_RECORDS === 'true') {
-  //   await completeStakingDataRecovery();
-  //   return;
-  // }
-  // if (process.env.BACKFILL_DAOS === 'true') {
-  //   await backfillDaos();
-  //   return;
-  // }
   if (process.env.IS_SUBSCRIPTION_WORKER === 'true') {
     logger.info("Running as subscription worker");
     await runSubscriptionWorker();
@@ -69,25 +63,8 @@ async function main() {
   logger.info("Running as main process, spawning worker...");
   startSubscriptionWorker();
 
-  //  time for v6
-  // let start = new Date();
-  // let res = await backfillV6()
-  // let end = new Date();
-  // let { message, error } = res;
-  // healthMap.set("backfillV6", new CronRunResult("backfillV6", message, error, start, end, error ? 1 : 0));
-
-  // now lets frontfill v6
-  // let start = new Date();
-  // let res  = await gapFillV6()
-  // let end = new Date();
-  // let { message, error } = res;
-  // healthMap.set("gapFillV6", new CronRunResult("gapFillV6", message, error, start, end, error ? 1 : 0));
-
-  //lets start our crons now
-  //startCron("backfillV6", "*/20 * * * *", backfillV6);
-  // startCron("gapFillV6", "*/16 * * * *", gapFillV6);
+  // Price updates cron
   // startCron("priceHandler", "* * * * *", priceHandler);
-  //startCron("snapshotV6", "*/20 * * * *", snapshotV6);
 
   const server = http.createServer((req: any, res: any) => {
     const reqUrl = new URL(req.url, `http://${req.headers.host}`).pathname;
@@ -98,7 +75,7 @@ async function main() {
         break;
       }
     }
-    
+
     let subscriptionHasError = false;
     if (!subscriptionProcess || subscriptionProcess.killed) {
       subscriptionHasError = true;
@@ -118,7 +95,7 @@ async function main() {
         th,td {padding:12px 15px;}
         tr:nth-child(even) {background-color: #f3f3f3;}
         tr{border-bottom:1px solid #dddddd;}
-       
+
       </style>`;
       let html = "<html><body>";
       html += style;
@@ -126,10 +103,10 @@ async function main() {
       if (DRY_RUN) {
         html += `<h2 style="color: orange;">⚠️ DRY-RUN MODE ACTIVE - No database writes</h2>`;
       }
-      
+
       html += '<br><h2>Subscription Worker Status</h2>';
       html += '<table>';
-      html += '<thead><tr><th>PID</th><th>Mode</th><th>Events</th><th>Account Updates</th><th>Reconnects</th><th>Last Update</th></tr></thead>';
+      html += '<thead><tr><th>PID</th><th>Mode</th><th>Events</th><th>Account Updates</th><th>Reconnects</th><th>Backfill</th><th>Last Update</th></tr></thead>';
       html += '<tbody>';
       html += `<tr>
         <td>${subscriptionProcess?.pid || 'N/A'}</td>
@@ -137,26 +114,37 @@ async function main() {
         <td>${subscriptionHealth?.eventsProcessed || 0}</td>
         <td>${subscriptionHealth?.accountUpdatesProcessed || 0}</td>
         <td>${subscriptionHealth?.reconnectAttempts || 0}</td>
+        <td>${ENABLE_BACKFILL ? '✅ Enabled' : '❌ Disabled'}</td>
         <td>${subscriptionLastHealthUpdate ? subscriptionLastHealthUpdate.toLocaleString('en-US', {timeZone: 'America/Vancouver'}) : 'Never'}</td>
       </tr>`;
       html += '</tbody></table>';
-      
-      html += '<br><br><h2>Backfill Health</h2>';
-      html += "<table>";
-      html += "<thead><tr><th>Name</th><th>Message</th><th>Error</th><th>Previous Errors</th><th>Start</th><th>End</th></tr></thead>";
-      html += "<tbody>";
-      for (const result of healthMap.values()) {
-        html += `<tr>
-                <td >${result.name}</td>
-                <td >${result.message}</td>
-                <td >${result.error?.message || 'None'}</td>
-                <td >${result.totalPreviousErrors}</td>
-                <td >${result.start.toLocaleString('en-US', {timeZone: 'America/Vancouver'})}</td>
-                <td >${result.end.toLocaleString('en-US', {timeZone: 'America/Vancouver'})}</td>
-              </tr>`;
+
+      html += '<br><h3>Configuration</h3>';
+      html += '<ul>';
+      html += `<li>Backfill: ${ENABLE_BACKFILL ? 'Enabled' : 'Disabled'} (ENABLE_BACKFILL env)</li>`;
+      html += `<li>Auto Gap-Fill: ${AUTO_GAP_FILL ? 'Enabled' : 'Disabled'} (AUTO_GAP_FILL env)</li>`;
+      html += `<li>Backfill Concurrency: ${process.env.BACKFILL_CONCURRENCY || '20'} (BACKFILL_CONCURRENCY env)</li>`;
+      html += `<li>Backfill Delay: ${process.env.BACKFILL_DELAY_MS || '0'}ms (BACKFILL_DELAY_MS env)</li>`;
+      html += '</ul>';
+
+      if (healthMap.size > 0) {
+        html += '<br><br><h2>Cron Health</h2>';
+        html += "<table>";
+        html += "<thead><tr><th>Name</th><th>Message</th><th>Error</th><th>Previous Errors</th><th>Start</th><th>End</th></tr></thead>";
+        html += "<tbody>";
+        for (const result of healthMap.values()) {
+          html += `<tr>
+                  <td >${result.name}</td>
+                  <td >${result.message}</td>
+                  <td >${result.error?.message || 'None'}</td>
+                  <td >${result.totalPreviousErrors}</td>
+                  <td >${result.start.toLocaleString('en-US', {timeZone: 'America/Vancouver'})}</td>
+                  <td >${result.end.toLocaleString('en-US', {timeZone: 'America/Vancouver'})}</td>
+                </tr>`;
+        }
+        html += "</tbody>";
+        html += "</table>";
       }
-      html += "</tbody>";
-      html += "</table>";
 
       html += "</body></html>";
       res.end(html);
@@ -180,6 +168,13 @@ async function main() {
 
 async function runSubscriptionWorker() {
   logger.info("Starting as subscription worker process");
+  logger.info({
+    enableBackfill: ENABLE_BACKFILL,
+    autoGapFill: AUTO_GAP_FILL,
+    dryRun: DRY_RUN,
+    backfillConcurrency: process.env.BACKFILL_CONCURRENCY || '20',
+    backfillDelayMs: process.env.BACKFILL_DELAY_MS || '0'
+  }, "Worker configuration");
 
   subscriptionManager.setHealthCallback((health) => {
     if (process.send) {
@@ -187,7 +182,12 @@ async function runSubscriptionWorker() {
     }
   });
 
-  await subscriptionManager.start({ dryRun: DRY_RUN });
+  // Start Geyser streaming + backfill (runs in parallel)
+  await subscriptionManager.start({
+    dryRun: DRY_RUN,
+    enableBackfill: ENABLE_BACKFILL,
+    autoGapFill: AUTO_GAP_FILL
+  });
 
   setInterval(() => {
     const health = subscriptionManager.getHealth();
@@ -195,17 +195,17 @@ async function runSubscriptionWorker() {
       process.send({ type: 'health', data: health });
     }
   }, 5000);
-  
+
   const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end('Subscription worker running');
   });
-  
+
   const port = process.env.SUBSCRIPTION_PORT || 8082;
   server.listen(port, () => {
     logger.info(`Subscription worker health server on port ${port}`);
   });
-  
+
   process.on('SIGTERM', () => {
     logger.info('Subscription worker shutting down...');
     process.exit(0);
@@ -214,9 +214,9 @@ async function runSubscriptionWorker() {
 
 function startSubscriptionWorker() {
   logger.info("Starting subscription worker process...");
-  
+
   subscriptionProcess = Bun.spawn(["bun", __filename], {
-    env: { 
+    env: {
       ...process.env,
       IS_SUBSCRIPTION_WORKER: 'true'
     },
@@ -229,12 +229,12 @@ function startSubscriptionWorker() {
       }
     }
   });
-  
+
   logger.info(`Subscription worker started with PID: ${subscriptionProcess.pid}`);
-  
-  subscriptionProcess.exited.then((exitCode: number) => {  
+
+  subscriptionProcess.exited.then((exitCode: number) => {
     logger.error(`Subscription worker exited with code ${exitCode}`);
-    
+
     setTimeout(() => {
       logger.info('Restarting subscription worker...');
       startSubscriptionWorker();
@@ -266,25 +266,9 @@ function startCron(cronName: string, cronFrequency: string, cf: cronFunction) {
   cronJob.start();
 }
 
-async function backfillV6(): Promise<{message:string, error: Error|undefined}> {
-  return await v6_backfill();
-}
-
-async function gapFillV6(): Promise<{message:string, error: Error|undefined}> {
-  return await v6_gapfill();
-}
-
 async function priceHandler(): Promise<{message:string, error: Error|undefined}> {
   return await updatePrices();
 }
 
-async function snapshotV6(): Promise<{message:string, error: Error|undefined}> {
-  return await captureTokenBalanceSnapshotV6();
-}
-
 // Run the main function
-if (process.env.REPROCESS == "true") {
-  // reprocess();
-} else {
-  main();
-}
+main();

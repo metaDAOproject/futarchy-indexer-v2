@@ -28,7 +28,7 @@ import {
   insertIfNotExistsMarkets,
   insertIfNotExistsPrices,
   insertIfNotExistsTwaps
-} from "../../../v6_indexer/utils";
+} from "../../shared/utils";
 import { log } from "../../../logger/logger";
 import { BN } from "@coral-xyz/anchor";
 

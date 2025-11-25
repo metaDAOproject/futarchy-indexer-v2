@@ -1,6 +1,6 @@
 import { db, schema } from "@metadaoproject/indexer-db";
 import { launchpadClient } from "../../../connections/v0.6";
-import { insertTokenIfNotExists } from "../../../v6_indexer/utils";
+import { insertTokenIfNotExists } from "../../shared/utils";
 import { V06LaunchState } from "@metadaoproject/indexer-db/lib/schema";
 import { log } from "../../../logger/logger";
 
@@ -59,11 +59,11 @@ async function snapshotLaunches(): Promise<void> {
           launchAuthority: launch.account.launchAuthority.toString(),
           launchSigner: launch.account.launchSigner.toString(),
           launchSignerPdaBump: launch.account.launchSignerPdaBump,
-          launchQuoteVault: launch.account.launchUsdcVault.toString(),
-          launchBaseVault: launch.account.launchTokenVault.toString(),
+          launchQuoteVault: launch.account.launchQuoteVault.toString(),
+          launchBaseVault: launch.account.launchBaseVault.toString(),
           baseMintAcct: launch.account.baseMint.toString(),
           quoteMintAcct: launch.account.quoteMint.toString(),
-          totalCommittedAmount: BigInt(launch.account.totalCommitted?.toString() ?? '0'),
+          totalCommittedAmount: BigInt(launch.account.totalCommittedAmount?.toString() ?? '0'),
           state,
           seqNum: BigInt(launch.account.seqNum?.toString() ?? '0'),
           secondsForLaunch: launch.account.secondsForLaunch,
@@ -98,7 +98,7 @@ async function snapshotFundingRecords(): Promise<void> {
           launchAddr: record.account.launch.toString(),
           funderAddr: record.account.funder.toString(),
           committedAmount: BigInt(record.account.committedAmount.toString()),
-          seqNum: BigInt(record.account.seqNum?.toString() ?? '0'),
+          seqNum: 0n, // FundingRecord doesn't have seqNum, will be updated by events
           isTokensClaimed: record.account.isTokensClaimed ?? false,
           isUsdcRefunded: record.account.isUsdcRefunded ?? false,
           updatedAtSlot: 0n,

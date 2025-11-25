@@ -18,7 +18,7 @@ import {
   doesQuestionExist,
   insertTokenAccountIfNotExists,
   insertConditionalVault
-} from "../../../v6_indexer/utils";
+} from "../../shared/utils";
 import { log } from "../../../logger/logger";
 
 const logger = log.child({

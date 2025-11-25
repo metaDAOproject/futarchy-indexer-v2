@@ -1,6 +1,6 @@
 import { db, schema } from "@metadaoproject/indexer-db";
 import { conditionalVaultClient } from "../../../connections/v0.6";
-import { insertTokenIfNotExists } from "../../../v6_indexer/utils";
+import { insertTokenIfNotExists } from "../../shared/utils";
 import { log } from "../../../logger/logger";
 
 const logger = log.child({ module: "conditional-vault-v0.4-snapshot" });
@@ -79,11 +79,9 @@ async function snapshotVaults(): Promise<void> {
           conditionalVaultAddr: vault.publicKey.toString(),
           questionAddr: vault.account.question.toString(),
           underlyingMintAcct: vault.account.underlyingTokenMint.toString(),
-          underlyingTokenAccount: vault.account.underlyingTokenAccount.toString(),
-          conditionalTokenMints: vault.account.conditionalTokenMints?.map(m => m.toString()) ?? [],
+          underlyingTokenAcct: vault.account.underlyingTokenAccount.toString(),
           pdaBump: vault.account.pdaBump,
-          decimals: vault.account.decimals,
-          seqNum: BigInt(vault.account.seqNum?.toString() ?? '0'),
+          latestVaultSeqNumApplied: BigInt(vault.account.seqNum?.toString() ?? '0'),
         }).onConflictDoNothing();
       } catch (error) {
         logger.warn({ error, vault: vault.publicKey.toString() }, "Error snapshotting vault");

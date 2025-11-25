@@ -14,7 +14,7 @@ import type { VersionedTransactionResponse } from "@solana/web3.js";
 import { V06LaunchState } from "@metadaoproject/indexer-db/lib/schema";
 import * as token from "@solana/spl-token";
 import { futarchyClient, launchpadClient } from "../../../connections/v0.6";
-import { insertTokenIfNotExists } from "../../../v6_indexer/utils";
+import { insertTokenIfNotExists } from "../../shared/utils";
 import { log } from "../../../logger/logger";
 import { BN } from "@coral-xyz/anchor";
 

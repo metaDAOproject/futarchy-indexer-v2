@@ -11,7 +11,7 @@ import { connection,
    conditionalVaultClient,
    launchpadClient,
    futarchyClient,
-   } from "./connection";
+   } from "../connections/v0.6";
 
 import { log } from "../logger/logger";
 
