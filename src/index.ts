@@ -1,6 +1,6 @@
 import { log } from "./logger/logger";
 import { mapLogHealth } from "./txLogHandler";
-import { subscriptionManager } from "./v6_indexer/subscriptionManager";
+import { subscriptionManager } from "./core/subscriptionManager";
 import { gapFill as v6_gapfill, backfill as v6_backfill } from "./v6_indexer/filler";
 import { captureTokenBalanceSnapshotV6 } from "./v6_indexer/snapshot";
 import { CronJob } from "cron";
@@ -8,6 +8,14 @@ import http from "http";
 import { updatePrices } from "./priceHandler";
 import { completeStakingDataRecovery } from "./v6_indexer/backfillStakingRecords";
 import { backfillDaos } from "./v6_indexer/backfillDaos";
+
+// Import all program indexers (registers them with the registry)
+import "./indexers/futarchy/v0.6";
+import "./indexers/launchpad/v0.6";
+import "./indexers/conditional-vault/v0.4";
+
+// Set to true to log all Geyser data without writing to the database.
+const DRY_RUN = true;
 
 const appStartTime = new Date();
 
@@ -43,6 +51,7 @@ let subscriptionHealth: any = null;
 let subscriptionLastHealthUpdate: Date | null = null;
 
 async function main() {
+
   // if (process.env.BACKFILL_STAKING_RECORDS === 'true') {
   //   await completeStakingDataRecovery();
   //   return;
@@ -52,10 +61,12 @@ async function main() {
   //   return;
   // }
   if (process.env.IS_SUBSCRIPTION_WORKER === 'true') {
+    logger.info("Running as subscription worker");
     await runSubscriptionWorker();
-    return; 
+    return;
   }
 
+  logger.info("Running as main process, spawning worker...");
   startSubscriptionWorker();
 
   //  time for v6
@@ -75,7 +86,7 @@ async function main() {
   //lets start our crons now
   //startCron("backfillV6", "*/20 * * * *", backfillV6);
   // startCron("gapFillV6", "*/16 * * * *", gapFillV6);
-  startCron("priceHandler", "* * * * *", priceHandler);
+  // startCron("priceHandler", "* * * * *", priceHandler);
   //startCron("snapshotV6", "*/20 * * * *", snapshotV6);
 
   const server = http.createServer((req: any, res: any) => {
@@ -112,6 +123,9 @@ async function main() {
       let html = "<html><body>";
       html += style;
       html += `<h1>MetaDao Indexer Health Check - Started at ${appStartTime.toLocaleString('en-US', {timeZone: 'America/Vancouver'})} </h1>`;
+      if (DRY_RUN) {
+        html += `<h2 style="color: orange;">⚠️ DRY-RUN MODE ACTIVE - No database writes</h2>`;
+      }
       
       html += '<br><h2>Subscription Worker Status</h2>';
       html += '<table>';
@@ -173,7 +187,7 @@ async function runSubscriptionWorker() {
     }
   });
 
-  await subscriptionManager.start();
+  await subscriptionManager.start({ dryRun: DRY_RUN });
 
   setInterval(() => {
     const health = subscriptionManager.getHealth();
