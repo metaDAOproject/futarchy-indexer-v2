@@ -26,7 +26,7 @@
 		"skipLibCheck": true,
 		"experimentalDecorators": true,
 		"emitDecoratorMetadata": true,
-		"baseUrl": ".",
+		// "baseUrl": ".",
 		"rootDirs": [
 			"src"
 		],

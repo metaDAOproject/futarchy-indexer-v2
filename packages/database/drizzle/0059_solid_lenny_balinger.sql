@@ -1,0 +1,1 @@
+ALTER TABLE "draft_projects" ADD COLUMN "founder_acct" varchar(44);

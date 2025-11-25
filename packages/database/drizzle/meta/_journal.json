@@ -407,6 +407,41 @@
       "when": 1761770970365,
       "tag": "0057_steep_marvel_apes",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1763077002135,
+      "tag": "0058_absurd_pyro",
+      "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1763139663355,
+      "tag": "0059_solid_lenny_balinger",
+      "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1763147840712,
+      "tag": "0060_thankful_franklin_storm",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1763162050316,
+      "tag": "0061_glamorous_glorian",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1763162551026,
+      "tag": "0062_outgoing_lord_tyger",
+      "breakpoints": true
     }
   ]
 }

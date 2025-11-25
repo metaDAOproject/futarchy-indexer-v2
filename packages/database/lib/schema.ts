@@ -18,6 +18,7 @@ import {
   pgView,
   QueryBuilder,
   bigserial,
+  date,
 } from "drizzle-orm/pg-core";
 
 // Implementation discussed here https://github.com/metaDAOproject/futarchy-indexer/pull/1
@@ -280,6 +281,13 @@ export const markets = pgTable("markets", {
 export enum PricesType {
   Spot = "spot",
   Conditional = "conditional",
+}
+
+export enum MetalexStatus {
+  NOT_STARTED = "Not started",
+  IN_PROGRESS = "In progress",
+  CONFIRMED = "Confirmed",
+  ERROR = "Error"
 }
 
 export const prices = pgTable(
@@ -1923,6 +1931,43 @@ export const futarchy_twaps = pgTable("futarchy_twaps", {
     .on(table.daoAddr, table.proposalAddr, table.marketType, table.slot)
     .nullsNotDistinct(),
 }));
+
+export const draft_projects = pgTable("draft_projects", {
+  draftId: uuid("draft_id").notNull().defaultRandom().primaryKey(),
+  projectName: varchar("project_name", { length: 255 }),
+  tokenSymbol: varchar("token_symbol", { length: 15 }),
+  token: varchar("token", { length: 15 }),
+  founderName: varchar("founder_name", { length: 255 }),
+  founderEmail: varchar("founder_email", { length: 127 }),
+  founderSolAcct: pubkey("founder_sol_acct"),
+  founderEthAcct: pubkey("founder_eth_acct"),
+  projectTokenImageUrl: varchar("project_token_image_url", { length: 1023 }),
+  projectHeaderImageUrl: varchar("project_header_image_url", { length: 1023}),
+  projectIconImageUrl: varchar("project_icon_image_url", { length: 1023}), 
+  websiteUrl: varchar("website_url", { length: 511 }),
+  shortDescription: text("short_description"),
+  longDescription: text("long_description"),
+  minimumRaise: numeric("minimum_raise", { precision: 20, scale: 2 }),
+  monthlySpendingAmount: numeric("monthly_spending_amount", { precision: 20, scale: 2 }),
+  teamWallets: jsonb("team_wallets"),
+  multisigThreshold: integer("multisig_threshold"),
+  premineAmount: numeric("premine_amount", { precision: 20, scale: 2 }),
+  performancePackageUnlockDestination: pubkey("performance_package_unlock_destination"),
+  unlockMonths: integer("unlock_months"),
+  legalTerms: text("legal_terms"),
+  metalexTxHash: varchar("metalex_tx_hash", { length: 127 }),
+  metalexStatus: pgEnum("metalex_status", MetalexStatus),
+  termsOfServiceUrl: text("terms_of_service_url"),
+  idealStartDate: date("ideal_start_date"),
+  tokenAddress: pubkey("token_address"),
+  tokenSeed: varchar("token_seed"),
+  ipDetails: text("ip_details"),
+  existingInvestors: jsonb("existing_investors"),
+  existingInvestorsAllocation: numeric("existing_investors_allocation", { precision: 20, scale: 2 }),
+  socials: jsonb("socials"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(sql`now()`),
+  });
 
 // TODO: This is commented out give these are timescale views, but I wanted to include them
 export const twapChartData = pgView("twap_chart_data", {
