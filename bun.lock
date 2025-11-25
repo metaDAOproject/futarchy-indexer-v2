@@ -1,5 +1,6 @@
 {
   "lockfileVersion": 1,
+  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "futarchy-indexer-v2",
@@ -9,24 +10,24 @@
         "@metadaoproject/futarchy-sdk": "^4.0.0-alpha.54",
         "@metadaoproject/indexer-db": "file:./packages/database",
         "@metadaoproject/token-migrator": "0.1.0-alpha.5",
-        "@solana/spl-token": "^0.3.8",
-        "@solana/web3.js": "^1.90.0",
+        "@solana/spl-token": "^0.3.11",
+        "@solana/web3.js": "^1.98.4",
         "@types/bs58": "^4.0.4",
-        "axios": "^1.7.9",
+        "axios": "^1.13.2",
         "bs58": "^4.0.1",
-        "cron": "^3.3.2",
-        "p-limit": "^6.1.0",
-        "pino": "^9.5.0",
-        "pino-pretty": "^13.0.0",
-        "pino-telegram-webhook": "^0.2.3",
-        "zod": "^3.24.1",
+        "cron": "^3.5.0",
+        "p-limit": "^6.2.0",
+        "pino": "^9.14.0",
+        "pino-pretty": "^13.1.2",
+        "pino-telegram-webhook": "^0.2.4",
+        "zod": "^3.25.76",
       },
       "devDependencies": {
         "@types/bun": "latest",
         "bun": "1.0.26",
       },
       "peerDependencies": {
-        "typescript": "^5.0.0",
+        "typescript": "^5.9.3",
       },
     },
   },
@@ -333,7 +334,7 @@
 
     "@types/bs58": ["@types/bs58@4.0.4", "", { "dependencies": { "@types/node": "*", "base-x": "^3.0.6" } }, "sha512-0IEpMFXXQi2zXaXl9GJ3sRwQo0uEkD+yFOv+FnAU5lkPtcu6h61xb7jc2CFPEZ5BUOaiP13ThuGc9HD4R8lR5g=="],
 
-    "@types/bun": ["@types/bun@1.3.2", "", { "dependencies": { "bun-types": "1.3.2" } }, "sha512-t15P7k5UIgHKkxwnMNkJbWlh/617rkDGEdSsDbu+qNHTaz9SKf7aC8fiIlUdD5RPpH6GEkP0cK7WlvmrEBRtWg=="],
+    "@types/bun": ["@types/bun@1.3.3", "", { "dependencies": { "bun-types": "1.3.3" } }, "sha512-ogrKbJ2X5N0kWLLFKeytG0eHDleBYtngtlbu9cyBKFtNL3cnpDZkNdQj8flVf6WTZUX5ulI9AY1oa7ljhSrp+g=="],
 
     "@types/connect": ["@types/connect@3.4.38", "", { "dependencies": { "@types/node": "*" } }, "sha512-K6uROf1LD88uDQqJCktA4yzL1YYAK6NgfsI0v/mTgyPKWsX1CnJ0XPSDhViejru1GcRkLWb8RlzFYJRqGUbaug=="],
 
@@ -457,7 +458,7 @@
 
     "bun": ["bun@1.0.26", "", { "optionalDependencies": { "@oven/bun-darwin-aarch64": "1.0.26", "@oven/bun-darwin-x64": "1.0.26", "@oven/bun-darwin-x64-baseline": "1.0.26", "@oven/bun-linux-aarch64": "1.0.26", "@oven/bun-linux-x64": "1.0.26", "@oven/bun-linux-x64-baseline": "1.0.26" }, "os": [ "linux", "darwin", ], "cpu": [ "x64", "arm64", ], "bin": { "bun": "bin/bun", "bunx": "bin/bun" } }, "sha512-+aSzKvGLE9hWwCRDwvnhoMTDntCYEk5bKn16L0QGD0v630WJMPhazAMxaSJmfq6dSAtiqPpauPpmHbzwoGPjlQ=="],
 
-    "bun-types": ["bun-types@1.3.2", "", { "dependencies": { "@types/node": "*" }, "peerDependencies": { "@types/react": "^19" } }, "sha512-i/Gln4tbzKNuxP70OWhJRZz1MRfvqExowP7U6JKoI8cntFrtxg7RJK3jvz7wQW54UuvNC8tbKHHri5fy74FVqg=="],
+    "bun-types": ["bun-types@1.3.3", "", { "dependencies": { "@types/node": "*" } }, "sha512-z3Xwlg7j2l9JY27x5Qn3Wlyos8YAp0kKRlrePAOjgjMGS5IG6E7Jnlx736vH9UVI4wUICwwhC9anYL++XeOgTQ=="],
 
     "call-bind": ["call-bind@1.0.8", "", { "dependencies": { "call-bind-apply-helpers": "^1.0.0", "es-define-property": "^1.0.0", "get-intrinsic": "^1.2.4", "set-function-length": "^1.2.2" } }, "sha512-oKlSFMcMwpUg2ednkhQ454wfWiU/ul3CkJe/PEHcTKuiX6RpbehUiFMXu13HalGZxfUwCQzZG747YXBn1im9ww=="],
 
@@ -1065,6 +1066,8 @@
 
     "@metadaoproject/futarchy-sdk/@metadaoproject/futarchy": ["@metadaoproject/futarchy@0.3.0-alpha.10", "", { "dependencies": { "@coral-xyz/anchor": "^0.29.0", "@solana/spl-token": "^0.3.7", "@solana/web3.js": "^1.74.0", "bn.js": "^5.2.1", "decimal.js": "^10.4.3", "esbuild": "^0.17.15" } }, "sha512-nhxIKnFc/anhto3OPDbufhOo9KlVJdXRfH2nP3xfDwMHUYDtODisw7o/e1hMkM7u45TuIPFHIGm8YBkoht6zVg=="],
 
+    "@metadaoproject/futarchy-sdk/@types/bun": ["@types/bun@1.3.2", "", { "dependencies": { "bun-types": "1.3.2" } }, "sha512-t15P7k5UIgHKkxwnMNkJbWlh/617rkDGEdSsDbu+qNHTaz9SKf7aC8fiIlUdD5RPpH6GEkP0cK7WlvmrEBRtWg=="],
+
     "@metadaoproject/futarchy-sdk/bs58": ["bs58@6.0.0", "", { "dependencies": { "base-x": "^5.0.0" } }, "sha512-PD0wEnEYg6ijszw/u8s+iI3H17cTymlrwkKhDhPZq+Sokl3AU4htyBFTjAeNAlCCmg0f53g6ih3jATyCKftTfw=="],
 
     "@metadaoproject/futarchy-sdk/camelcase": ["camelcase@8.0.0", "", {}, "sha512-8WB3Jcas3swSvjIeA2yvCJ+Miyz5l1ZmB6HFb9R1317dt9LCQoswg/BGrmAmkWVEszSrrg4RwmO46qIm2OEnSA=="],
@@ -1278,6 +1281,8 @@
     "@irys/sdk/inquirer/mute-stream": ["mute-stream@0.0.8", "", {}, "sha512-nnbWWOkoWyUsTjKrhgD0dcz22mdkSnpYqbEjIm2nhwhuxlSkpywJmBo8h0ZqJdkp73mb90SssHkN4rsRaBAfAA=="],
 
     "@irys/sdk/inquirer/run-async": ["run-async@2.4.1", "", {}, "sha512-tvVnVv01b8c1RrA6Ep7JkStj85Guv/YrMcwqYQnwjsAS2cTmmPGBBjAjpCW7RrSodNSoE2/qg9O4bceNvUuDgQ=="],
+
+    "@metadaoproject/futarchy-sdk/@types/bun/bun-types": ["bun-types@1.3.2", "", { "dependencies": { "@types/node": "*" }, "peerDependencies": { "@types/react": "^19" } }, "sha512-i/Gln4tbzKNuxP70OWhJRZz1MRfvqExowP7U6JKoI8cntFrtxg7RJK3jvz7wQW54UuvNC8tbKHHri5fy74FVqg=="],
 
     "@metadaoproject/futarchy-sdk/bs58/base-x": ["base-x@5.0.1", "", {}, "sha512-M7uio8Zt++eg3jPj+rHMfCC+IuygQHHCOU+IYsVtik6FWjuYpVt/+MRKcgsAMHh8mMFAwnB+Bs+mTrFiXjMzKg=="],
 
