@@ -33,9 +33,8 @@ const logger = log.child({
 // Geyser mode flag - when true, skip RPC calls (account data is in DB from account stream)
 let isGeyser = false;
 
-export function setGeyserMode(enabled: boolean) {
+export function setGeyser(enabled: boolean) {
   isGeyser = enabled;
-  logger.info({ isGeyser: enabled }, "Geyser mode updated");
 }
 
 export function getGeyserMode(): boolean {

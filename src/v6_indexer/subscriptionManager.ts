@@ -19,7 +19,7 @@ import {
 } from "@metadaoproject/futarchy/v0.6";
 
 import { futarchyClient, conditionalVaultClient, launchpadClient } from "./connection";
-import { processFutarchyEvent, processLaunchpadEvent, processVaultEvent } from "./processor";
+import { processFutarchyEvent, processLaunchpadEvent, processVaultEvent, setGeyser } from "./processor";
 import { upsertV06Dao, upsertV06Proposal } from "./utils";
 import { subscribeAll } from "../txLogHandler";
 import { log } from "../logger/logger";
@@ -177,6 +177,7 @@ class SubscriptionManager {
 
       this.state = "GEYSER_ACTIVE";
       this.reconnectAttempts = 0;
+      setGeyser(true);
       logger.info("Geyser subscription active");
 
       return true;
@@ -532,6 +533,7 @@ class SubscriptionManager {
   private async startRpcSubscription(): Promise<void> {
     logger.info("Starting RPC log subscription (fallback mode)");
     this.state = "RPC_ACTIVE";
+    setGeyser(false);
 
     // Use existing subscribeAll from txLogHandler
     await subscribeAll();

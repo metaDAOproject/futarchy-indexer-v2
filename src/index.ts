@@ -1,5 +1,6 @@
 import { log } from "./logger/logger";
-import { mapLogHealth, subscribeAll } from "./txLogHandler";
+import { mapLogHealth } from "./txLogHandler";
+import { subscriptionManager } from "./v6_indexer/subscriptionManager";
 import { gapFill as v6_gapfill, backfill as v6_backfill } from "./v6_indexer/filler";
 import { captureTokenBalanceSnapshotV6 } from "./v6_indexer/snapshot";
 import { CronJob } from "cron";
@@ -91,14 +92,6 @@ async function main() {
     if (!subscriptionProcess || subscriptionProcess.killed) {
       subscriptionHasError = true;
     }
-    if (subscriptionHealth) {
-      for (const log of subscriptionHealth) {
-        if (log.error) {
-          subscriptionHasError = true;
-          break;
-        }
-      }
-    }
 
     if (reqUrl == "/") {
       let bgColor = "#357e4e";
@@ -122,11 +115,14 @@ async function main() {
       
       html += '<br><h2>Subscription Worker Status</h2>';
       html += '<table>';
-      html += '<thead><tr><th>PID</th><th>Status</th><th>Last Health Update</th></tr></thead>';
+      html += '<thead><tr><th>PID</th><th>Mode</th><th>Events</th><th>Account Updates</th><th>Reconnects</th><th>Last Update</th></tr></thead>';
       html += '<tbody>';
       html += `<tr>
         <td>${subscriptionProcess?.pid || 'N/A'}</td>
-        <td>${subscriptionProcess && !subscriptionProcess.killed ? 'Running' : 'Not Running'}</td>
+        <td>${subscriptionHealth?.state || 'Unknown'}</td>
+        <td>${subscriptionHealth?.eventsProcessed || 0}</td>
+        <td>${subscriptionHealth?.accountUpdatesProcessed || 0}</td>
+        <td>${subscriptionHealth?.reconnectAttempts || 0}</td>
         <td>${subscriptionLastHealthUpdate ? subscriptionLastHealthUpdate.toLocaleString('en-US', {timeZone: 'America/Vancouver'}) : 'Never'}</td>
       </tr>`;
       html += '</tbody></table>';
@@ -147,18 +143,6 @@ async function main() {
       }
       html += "</tbody>";
       html += "</table>";
-
-      if (subscriptionHealth && subscriptionHealth.length > 0) {
-        html += "<br><br><h2>Subscription Worker Logs</h2>";
-        html += "<table>";
-        html += "<thead><tr><th>Name</th><th>Error</th><th>Last Message</th></tr></thead>";
-        html += "<tbody>";
-        for (const result of subscriptionHealth) {
-          html += `<tr><td>${result.name}</td><td>${result.error || 'None'}</td><td>${result.lastRun}</td></tr>`;
-        }
-        html += "</tbody>";
-        html += "</table>";
-      }
 
       html += "</body></html>";
       res.end(html);
@@ -182,21 +166,19 @@ async function main() {
 
 async function runSubscriptionWorker() {
   logger.info("Starting as subscription worker process");
-  
-  subscribeAll();
-  
-  setInterval(() => {
-    const health = Array.from(mapLogHealth.entries()).map(([name, result]) => ({
-      name,
-      error: result.error?.message || null,
-      lastRun: result.lastRun.toLocaleString('en-US', {timeZone: 'America/Vancouver'})
-    }));
-    
+
+  subscriptionManager.setHealthCallback((health) => {
     if (process.send) {
-      process.send({
-        type: 'health',
-        data: health
-      });
+      process.send({ type: 'health', data: health });
+    }
+  });
+
+  await subscriptionManager.start();
+
+  setInterval(() => {
+    const health = subscriptionManager.getHealth();
+    if (process.send) {
+      process.send({ type: 'health', data: health });
     }
   }, 5000);
   
