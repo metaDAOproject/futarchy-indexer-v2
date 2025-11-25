@@ -122,12 +122,13 @@ const parseEvents = (transactionResponse: VersionedTransactionResponse | Transac
 //indexes signature
 export async function index(signature: string, programId: PublicKey) {
   try {
-    if (!programId.equals(FUTARCHY_PROGRAM_ID) && !programId.equals(LAUNCHPAD_PROGRAM_ID)) {
+    if (!programId.equals(FUTARCHY_PROGRAM_ID) && !programId.equals(LAUNCHPAD_PROGRAM_ID) && !programId.equals(CONDITIONAL_VAULT_PROGRAM_ID)) {
       logger.info("Unknown program id: ", programId.toBase58());
       return;
     }
 
     const transactionResponse = await connection.getTransaction(signature, { commitment: "confirmed", maxSupportedTransactionVersion: 1 });
+    // for every signature, we fetch the transaction, is this the bottleneck?
     if (!transactionResponse) {
       logger.info("No transaction response");
       return;
@@ -136,8 +137,8 @@ export async function index(signature: string, programId: PublicKey) {
     //insert signature to db
     try {
       await db.insert(schema.signatures).values({
-          signature: transactionResponse.transaction.signatures[0],
-          slot: transactionResponse.slot.toString(),
+        signature: transactionResponse.transaction.signatures[0],
+        slot: transactionResponse.slot.toString(),
         didErr: transactionResponse.meta?.err !== null,
         err: transactionResponse.meta?.err ? JSON.stringify(transactionResponse.meta.err) : null,
         blockTime: transactionResponse.blockTime ? new Date(transactionResponse.blockTime * 1000) : null,

@@ -21,13 +21,14 @@ export class LogResult {
   }
 }
 
-const commitment = "confirmed";
+// type Commitment = 'processed' | 'confirmed' | 'finalized' | 'recent' | 'single' | 'singleGossip' | 'root' | 'max';
+// optons for commitment above, currently using 'confirmed'
 
 export const mapLogHealth = new Map<string, LogResult>();
 
 //subscribes to logs for a given account
 async function subscribe(accountPubKey: PublicKey) {
-  connection.onLogs(accountPubKey, async (logs: Logs, ctx: Context) => { //TODO: maybe add commitment "confirmed" (rpc docs doesnt say if this is default)
+  connection.onLogs(accountPubKey, async (logs: Logs, ctx: Context) => { 
     let err: Error | undefined = undefined
     try {
       // wait here because we need to fetch the txn from RPC
@@ -41,7 +42,7 @@ async function subscribe(accountPubKey: PublicKey) {
     }
 
     mapLogHealth.set(accountPubKey.toString(), new LogResult(accountPubKey.toString(), err, new Date()));
-  }, commitment); // Note: the default here is "finalized"
+  }, "confirmed"); 
 }
 
 //asynchronously subscribes to logs for all programs
@@ -66,13 +67,9 @@ async function processLogs(logs: Logs, ctx: Context, programId: PublicKey) {
     || 
     programId.equals(V4_CONDITIONAL_VAULT_PROGRAM_ID)
   ) {
-    await indexV6(logs, ctx, programId);
+    await v6IndexFromLogs(logs, ctx, programId);
   } 
   else {
     logger.error(`Unknown programId ${programId.toString()}`);
   }
-}
-
-async function indexV6(logs: Logs, ctx: Context, programId: PublicKey) {
-  await v6IndexFromLogs(logs, ctx, programId);
 }
