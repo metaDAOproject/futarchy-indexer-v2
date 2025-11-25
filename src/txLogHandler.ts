@@ -1,6 +1,6 @@
 import { Context, Logs, PublicKey } from "@solana/web3.js";
 import { log } from "./logger/logger";
-import { connection } from "./v6_indexer/connection";
+import { connection } from "./connections/v0.6";
 import { FUTARCHY_PROGRAM_ID as V6_FUTARCHY_PROGRAM_ID, LAUNCHPAD_PROGRAM_ID as V6_LAUNCHPAD_PROGRAM_ID, CONDITIONAL_VAULT_PROGRAM_ID as V4_CONDITIONAL_VAULT_PROGRAM_ID} from "@metadaoproject/futarchy/v0.6";
 import { v6IndexFromLogs } from "./v6_indexer/indexer";
 

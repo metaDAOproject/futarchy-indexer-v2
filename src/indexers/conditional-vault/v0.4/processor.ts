@@ -11,7 +11,7 @@ import {
 import { schema, db, eq, or, DBTransaction } from "@metadaoproject/indexer-db";
 import { PublicKey } from "@solana/web3.js";
 import type { VersionedTransactionResponse } from "@solana/web3.js";
-import { conditionalVaultClient } from "../../../v6_indexer/connection";
+import { conditionalVaultClient } from "../../../connections/v0.6";
 import {
   updateConditionalTokenBalancesForVaultEvents,
   insertTokenIfNotExists,

@@ -1,7 +1,8 @@
 import { registerProgram, ProgramIndexer } from "../../../core/registry";
 import { processVaultEvent, processVaultAccountUpdate } from "./processor";
 import { CONDITIONAL_VAULT_PROGRAM_ID } from "@metadaoproject/futarchy/v0.6";
-import { conditionalVaultClient } from "../../../v6_indexer/connection";
+import { conditionalVaultClient } from "../../../connections/v0.6";
+import { snapshotVaultAccounts } from "./snapshot";
 import * as anchor from "@coral-xyz/anchor";
 
 // Account discriminators (first 8 bytes identify account type)
@@ -53,6 +54,14 @@ const vaultIndexer: ProgramIndexer = {
 
   async processAccountUpdate(pubkey, accountType, accountData, slot) {
     await processVaultAccountUpdate(pubkey, accountType, accountData, slot);
+  },
+
+  // Backfill configuration
+  backfillConfig: {
+    // Conditional vault handles questions, vaults, splits, merges, redeems
+    signatureAddresses: [CONDITIONAL_VAULT_PROGRAM_ID],
+    // Snapshot current state before signature crawl
+    snapshotAccounts: snapshotVaultAccounts,
   },
 };
 

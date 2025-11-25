@@ -1,7 +1,8 @@
 import { registerProgram, ProgramIndexer } from "../../../core/registry";
 import { processFutarchyEvent, processFutarchyAccountUpdate } from "./processor";
 import { FUTARCHY_PROGRAM_ID } from "@metadaoproject/futarchy/v0.6";
-import { futarchyClient } from "../../../v6_indexer/connection";
+import { futarchyClient } from "../../../connections/v0.6";
+import { snapshotFutarchyAccounts } from "./snapshot";
 import * as anchor from "@coral-xyz/anchor";
 
 // Account discriminators (first 8 bytes identify account type)
@@ -54,6 +55,14 @@ const futarchyIndexer: ProgramIndexer = {
 
   async processAccountUpdate(pubkey, accountType, accountData, slot) {
     await processFutarchyAccountUpdate(pubkey, accountType, accountData, slot);
+  },
+
+  // Backfill configuration
+  backfillConfig: {
+    // Futarchy program handles DAO, proposals, staking, swaps
+    signatureAddresses: [FUTARCHY_PROGRAM_ID],
+    // Snapshot current state before signature crawl
+    snapshotAccounts: snapshotFutarchyAccounts,
   },
 };
 

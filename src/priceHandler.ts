@@ -3,7 +3,7 @@ import {
   PricesRecord,
   PricesType,
 } from "@metadaoproject/indexer-db/lib/schema";
-import { connection } from "./v6_indexer/connection";
+import { connection } from "./connections/v0.6";
 import { log } from "./logger/logger";
 import env from "dotenv";
 

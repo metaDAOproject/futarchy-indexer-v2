@@ -1,7 +1,8 @@
 import { registerProgram, ProgramIndexer } from "../../../core/registry";
 import { processLaunchpadEvent, processLaunchpadAccountUpdate } from "./processor";
 import { LAUNCHPAD_PROGRAM_ID } from "@metadaoproject/futarchy/v0.6";
-import { launchpadClient } from "../../../v6_indexer/connection";
+import { launchpadClient } from "../../../connections/v0.6";
+import { snapshotLaunchpadAccounts } from "./snapshot";
 import * as anchor from "@coral-xyz/anchor";
 
 // Account discriminators (first 8 bytes identify account type)
@@ -53,6 +54,14 @@ const launchpadIndexer: ProgramIndexer = {
 
   async processAccountUpdate(pubkey, accountType, accountData, slot) {
     await processLaunchpadAccountUpdate(pubkey, accountType, accountData, slot);
+  },
+
+  // Backfill configuration
+  backfillConfig: {
+    // Launchpad program handles launches, funding records, claims, refunds
+    signatureAddresses: [LAUNCHPAD_PROGRAM_ID],
+    // Snapshot current state before signature crawl
+    snapshotAccounts: snapshotLaunchpadAccounts,
   },
 };
 

@@ -5,7 +5,7 @@ import Client, {
   SubscribeUpdateTransaction,
 } from "@triton-one/yellowstone-grpc";
 
-import { PublicKey } from "@solana/web3.js";
+import { Connection, PublicKey } from "@solana/web3.js";
 import bs58 from 'bs58';
 import assert from "assert";
 import * as anchor from "@coral-xyz/anchor";
@@ -15,6 +15,14 @@ import { serializeForLogging } from "../indexers/shared/utils";
 import { subscribeAll } from "../txLogHandler";
 import { log } from "../logger/logger";
 import { db, schema } from "@metadaoproject/indexer-db";
+import {
+  backfillHistorical,
+  gapFill,
+  recordGeyserSlot,
+  recordDisconnectSlot,
+  detectGap,
+  clearDisconnectSlot,
+} from "./backfill";
 
 const logger = log.child({ module: "subscriptionManager" });
 
@@ -45,6 +53,8 @@ const accountCountsByType: Map<string, number> = new Map();
 
 interface StartOptions {
   dryRun?: boolean;
+  enableBackfill?: boolean;  // Enable parallel backfill on startup
+  autoGapFill?: boolean;     // Auto gap-fill when Geyser reconnects
 }
 
 class SubscriptionManager {
@@ -61,6 +71,12 @@ class SubscriptionManager {
   private dryRun: boolean = false;
   private isGeyser: boolean = false;
 
+  // Backfill settings
+  private enableBackfill: boolean = false;
+  private autoGapFill: boolean = false;
+  private backfillRunning = new Map<string, boolean>();
+  private rpcConnection: Connection | null = null;
+
   // Reconnection settings
   private readonly INITIAL_RECONNECT_DELAY = 1000; // 1 second
   private readonly MAX_RECONNECT_DELAY = 60000; // 60 seconds
@@ -73,6 +89,8 @@ class SubscriptionManager {
 
   async start(options: StartOptions = {}): Promise<void> {
     this.dryRun = options.dryRun ?? false;
+    this.enableBackfill = options.enableBackfill ?? false;
+    this.autoGapFill = options.autoGapFill ?? false;
 
     if (this.dryRun) {
       logger.info("=== DRY-RUN MODE ENABLED ===");
@@ -83,7 +101,15 @@ class SubscriptionManager {
     logger.info({
       GRPC_ENDPOINT: process.env.GRPC_ENDPOINT ? "SET" : "NOT SET",
       GRPC_TOKEN: process.env.GRPC_TOKEN ? "SET" : "NOT SET",
+      enableBackfill: this.enableBackfill,
+      autoGapFill: this.autoGapFill,
     }, "Environment check");
+
+    // Initialize RPC connection for backfill
+    const RPC_ENDPOINT = process.env.RPC_ENDPOINT;
+    if (RPC_ENDPOINT) {
+      this.rpcConnection = new Connection(RPC_ENDPOINT, "confirmed");
+    }
 
     // Try Geyser first
     logger.info("Attempting to start Geyser...");
@@ -93,6 +119,11 @@ class SubscriptionManager {
     if (!geyserStarted) {
       logger.warn("Geyser failed to start, falling back to RPC");
       await this.startRpcSubscription();
+    }
+
+    // Start parallel backfill for all programs (runs alongside Geyser/RPC)
+    if (this.enableBackfill && !this.dryRun && this.rpcConnection) {
+      this.startBackfillForAllPrograms();
     }
   }
 
@@ -461,6 +492,9 @@ class SubscriptionManager {
       return;
     }
 
+    // Track slot for gap detection
+    recordGeyserSlot(indexer.programId.toString(), slot);
+
     // Get discriminator (first 8 bytes) to identify account type
     const discriminator = bs58.encode(data.slice(0, 8));
 
@@ -533,6 +567,13 @@ class SubscriptionManager {
     logger.warn("Triggering failover to RPC");
     this.state = "GEYSER_RECONNECTING";
 
+    // Record disconnect slots for all programs (for gap detection on reconnect)
+    if (this.autoGapFill) {
+      for (const program of getAllPrograms()) {
+        recordDisconnectSlot(program.programId.toString());
+      }
+    }
+
     // Clean up Geyser
     if (this.pingInterval) {
       clearInterval(this.pingInterval);
@@ -567,6 +608,15 @@ class SubscriptionManager {
         logger.info("Geyser reconnected successfully");
         this.stopRpcSubscription();
         this.reconnectAttempts = 0;
+
+        // Trigger gap fill for any missed slots during disconnection
+        // We'll get the current slot from the first Geyser data we receive
+        // For now, we initiate gap fill checks
+        if (this.autoGapFill && this.rpcConnection) {
+          // Use a reasonable current slot estimate - the actual gap fill will use
+          // signatures from DB to determine the actual range
+          this.handleGeyserReconnectGapFill(0n);
+        }
       } else {
         logger.warn("Geyser reconnection failed, staying on RPC");
         this.scheduleGeyserReconnect();
@@ -617,6 +667,117 @@ class SubscriptionManager {
 
     stats += `${"=".repeat(60)}`;
     logger.info(stats);
+  }
+
+  // ==================== Backfill Methods ====================
+
+  /**
+   * Start backfill for all registered programs in parallel with streaming
+   * This runs independently of Geyser/RPC subscriptions
+   */
+  private async startBackfillForAllPrograms(): Promise<void> {
+    const programs = getAllPrograms();
+
+    logger.info({
+      programCount: programs.length,
+      programs: programs.map(p => p.name)
+    }, "Starting backfill for all programs");
+
+    // Start backfill for each program (don't await - run in parallel with streaming)
+    for (const program of programs) {
+      if (program.backfillConfig) {
+        this.runProgramBackfill(program);
+      } else {
+        logger.info({ program: program.name }, "No backfillConfig, skipping backfill");
+      }
+    }
+  }
+
+  /**
+   * Run the full backfill process for a single program
+   * Phase 1: Snapshot current account state via .all()
+   * Phase 2: Historical signature crawl
+   */
+  private async runProgramBackfill(indexer: ProgramIndexer): Promise<void> {
+    const programId = indexer.programId.toString();
+
+    // Check if already running
+    if (this.backfillRunning.get(programId)) {
+      logger.info({ program: indexer.name }, "Backfill already running, skipping");
+      return;
+    }
+
+    this.backfillRunning.set(programId, true);
+
+    try {
+      logger.info({ program: indexer.name }, "Starting program backfill");
+
+      // Phase 1: Snapshot current state (fast)
+      if (indexer.backfillConfig?.snapshotAccounts) {
+        logger.info({ program: indexer.name }, "Phase 1: Running account snapshot");
+        try {
+          await indexer.backfillConfig.snapshotAccounts();
+          logger.info({ program: indexer.name }, "Phase 1: Account snapshot complete");
+        } catch (error) {
+          logger.error({ error, program: indexer.name }, "Phase 1: Snapshot failed, continuing with signature backfill");
+        }
+      }
+
+      // Phase 2: Historical signature crawl
+      if (this.rpcConnection) {
+        logger.info({ program: indexer.name }, "Phase 2: Starting historical signature backfill");
+        const result = await backfillHistorical(indexer, this.rpcConnection);
+
+        if (result.error) {
+          logger.error({ error: result.error, program: indexer.name }, "Phase 2: Backfill encountered error");
+        } else {
+          logger.info({ program: indexer.name, signatures: result.count }, "Phase 2: Historical backfill complete");
+        }
+      }
+    } catch (error) {
+      logger.error({ error, program: indexer.name }, "Backfill failed");
+    } finally {
+      this.backfillRunning.set(programId, false);
+    }
+  }
+
+  /**
+   * Handle gap fill when Geyser reconnects after a disconnection
+   * Called when we detect a gap between disconnect slot and current slot
+   */
+  private async handleGeyserReconnectGapFill(currentSlot: bigint): Promise<void> {
+    if (!this.autoGapFill || !this.rpcConnection) {
+      return;
+    }
+
+    const programs = getAllPrograms();
+
+    for (const program of programs) {
+      if (!program.backfillConfig) continue;
+
+      const programId = program.programId.toString();
+      const gap = detectGap(programId, currentSlot);
+
+      if (gap.hasGap) {
+        logger.info({
+          program: program.name,
+          fromSlot: gap.fromSlot.toString(),
+          toSlot: gap.toSlot.toString()
+        }, "Gap detected, starting gap fill");
+
+        try {
+          const result = await gapFill(program, this.rpcConnection);
+          logger.info({
+            program: program.name,
+            signatures: result.count
+          }, "Gap fill complete");
+        } catch (error) {
+          logger.error({ error, program: program.name }, "Gap fill failed");
+        } finally {
+          clearDisconnectSlot(programId);
+        }
+      }
+    }
   }
 }
 

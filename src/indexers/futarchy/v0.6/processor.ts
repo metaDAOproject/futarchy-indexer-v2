@@ -18,7 +18,7 @@ import { PublicKey } from "@solana/web3.js";
 import type { VersionedTransactionResponse } from "@solana/web3.js";
 import { V06ProposalState, V04SwapType } from "@metadaoproject/indexer-db/lib/schema";
 import * as token from "@solana/spl-token";
-import { connection, futarchyClient } from "../../../v6_indexer/connection";
+import { connection, futarchyClient } from "../../../connections/v0.6";
 import {
   insertTokenIfNotExists,
   extractReservesFromAmmState,
