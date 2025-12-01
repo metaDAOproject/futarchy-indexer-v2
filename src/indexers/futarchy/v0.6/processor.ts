@@ -27,7 +27,8 @@ import {
   getActiveProposalForDao,
   insertIfNotExistsMarkets,
   insertIfNotExistsPrices,
-  insertIfNotExistsTwaps
+  insertIfNotExistsTwaps,
+  insertPricesFromAmmState
 } from "../../shared/utils";
 import { log } from "../../../logger/logger";
 import { BN } from "@coral-xyz/anchor";
@@ -577,6 +578,8 @@ export async function processFutarchyAccountUpdate(
   switch (accountType) {
     case 'dao':
       await upsertV06Dao(accountData, new PublicKey(pubkey), db, slot);
+      // Insert spot prices from AMM state when DAO is updated
+      await insertPricesFromAmmState(db, pubkey, accountData, slot);
       break;
     case 'proposal':
       await upsertV06Proposal(accountData, new PublicKey(pubkey), slot, null, db);

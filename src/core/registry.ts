@@ -48,6 +48,10 @@ export function getProgramByOwner(owner: PublicKey): ProgramIndexer | undefined 
   return Array.from(programs.values()).find(p => p.programId.equals(owner));
 }
 
+export function getProgramByName(name: string): ProgramIndexer | undefined {
+  return programs.get(name);
+}
+
 export function getRegisteredProgramIds(): string[] {
   return Array.from(programs.values()).map(p => p.programId.toString());
 }

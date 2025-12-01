@@ -105,10 +105,11 @@ async function handleLaunchCompletedEvent(event: LaunchCompletedEvent, signature
         return;
       }
 
-      // Check if the launch is complete or refunding
-      const launchState = !!event.finalState.complete ? V06LaunchState.Complete : V06LaunchState.Refunding;
+      // Check if the launch is complete or refunding (Anchor enum variant check)
+      const launchState = 'complete' in event.finalState ? V06LaunchState.Complete : V06LaunchState.Refunding;
 
       if (launchState === V06LaunchState.Complete && event.dao) {
+        // Delay to allow chain state to settle
         await new Promise(resolve => setTimeout(resolve, 5000));
         const dao = await futarchyClient.fetchDao(event.dao);
 

@@ -1,7 +1,9 @@
 import { ConfirmedSignatureInfo, Connection, PublicKey, SignaturesForAddressOptions } from "@solana/web3.js";
+import { Helius } from "helius-sdk";
+import * as anchor from "@coral-xyz/anchor";
 import { db, schema, eq, asc, desc } from "@metadaoproject/indexer-db";
 import { log } from "../../logger/logger";
-import { ProgramIndexer } from "../registry";
+import { ProgramIndexer, getProgramByOwner } from "../registry";
 import { indexTransaction } from "./transactionIndexer";
 import pLimit from "p-limit";
 
@@ -11,7 +13,7 @@ const logger = log.child({ module: "signatureFetcher" });
 // RPC backfill doesn't compete with Geyser (gRPC), so can be aggressive
 const BACKFILL_CONCURRENCY = parseInt(process.env.BACKFILL_CONCURRENCY || "20");
 const BACKFILL_DELAY_MS = parseInt(process.env.BACKFILL_DELAY_MS || "0");
-const GAP_FILL_LIMIT = parseInt(process.env.GAP_FILL_LIMIT || "500");
+const DEBUG_BACKFILL = process.env.DEBUG_BACKFILL === "true";
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -52,13 +54,16 @@ async function getLatestTxSigProcessed(programId: string): Promise<string | unde
 }
 
 /**
- * Set the latest processed signature for a program in the indexers table
+ * Set the latest processed signature and slot for a program in the indexers table
  */
-async function setLatestTxSigProcessed(signature: string, programId: string): Promise<void> {
+async function setLatestTxSigProcessed(signature: string, slot: bigint, programId: string): Promise<void> {
   try {
-    logger.info({ programId, signature }, "Setting latestTxSigProcessed");
+    logger.debug({ programId, signature, slot: slot.toString() }, "Setting latestTxSigProcessed");
     await db.update(schema.indexers)
-      .set({ latestTxSigProcessed: signature })
+      .set({
+        latestTxSigProcessed: signature,
+        latestSlotProcessed: slot.toString()
+      })
       .where(eq(schema.indexers.name, programId))
       .execute();
   } catch (e) {
@@ -102,6 +107,10 @@ export async function backfillHistorical(
     let oldestSignature = await getOldestSignature();
 
     while (true) {
+      if (DEBUG_BACKFILL) {
+        logger.info({ before: oldestSignature, program: indexer.name }, "RPC: getSignaturesForAddress");
+      }
+
       const signatures = await connection.getSignaturesForAddress(
         programId,
         { before: oldestSignature, limit: 1000 },
@@ -110,6 +119,14 @@ export async function backfillHistorical(
 
       if (signatures.length === 0) break;
 
+      if (DEBUG_BACKFILL) {
+        logger.info({
+          count: signatures.length,
+          firstSlot: signatures[0]?.slot,
+          lastSlot: signatures[signatures.length - 1]?.slot
+        }, "RPC: received signatures batch");
+      }
+
       // Filter out failed signatures - Geyser only streams successful txs
       const successfulSignatures = signatures.filter(sig => sig.err === null);
 
@@ -117,6 +134,9 @@ export async function backfillHistorical(
       await insertSignatures(successfulSignatures, programId);
 
       // Process each signature with configurable concurrency
+      if (DEBUG_BACKFILL) {
+        logger.info({ program: indexer.name, count: successfulSignatures.length }, "Processing batch of transactions");
+      }
       const tasks = successfulSignatures.map(sig =>
         limit(async () => {
           await indexTransaction(sig.signature, indexer, connection);
@@ -165,12 +185,11 @@ export async function gapFill(
     program: indexer.name,
     programId: programId.toString(),
     concurrency: BACKFILL_CONCURRENCY,
-    gapFillLimit: GAP_FILL_LIMIT
   }, "Starting gap fill");
 
   try {
     // Get the most recent signature we've processed
-    const latestRecordedSignature = await getLatestTxSigProcessed(programId.toString());
+    const latestRecordedSignature = await getLatestTxSigProcessed(indexer.name);
     let oldestSignatureInserted: string | undefined;
 
     const signaturesOptions: SignaturesForAddressOptions = {
@@ -183,6 +202,14 @@ export async function gapFill(
         signaturesOptions.before = oldestSignatureInserted;
       }
 
+      if (DEBUG_BACKFILL) {
+        logger.info({
+          before: signaturesOptions.before,
+          until: signaturesOptions.until,
+          program: indexer.name
+        }, "RPC: getSignaturesForAddress (gap fill)");
+      }
+
       const signatures = await connection.getSignaturesForAddress(
         programId,
         signaturesOptions,
@@ -191,6 +218,14 @@ export async function gapFill(
 
       if (signatures.length === 0) break;
 
+      if (DEBUG_BACKFILL) {
+        logger.info({
+          count: signatures.length,
+          firstSlot: signatures[0]?.slot,
+          lastSlot: signatures[signatures.length - 1]?.slot
+        }, "RPC: received signatures batch (gap fill)");
+      }
+
       // Filter out failed signatures - Geyser only streams successful txs
       const successfulSignatures = signatures.filter(sig => sig.err === null);
 
@@ -198,6 +233,9 @@ export async function gapFill(
       await insertSignatures(successfulSignatures, programId);
 
       // Process each signature with configurable concurrency
+      if (DEBUG_BACKFILL) {
+        logger.info({ program: indexer.name, count: successfulSignatures.length }, "Processing batch of transactions (gap fill)");
+      }
       const tasks = successfulSignatures.map(sig =>
         limit(async () => {
           await indexTransaction(sig.signature, indexer, connection);
@@ -210,19 +248,17 @@ export async function gapFill(
 
       // Update tracking - use first successful signature as the latest processed
       if (!oldestSignatureInserted && successfulSignatures.length > 0) {
-        await setLatestTxSigProcessed(successfulSignatures[0].signature, programId.toString());
+        await setLatestTxSigProcessed(
+          successfulSignatures[0].signature,
+          BigInt(successfulSignatures[0].slot),
+          indexer.name
+        );
       }
       // Use last signature from original list for pagination (not filtered)
       oldestSignatureInserted = signatures[signatures.length - 1].signature;
 
       filledCount += successfulSignatures.length;
       logger.info({ program: indexer.name, count: filledCount }, "Gap fill progress");
-
-      // Respect gap fill limit
-      if (filledCount >= GAP_FILL_LIMIT) {
-        logger.info({ program: indexer.name, limit: GAP_FILL_LIMIT }, "Gap fill limit reached");
-        break;
-      }
     }
 
     logger.info({ program: indexer.name, totalCount: filledCount }, "Gap fill complete");
@@ -230,5 +266,185 @@ export async function gapFill(
   } catch (error) {
     logger.error({ error, program: indexer.name }, "Error in gap fill");
     return { count: filledCount, error: error as Error };
+  }
+}
+
+/**
+ * Progress callback for reindex observability
+ */
+export interface ReindexProgress {
+  program: string;
+  currentSlot: bigint;
+  txProcessed: number;
+  startedAt: Date;
+}
+
+/**
+ * Reindex historical transactions for a program
+ * This is ISOLATED from normal indexing - does NOT update the indexers table
+ * Walks forward (oldest first) through history
+ */
+export async function reindexHistorical(
+  indexer: ProgramIndexer,
+  connection: Connection,
+  fromSlot?: bigint,
+  onProgress?: (progress: ReindexProgress) => void
+): Promise<{ count: number; error?: Error }> {
+  const programId = indexer.programId;
+  const limit = pLimit(BACKFILL_CONCURRENCY);
+  let processedCount = 0;
+  const startedAt = new Date();
+
+  logger.info({
+    program: indexer.name,
+    programId: programId.toString(),
+    fromSlot: fromSlot?.toString() ?? "beginning",
+    concurrency: BACKFILL_CONCURRENCY,
+  }, "Starting reindex (isolated, no progress updates)");
+
+  try {
+    // Phase 1: Collect all signatures walking backward
+    // RPC returns newest-first, so we collect all then reverse
+    const allSignatures: ConfirmedSignatureInfo[] = [];
+    let oldestSignature: string | undefined;
+
+    logger.info({ program: indexer.name }, "Phase 1: Collecting signatures...");
+
+    while (true) {
+      const signatures = await connection.getSignaturesForAddress(
+        programId,
+        { before: oldestSignature, limit: 1000 },
+        "finalized"
+      );
+
+      if (signatures.length === 0) break;
+
+      // Filter by fromSlot if provided
+      let filteredSigs = signatures;
+      if (fromSlot !== undefined) {
+        filteredSigs = signatures.filter(sig => BigInt(sig.slot) >= fromSlot);
+        // If we've gone past fromSlot, we're done collecting
+        if (filteredSigs.length < signatures.length) {
+          allSignatures.push(...filteredSigs.filter(sig => sig.err === null));
+          break;
+        }
+      }
+
+      // Only keep successful signatures
+      allSignatures.push(...filteredSigs.filter(sig => sig.err === null));
+      oldestSignature = signatures[signatures.length - 1].signature;
+
+      logger.info({
+        program: indexer.name,
+        collected: allSignatures.length,
+        oldestSlot: signatures[signatures.length - 1]?.slot
+      }, "Collecting signatures...");
+    }
+
+    logger.info({
+      program: indexer.name,
+      totalSignatures: allSignatures.length
+    }, "Phase 1 complete: Signatures collected");
+
+    // Phase 2: Process oldest-first (reverse the array)
+    logger.info({ program: indexer.name }, "Phase 2: Processing transactions oldest-first...");
+
+    // Reverse to process oldest first
+    allSignatures.reverse();
+
+    // Process in batches for efficiency
+    const BATCH_SIZE = 100;
+    for (let i = 0; i < allSignatures.length; i += BATCH_SIZE) {
+      const batch = allSignatures.slice(i, i + BATCH_SIZE);
+      const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+
+      logger.info({
+        program: indexer.name,
+        batchNum,
+        batchSize: batch.length,
+        firstSig: batch[0]?.signature?.slice(0, 20) + "..."
+      }, "Starting batch");
+
+      // Insert signatures to DB
+      await insertSignatures(batch, programId);
+      logger.info({ batchNum }, "Signatures inserted, processing transactions...");
+
+      // Process each signature with concurrency
+      // Skip signature insert since we already bulk-inserted above
+      let batchCompleted = 0;
+      const tasks = batch.map(sig =>
+        limit(async () => {
+          try {
+            await indexTransaction(sig.signature, indexer, connection, true);
+          } catch (error) {
+            logger.error({ error, signature: sig.signature }, "Error indexing transaction");
+          }
+          batchCompleted++;
+          const totalCompleted = processedCount + batchCompleted;
+          const percent = ((totalCompleted / allSignatures.length) * 100).toFixed(1);
+
+          // Log progress every 10 transactions
+          if (batchCompleted % 10 === 0) {
+            const currentSlot = BigInt(sig.slot);
+            logger.info({
+              program: indexer.name,
+              batchNum,
+              batchProgress: `${batchCompleted}/${batch.length}`,
+              totalProgress: `${totalCompleted}/${allSignatures.length}`,
+              percent,
+              currentSlot: currentSlot.toString()
+            }, "Reindex progress");
+
+            // Send IPC progress update
+            if (onProgress) {
+              onProgress({
+                program: indexer.name,
+                currentSlot,
+                txProcessed: totalCompleted,
+                startedAt
+              });
+            }
+          }
+
+          if (BACKFILL_DELAY_MS > 0) {
+            await delay(BACKFILL_DELAY_MS);
+          }
+        })
+      );
+      await Promise.all(tasks);
+
+      processedCount += batch.length;
+      const currentSlot = BigInt(batch[batch.length - 1]?.slot ?? 0);
+
+      // Final batch progress report
+      logger.info({
+        program: indexer.name,
+        batchNum,
+        processed: processedCount,
+        total: allSignatures.length,
+        percent: ((processedCount / allSignatures.length) * 100).toFixed(1)
+      }, "Batch complete");
+    }
+
+    // Final progress update
+    if (onProgress) {
+      onProgress({
+        program: indexer.name,
+        currentSlot: BigInt(allSignatures[allSignatures.length - 1]?.slot ?? 0),
+        txProcessed: processedCount,
+        startedAt
+      });
+    }
+
+    logger.info({
+      program: indexer.name,
+      totalProcessed: processedCount,
+      duration: `${((Date.now() - startedAt.getTime()) / 1000 / 60).toFixed(1)} minutes`
+    }, "Reindex complete");
+
+    return { count: processedCount };
+  } catch (error) {
+    logger.error({ error, program: indexer.name }, "Error in reindex");
+    return { count: processedCount, error: error as Error };
   }
 }

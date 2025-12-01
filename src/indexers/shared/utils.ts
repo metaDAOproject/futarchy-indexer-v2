@@ -101,7 +101,7 @@ export async function getActiveProposalForDao(db: DBConnection, daoAddr: string)
     .limit(1);
 
   if (activeProposal.length > 0) {
-    logger.info(`Found active proposal ${activeProposal[0].proposalAddr} for DAO ${daoAddr}`);
+    logger.debug(`Found active proposal ${activeProposal[0].proposalAddr} for DAO ${daoAddr}`);
     return activeProposal[0].proposalAddr;
   }
 
@@ -267,7 +267,7 @@ export async function insertTokenIfNotExists(db: DBConnection, mintAcct: PublicK
 }
 
 export async function doesQuestionExist(db: DBConnection, event: InitializeConditionalVaultEvent): Promise<boolean> {
-  const existingQuestion = await db.select().from(schema.v0_5_questions).where(eq(schema.v0_5_questions.questionAddr, event.question.toString())).limit(1);
+  const existingQuestion = await db.select().from(schema.v0_6_questions).where(eq(schema.v0_6_questions.questionAddr, event.question.toString())).limit(1);
   return existingQuestion.length > 0;
 }
 
@@ -730,7 +730,7 @@ export async function insertIfNotExistsMarkets(
     }
 
     await db.insert(schema.futarchy_markets).values(markets).onConflictDoNothing();
-    logger.info(`Initialized markets for proposal ${proposalAddr}`);
+    logger.debug(`Initialized markets for proposal ${proposalAddr}`);
   } catch (error) {
     logger.error(`Error initializing markets for proposal ${proposalAddr}:`, {
       error: error instanceof Error ? error.message : error,

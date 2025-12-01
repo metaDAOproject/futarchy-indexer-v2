@@ -445,12 +445,17 @@ export enum IndexerImplementation {
   AutocratDaoIndexer = "AutocratDaoIndexer",
   AutocratProposalIndexer = "AutocratProposalIndexer",
   TokenMintIndexer = "TokenMintIndexer",
+  // V2 Indexers (gRPC-based)
+  FutarchyV06 = "FutarchyV06",
+  LaunchpadV06 = "LaunchpadV06",
+  ConditionalVaultV04 = "ConditionalVaultV04",
 }
 export enum IndexerType {
   TXHistory = "TXHistory",
   AccountInfo = "AccountInfo",
   IntervalFetch = "IntervalFetch",
   LogSubscribe = "LogsSubscribe",
+  GrpcStream = "GrpcStream",
 }
 
 export const indexers = pgTable("indexers", {

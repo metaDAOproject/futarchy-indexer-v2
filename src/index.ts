@@ -1,24 +1,27 @@
+import "dotenv/config";
 import { log } from "./logger/logger";
-import { subscriptionManager } from "./core/subscriptionManager";
 import { CronJob } from "cron";
 import http from "http";
 import { updatePrices } from "./priceHandler";
+import path from "path";
 
-// Import all program indexers (registers them with the registry)
-import "./indexers/futarchy/v0.6";
-import "./indexers/launchpad/v0.6";
-import "./indexers/conditional-vault/v0.4";
+// DRY_RUN: Log events without writing to DB (for testing)
+// set to false to write to DB
+const DRY_RUN = false;
 
-// Set to true to log all Geyser data without writing to the database.
-const DRY_RUN = true;
+// Enable cron-scheduled backfill and gap-fill
+const ENABLE_BACKFILL = true;
+const ENABLE_GAPFILL = true;
 
-// Enable backfill to run in parallel with Geyser streaming
-const ENABLE_BACKFILL = false;
-// const ENABLE_BACKFILL = process.env.ENABLE_BACKFILL !== 'false';
-
-// Enable auto gap-fill when Geyser reconnects after disconnection
-const AUTO_GAP_FILL = false;
-// const AUTO_GAP_FILL = process.env.AUTO_GAP_FILL !== 'false';
+// Reindex: Reset tracking and re-process all historical signatures
+// Set to true to run reindex on startup (will reset progress and crawl from beginning)
+// REINDEX_FROM_SLOT: Optional starting slot (undefined = full history)
+// REINDEX_PROGRAM: Optional program name filter (undefined = all programs)
+// needs futarchy-v0.6 not the program address
+const ENABLE_REINDEXING = true;
+const REINDEX_FROM_SLOT: number | undefined = undefined;
+const REINDEX_PROGRAM: string | undefined = "launchpad-v0.6";
+// 364369178
 
 const appStartTime = new Date();
 
@@ -49,23 +52,86 @@ class CronRunResult {
 }
 const healthMap = new Map<string, CronRunResult>();
 
-let subscriptionProcess: any = null;
-let subscriptionHealth: any = null;
-let subscriptionLastHealthUpdate: Date | null = null;
+let streamingProcess: any = null;
+let streamingHealth: any = null;
+let streamingLastHealthUpdate: Date | null = null;
+
+let backfillRunning = false;
+let gapfillRunning = false;
+
+// Reindex state (isolated from normal indexing)
+let reindexProcess: any = null;
+let reindexProgress: {
+  program: string;
+  currentSlot: string;
+  txProcessed: number;
+  startedAt: string;
+} | null = null;
+let reindexLastUpdate: Date | null = null;
 
 async function main() {
-  if (process.env.IS_SUBSCRIPTION_WORKER === 'true') {
-    logger.info("Running as subscription worker");
-    await runSubscriptionWorker();
-    return;
+  logger.info("Starting main process");
+  logger.info({
+    DRY_RUN,
+    ENABLE_BACKFILL,
+    ENABLE_GAPFILL,
+    ENABLE_REINDEXING,
+    REINDEX_FROM_SLOT,
+    REINDEX_PROGRAM,
+  }, "Configuration");
+
+  // Spawn reindex worker in background (isolated from streaming)
+  if (ENABLE_REINDEXING && !DRY_RUN) {
+    logger.info({
+      fromSlot: REINDEX_FROM_SLOT ?? "beginning",
+      program: REINDEX_PROGRAM ?? "all"
+    }, "Spawning reindex worker (runs in background, isolated from streaming)");
+
+    // Build args for reindex worker
+    const reindexArgs: string[] = [];
+    if (REINDEX_FROM_SLOT !== undefined) {
+      reindexArgs.push(REINDEX_FROM_SLOT.toString());
+    }
+    if (REINDEX_PROGRAM !== undefined) {
+      reindexArgs.push(REINDEX_PROGRAM);
+    }
+
+    startReindexWorker(reindexArgs);
   }
 
-  logger.info("Running as main process, spawning worker...");
-  startSubscriptionWorker();
+  // Spawn streaming worker
+  startStreamingWorker();
 
-  // Price updates cron
+  // Cron-scheduled backfill (historical signature crawl) - runs hourly
+  if (ENABLE_BACKFILL && !DRY_RUN) {
+    logger.info("Starting backfill cron (hourly)");
+    const backfillCron = new CronJob("0 * * * *", async () => {
+      if (backfillRunning) {
+        logger.warn("Backfill already running, skipping");
+        return;
+      }
+      await runBackfillWorker('backfill');
+    });
+    backfillCron.start();
+  }
+
+  // Cron-scheduled gap-fill (catch missed slots) - runs every 10 minutes
+  if (ENABLE_GAPFILL && !DRY_RUN) {
+    logger.info("Starting gapfill cron (every 10 min)");
+    const gapfillCron = new CronJob("*/10 * * * *", async () => {
+      if (gapfillRunning) {
+        logger.warn("Gapfill already running, skipping");
+        return;
+      }
+      await runBackfillWorker('gapfill');
+    });
+    gapfillCron.start();
+  }
+
+  // Price updates cron (commented out by default)
   // startCron("priceHandler", "* * * * *", priceHandler);
 
+  // Health server
   const server = http.createServer((req: any, res: any) => {
     const reqUrl = new URL(req.url, `http://${req.headers.host}`).pathname;
     let hasError = false;
@@ -76,14 +142,14 @@ async function main() {
       }
     }
 
-    let subscriptionHasError = false;
-    if (!subscriptionProcess || subscriptionProcess.killed) {
-      subscriptionHasError = true;
+    let streamingHasError = false;
+    if (!streamingProcess || streamingProcess.killed) {
+      streamingHasError = true;
     }
 
     if (reqUrl == "/") {
       let bgColor = "#357e4e";
-      if (hasError || subscriptionHasError) {
+      if (hasError || streamingHasError) {
         bgColor = "#ff0000";
       }
       res.writeHead(200, { 'Content-Type': 'text/html' });
@@ -95,37 +161,60 @@ async function main() {
         th,td {padding:12px 15px;}
         tr:nth-child(even) {background-color: #f3f3f3;}
         tr{border-bottom:1px solid #dddddd;}
-
       </style>`;
       let html = "<html><body>";
       html += style;
       html += `<h1>MetaDao Indexer Health Check - Started at ${appStartTime.toLocaleString('en-US', {timeZone: 'America/Vancouver'})} </h1>`;
       if (DRY_RUN) {
-        html += `<h2 style="color: orange;">⚠️ DRY-RUN MODE ACTIVE - No database writes</h2>`;
+        html += `<h2 style="color: orange;">DRY-RUN MODE ACTIVE - No database writes</h2>`;
       }
 
-      html += '<br><h2>Subscription Worker Status</h2>';
+      html += '<br><h2>Streaming Worker Status</h2>';
       html += '<table>';
-      html += '<thead><tr><th>PID</th><th>Mode</th><th>Events</th><th>Account Updates</th><th>Reconnects</th><th>Backfill</th><th>Last Update</th></tr></thead>';
+      html += '<thead><tr><th>PID</th><th>State</th><th>Provider</th><th>Events</th><th>Account Updates</th><th>Reconnects</th><th>Last Update</th></tr></thead>';
       html += '<tbody>';
       html += `<tr>
-        <td>${subscriptionProcess?.pid || 'N/A'}</td>
-        <td>${subscriptionHealth?.state || 'Unknown'}</td>
-        <td>${subscriptionHealth?.eventsProcessed || 0}</td>
-        <td>${subscriptionHealth?.accountUpdatesProcessed || 0}</td>
-        <td>${subscriptionHealth?.reconnectAttempts || 0}</td>
-        <td>${ENABLE_BACKFILL ? '✅ Enabled' : '❌ Disabled'}</td>
-        <td>${subscriptionLastHealthUpdate ? subscriptionLastHealthUpdate.toLocaleString('en-US', {timeZone: 'America/Vancouver'}) : 'Never'}</td>
+        <td>${streamingProcess?.pid || 'N/A'}</td>
+        <td>${streamingHealth?.state || 'Unknown'}</td>
+        <td>${streamingHealth?.geyserConnected ? 'gRPC' : 'RPC'}</td>
+        <td>${streamingHealth?.eventsProcessed || 0}</td>
+        <td>${streamingHealth?.accountUpdatesProcessed || 0}</td>
+        <td>${streamingHealth?.reconnectAttempts || 0}</td>
+        <td>${streamingLastHealthUpdate ? streamingLastHealthUpdate.toLocaleString('en-US', {timeZone: 'America/Vancouver'}) : 'Never'}</td>
       </tr>`;
       html += '</tbody></table>';
 
       html += '<br><h3>Configuration</h3>';
       html += '<ul>';
-      html += `<li>Backfill: ${ENABLE_BACKFILL ? 'Enabled' : 'Disabled'} (ENABLE_BACKFILL env)</li>`;
-      html += `<li>Auto Gap-Fill: ${AUTO_GAP_FILL ? 'Enabled' : 'Disabled'} (AUTO_GAP_FILL env)</li>`;
-      html += `<li>Backfill Concurrency: ${process.env.BACKFILL_CONCURRENCY || '20'} (BACKFILL_CONCURRENCY env)</li>`;
-      html += `<li>Backfill Delay: ${process.env.BACKFILL_DELAY_MS || '0'}ms (BACKFILL_DELAY_MS env)</li>`;
+      html += `<li>Dry Run: ${DRY_RUN ? 'Enabled' : 'Disabled'}</li>`;
+      html += `<li>Backfill Cron: ${ENABLE_BACKFILL ? 'Hourly (0 * * * *)' : 'Disabled'}</li>`;
+      html += `<li>Gap-Fill Cron: ${ENABLE_GAPFILL ? 'Every 10 min (*/10 * * * *)' : 'Disabled'}</li>`;
+      html += `<li>Helius Backup: ${process.env.BACKUP_GRPC_ENDPOINT ? 'Configured' : 'Not configured'}</li>`;
       html += '</ul>';
+
+      html += '<br><h3>Worker Status</h3>';
+      html += '<ul>';
+      html += `<li>Backfill Running: ${backfillRunning ? 'Yes' : 'No'}</li>`;
+      html += `<li>Gap-Fill Running: ${gapfillRunning ? 'Yes' : 'No'}</li>`;
+      html += `<li>Reindex Running: ${reindexProcess && !reindexProcess.killed ? 'Yes' : 'No'}</li>`;
+      html += '</ul>';
+
+      // Reindex progress section
+      if (reindexProcess && !reindexProcess.killed) {
+        html += '<br><h2>Reindex Progress (Isolated)</h2>';
+        html += '<table>';
+        html += '<thead><tr><th>Program</th><th>Current Slot</th><th>Tx Processed</th><th>Started</th><th>Last Update</th></tr></thead>';
+        html += '<tbody>';
+        html += `<tr>
+          <td>${reindexProgress?.program || 'Starting...'}</td>
+          <td>${reindexProgress?.currentSlot || 'N/A'}</td>
+          <td>${reindexProgress?.txProcessed || 0}</td>
+          <td>${reindexProgress?.startedAt ? new Date(reindexProgress.startedAt).toLocaleString('en-US', {timeZone: 'America/Vancouver'}) : 'N/A'}</td>
+          <td>${reindexLastUpdate ? reindexLastUpdate.toLocaleString('en-US', {timeZone: 'America/Vancouver'}) : 'Never'}</td>
+        </tr>`;
+        html += '</tbody></table>';
+        html += '<p><em>Note: Reindex is isolated and does not affect the indexers table or streaming.</em></p>';
+      }
 
       if (healthMap.size > 0) {
         html += '<br><br><h2>Cron Health</h2>';
@@ -150,7 +239,7 @@ async function main() {
       res.end(html);
     }
     else if (reqUrl == "/health") {
-      if (hasError || subscriptionHasError) {
+      if (hasError || streamingHasError) {
         res.writeHead(500, { 'Content-Type': 'text/plain' });
         res.end("Error");
       } else {
@@ -162,90 +251,156 @@ async function main() {
 
   let port = process.env.PORT ?? 8080;
   server.listen(port, () => {
-    logger.info(`Server running at ${port}`);
+    logger.info(`Health server running at ${port}`);
   });
 }
 
-async function runSubscriptionWorker() {
-  logger.info("Starting as subscription worker process");
-  logger.info({
-    enableBackfill: ENABLE_BACKFILL,
-    autoGapFill: AUTO_GAP_FILL,
-    dryRun: DRY_RUN,
-    backfillConcurrency: process.env.BACKFILL_CONCURRENCY || '20',
-    backfillDelayMs: process.env.BACKFILL_DELAY_MS || '0'
-  }, "Worker configuration");
+/**
+ * Start the streaming worker process
+ */
+function startStreamingWorker() {
+  logger.info("Starting streaming worker...");
 
-  subscriptionManager.setHealthCallback((health) => {
-    if (process.send) {
-      process.send({ type: 'health', data: health });
-    }
-  });
+  const workerPath = path.join(__dirname, "workers", "streaming.ts");
 
-  // Start Geyser streaming + backfill (runs in parallel)
-  await subscriptionManager.start({
-    dryRun: DRY_RUN,
-    enableBackfill: ENABLE_BACKFILL,
-    autoGapFill: AUTO_GAP_FILL
-  });
-
-  setInterval(() => {
-    const health = subscriptionManager.getHealth();
-    if (process.send) {
-      process.send({ type: 'health', data: health });
-    }
-  }, 5000);
-
-  const server = http.createServer((req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('Subscription worker running');
-  });
-
-  const port = process.env.SUBSCRIPTION_PORT || 8082;
-  server.listen(port, () => {
-    logger.info(`Subscription worker health server on port ${port}`);
-  });
-
-  process.on('SIGTERM', () => {
-    logger.info('Subscription worker shutting down...');
-    process.exit(0);
-  });
-}
-
-function startSubscriptionWorker() {
-  logger.info("Starting subscription worker process...");
-
-  subscriptionProcess = Bun.spawn(["bun", __filename], {
+  streamingProcess = Bun.spawn(["bun", workerPath], {
     env: {
       ...process.env,
-      IS_SUBSCRIPTION_WORKER: 'true'
+      DRY_RUN: DRY_RUN ? 'true' : 'false',
     },
     stdout: "inherit",
     stderr: "inherit",
     ipc(message: any) {
       if (message.type === 'health') {
-        subscriptionHealth = message.data;
-        subscriptionLastHealthUpdate = new Date();
+        streamingHealth = message.data;
+        streamingLastHealthUpdate = new Date();
       }
     }
   });
 
-  logger.info(`Subscription worker started with PID: ${subscriptionProcess.pid}`);
+  logger.info(`Streaming worker started with PID: ${streamingProcess.pid}`);
 
-  subscriptionProcess.exited.then((exitCode: number) => {
-    logger.error(`Subscription worker exited with code ${exitCode}`);
+  streamingProcess.exited.then((exitCode: number) => {
+    logger.error(`Streaming worker exited with code ${exitCode}`);
 
     setTimeout(() => {
-      logger.info('Restarting subscription worker...');
-      startSubscriptionWorker();
+      logger.info('Restarting streaming worker...');
+      startStreamingWorker();
     }, 5000);
   });
 }
 
+/**
+ * Start the reindex worker process (runs in background, isolated from streaming)
+ */
+function startReindexWorker(args: string[]) {
+  logger.info({ args }, "Starting reindex worker...");
+
+  const workerPath = path.join(__dirname, "workers", "backfill.ts");
+
+  reindexProcess = Bun.spawn(["bun", workerPath, "reindex", ...args], {
+    env: process.env,
+    stdout: "inherit",
+    stderr: "inherit",
+    ipc(message: any) {
+      if (message.type === 'reindex-progress') {
+        reindexProgress = message.data;
+        reindexLastUpdate = new Date();
+      }
+    }
+  });
+
+  logger.info(`Reindex worker started with PID: ${reindexProcess.pid}`);
+
+  reindexProcess.exited.then((exitCode: number) => {
+    if (exitCode === 0) {
+      logger.info("Reindex worker completed successfully");
+    } else {
+      logger.error(`Reindex worker exited with code ${exitCode}`);
+    }
+    // Don't restart - reindex is a one-time operation
+    // Clear progress after completion
+    setTimeout(() => {
+      reindexProgress = null;
+    }, 60000); // Keep progress visible for 1 minute after completion
+  });
+}
+
+/**
+ * Run a backfill worker process
+ */
+async function runBackfillWorker(
+  mode: 'backfill' | 'gapfill' | 'snapshot' | 'reindex',
+  extraArgs: string[] = []
+): Promise<void> {
+  const start = new Date();
+
+  if (mode === 'backfill') {
+    backfillRunning = true;
+  } else if (mode === 'gapfill') {
+    gapfillRunning = true;
+  }
+
+  logger.info(`Running ${mode} worker`);
+
+  const workerPath = path.join(__dirname, "workers", "backfill.ts");
+
+  try {
+    const worker = Bun.spawn(["bun", workerPath, mode, ...extraArgs], {
+      env: process.env,
+      stdout: "inherit",
+      stderr: "inherit",
+    });
+
+    const exitCode = await worker.exited;
+    const end = new Date();
+
+    if (exitCode === 0) {
+      healthMap.set(mode, new CronRunResult(
+        mode,
+        `Completed successfully`,
+        undefined,
+        start,
+        end,
+        healthMap.get(mode)?.totalPreviousErrors || 0
+      ));
+      logger.info({ exitCode }, `${mode} worker completed`);
+    } else {
+      const error = new Error(`Worker exited with code ${exitCode}`);
+      healthMap.set(mode, new CronRunResult(
+        mode,
+        `Failed with exit code ${exitCode}`,
+        error,
+        start,
+        end,
+        (healthMap.get(mode)?.totalPreviousErrors || 0) + 1
+      ));
+      logger.error({ mode, exitCode }, "Backfill worker failed");
+    }
+  } catch (error) {
+    const end = new Date();
+    healthMap.set(mode, new CronRunResult(
+      mode,
+      `Error: ${error}`,
+      error as Error,
+      start,
+      end,
+      (healthMap.get(mode)?.totalPreviousErrors || 0) + 1
+    ));
+    logger.error({ mode, error }, "Backfill worker error");
+  } finally {
+    if (mode === 'backfill') {
+      backfillRunning = false;
+    } else if (mode === 'gapfill') {
+      gapfillRunning = false;
+    }
+  }
+}
+
 process.on('SIGTERM', () => {
   logger.info('Main process shutting down...');
-  if (subscriptionProcess) {
-    subscriptionProcess.kill();
+  if (streamingProcess) {
+    streamingProcess.kill();
   }
   process.exit(0);
 });

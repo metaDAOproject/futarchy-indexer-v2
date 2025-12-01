@@ -6,6 +6,7 @@ import Client, {
 } from "@triton-one/yellowstone-grpc";
 
 import { Connection, PublicKey } from "@solana/web3.js";
+import { HeliusProvider } from "./providers/helius";
 import bs58 from 'bs58';
 import assert from "assert";
 import * as anchor from "@coral-xyz/anchor";
@@ -18,10 +19,8 @@ import { db, schema } from "@metadaoproject/indexer-db";
 import {
   backfillHistorical,
   gapFill,
-  recordGeyserSlot,
-  recordDisconnectSlot,
-  detectGap,
-  clearDisconnectSlot,
+  detectGapFromDb,
+  updateIndexerProgress,
 } from "./backfill";
 
 const logger = log.child({ module: "subscriptionManager" });
@@ -29,9 +28,10 @@ const logger = log.child({ module: "subscriptionManager" });
 // Subscription state machine
 type SubscriptionState =
   | "INITIALIZING"
-  | "GEYSER_ACTIVE"
-  | "RPC_ACTIVE"
-  | "GEYSER_RECONNECTING";
+  | "GRPC_ACTIVE"         // Primary gRPC
+  | "BACKUP_GRPC_ACTIVE"  // Backup gRPC
+  | "RPC_ACTIVE"          // Fallback RPC
+  | "RECONNECTING";
 
 // Health status
 interface SubscriptionHealth {
@@ -61,6 +61,7 @@ class SubscriptionManager {
   private state: SubscriptionState = "INITIALIZING";
   private geyserClient: Client | null = null;
   private geyserStream: any = null;
+  private heliusProvider: HeliusProvider | null = null;
   private rpcSubscriptionIds: number[] = [];
   private lastPongTime: Date = new Date();
   private lastDataTime: Date = new Date();
@@ -101,6 +102,8 @@ class SubscriptionManager {
     logger.info({
       GRPC_ENDPOINT: process.env.GRPC_ENDPOINT ? "SET" : "NOT SET",
       GRPC_TOKEN: process.env.GRPC_TOKEN ? "SET" : "NOT SET",
+      BACKUP_GRPC_ENDPOINT: process.env.BACKUP_GRPC_ENDPOINT ? "SET" : "NOT SET",
+      BACKUP_GRPC_API_KEY: process.env.BACKUP_GRPC_API_KEY ? "SET" : "NOT SET",
       enableBackfill: this.enableBackfill,
       autoGapFill: this.autoGapFill,
     }, "Environment check");
@@ -111,14 +114,29 @@ class SubscriptionManager {
       this.rpcConnection = new Connection(RPC_ENDPOINT, "confirmed");
     }
 
-    // Try Geyser first
-    logger.info("Attempting to start Geyser...");
+    // Initialize backup gRPC provider if configured
+    if (process.env.BACKUP_GRPC_ENDPOINT && process.env.BACKUP_GRPC_API_KEY) {
+      this.heliusProvider = new HeliusProvider(
+        process.env.BACKUP_GRPC_ENDPOINT,
+        process.env.BACKUP_GRPC_API_KEY
+      );
+      logger.info("Backup gRPC provider initialized");
+    }
+
+    // Try providers in order: Primary gRPC → Backup gRPC → RPC
+    logger.info("Attempting to start primary gRPC...");
     const geyserStarted = await this.startGeyser();
-    logger.info({ geyserStarted }, "Geyser start result");
+    logger.info({ geyserStarted }, "Primary gRPC start result");
 
     if (!geyserStarted) {
-      logger.warn("Geyser failed to start, falling back to RPC");
-      await this.startRpcSubscription();
+      logger.warn("Primary gRPC failed to start, trying backup gRPC...");
+      const backupStarted = await this.startHelius();
+      logger.info({ backupStarted }, "Backup gRPC start result");
+
+      if (!backupStarted) {
+        logger.warn("Backup gRPC failed to start, falling back to RPC");
+        await this.startRpcSubscription();
+      }
     }
 
     // Start parallel backfill for all programs (runs alongside Geyser/RPC)
@@ -162,7 +180,7 @@ class SubscriptionManager {
       accountUpdatesProcessed: accountUpdateCounter,
       lastEventTime: this.lastDataTime,
       reconnectAttempts: this.reconnectAttempts,
-      geyserConnected: this.state === "GEYSER_ACTIVE",
+      geyserConnected: this.state === "GRPC_ACTIVE" || this.state === "BACKUP_GRPC_ACTIVE",
     };
   }
 
@@ -176,25 +194,25 @@ class SubscriptionManager {
     const GRPC_TOKEN = process.env.GRPC_TOKEN;
     const GRPC_ENDPOINT = process.env.GRPC_ENDPOINT;
 
-    logger.info({ GRPC_ENDPOINT, hasToken: !!GRPC_TOKEN }, "startGeyser called");
+    logger.info({ GRPC_ENDPOINT, hasToken: !!GRPC_TOKEN }, "Starting primary gRPC");
 
     if (!GRPC_TOKEN || !GRPC_ENDPOINT) {
-      logger.warn("GRPC_TOKEN or GRPC_ENDPOINT not set, skipping Geyser");
+      logger.warn("GRPC_TOKEN or GRPC_ENDPOINT not set, skipping primary gRPC");
       return false;
     }
 
     try {
-      logger.info("Creating Geyser client...");
+      logger.info("Creating gRPC client...");
       this.geyserClient = new Client(GRPC_ENDPOINT, GRPC_TOKEN, {});
-      logger.info("Geyser client created, getting version...");
+      logger.info("gRPC client created, calling getVersion()...");
 
       const version = await this.geyserClient.getVersion();
-      logger.info({ version }, "Connected to Yellowstone gRPC");
+      logger.info({ version }, "getVersion() returned, connected to primary gRPC");
 
       // Create subscription stream
-      logger.info("Creating subscription stream...");
+      logger.info("Creating subscription stream via subscribe()...");
       this.geyserStream = await this.geyserClient.subscribe();
-      logger.info("Subscription stream created");
+      logger.info("subscribe() returned, stream created");
 
       // Set up event handlers
       this.geyserStream.on("data", async (data: SubscribeUpdate) => {
@@ -215,15 +233,83 @@ class SubscriptionManager {
       // Start ping keepalive
       this.startPingInterval();
 
-      this.state = "GEYSER_ACTIVE";
+      this.state = "GRPC_ACTIVE";
       this.reconnectAttempts = 0;
       this.isGeyser = true;
-      logger.info("Geyser subscription active");
+      logger.info("Primary gRPC subscription active");
 
       return true;
     } catch (error) {
-      logger.error({ error }, "Failed to start Geyser");
+      logger.error({ error }, "Failed to start primary gRPC");
       return false;
+    }
+  }
+
+  /**
+   * Start backup gRPC provider
+   */
+  private async startHelius(): Promise<boolean> {
+    if (!this.heliusProvider) {
+      logger.warn("Backup gRPC provider not configured, skipping");
+      return false;
+    }
+
+    try {
+      logger.info("Starting backup gRPC subscription...");
+      const programIds = getRegisteredProgramIds();
+
+      await this.heliusProvider.subscribe(
+        programIds,
+        async (data: any) => {
+          await this.handleHeliusData(data);
+        },
+        (error: Error) => {
+          logger.error({ error }, "Backup gRPC stream error");
+          this.triggerFailover();
+        }
+      );
+
+      this.state = "BACKUP_GRPC_ACTIVE";
+      this.reconnectAttempts = 0;
+      this.isGeyser = true;
+      logger.info("Backup gRPC subscription active");
+
+      return true;
+    } catch (error) {
+      logger.error({ error }, "Failed to start backup gRPC");
+      return false;
+    }
+  }
+
+  /**
+   * Handle data from Helius Laserstream
+   * Helius uses same format as Yellowstone, so we can reuse most logic
+   */
+  private async handleHeliusData(data: any): Promise<void> {
+    this.lastDataTime = new Date();
+
+    // Handle ping/pong
+    if (data.pong || data.ping) {
+      this.lastPongTime = new Date();
+      return;
+    }
+
+    // Process transactions (events)
+    if (data.transaction) {
+      try {
+        await this.processGeyserTransaction(data.transaction);
+      } catch (error) {
+        logger.error({ error }, "Error processing backup gRPC transaction");
+      }
+    }
+
+    // Process account updates
+    if (data.account) {
+      try {
+        await this.processGeyserAccountUpdate(data.account);
+      } catch (error) {
+        logger.error({ error }, "Error processing backup gRPC account update");
+      }
     }
   }
 
@@ -275,7 +361,7 @@ class SubscriptionManager {
       });
     });
 
-    logger.info("Geyser subscription request sent");
+    logger.info("gRPC subscription request sent");
     for (const program of getAllPrograms()) {
       logger.info(`  - ${program.name}: ${program.programId.toString()}`);
     }
@@ -342,7 +428,7 @@ class SubscriptionManager {
       try {
         await this.processGeyserTransaction(data.transaction);
       } catch (error) {
-        logger.error({ error }, "Error processing Geyser transaction");
+        logger.error({ error }, "Error processing gRPC transaction");
       }
     }
 
@@ -351,7 +437,7 @@ class SubscriptionManager {
       try {
         await this.processGeyserAccountUpdate(data.account);
       } catch (error) {
-        logger.error({ error }, "Error processing Geyser account update");
+        logger.error({ error }, "Error processing gRPC account update");
       }
     }
   }
@@ -365,7 +451,7 @@ class SubscriptionManager {
     const signature = bs58.encode(Buffer.from(transaction.transaction.signature));
     const slot = transaction.slot;
 
-    logger.debug({ signature, slot }, "Processing Geyser transaction");
+    logger.debug({ signature, slot }, "Processing gRPC transaction");
 
     // FIRST PASS: Decode all events and extract timestamp
     let blockTime: Date | null = null;
@@ -432,6 +518,9 @@ class SubscriptionManager {
     }
 
     // SECOND PASS: Process decoded events
+    // Track which indexers processed events for progress updates
+    const processedIndexers = new Set<string>();
+
     for (const { event, indexer } of decodedEvents) {
       eventCounter++;
 
@@ -469,6 +558,14 @@ class SubscriptionManager {
         } as any;
 
         await indexer.processEvent(event, signature, txResponse);
+        processedIndexers.add(indexer.name);
+      }
+    }
+
+    // Update progress for all indexers that processed events in this transaction
+    if (!this.dryRun) {
+      for (const indexerName of processedIndexers) {
+        await updateIndexerProgress(indexerName, BigInt(slot), signature);
       }
     }
   }
@@ -491,9 +588,6 @@ class SubscriptionManager {
     if (!indexer) {
       return;
     }
-
-    // Track slot for gap detection
-    recordGeyserSlot(indexer.programId.toString(), slot);
 
     // Get discriminator (first 8 bytes) to identify account type
     const discriminator = bs58.encode(data.slice(0, 8));
@@ -529,12 +623,12 @@ class SubscriptionManager {
   }
 
   private handleGeyserError(error: Error): void {
-    logger.error({ error }, "Geyser stream error");
+    logger.error({ error }, "gRPC stream error");
     this.triggerFailover();
   }
 
   private handleGeyserEnd(): void {
-    logger.warn("Geyser stream ended");
+    logger.warn("gRPC stream ended");
     this.triggerFailover();
   }
 
@@ -560,21 +654,17 @@ class SubscriptionManager {
   // ==================== Failover Logic ====================
 
   private async triggerFailover(): Promise<void> {
-    if (this.state === "RPC_ACTIVE" || this.state === "GEYSER_RECONNECTING") {
+    if (this.state === "RPC_ACTIVE" || this.state === "RECONNECTING") {
       return; // Already in failover state
     }
 
-    logger.warn("Triggering failover to RPC");
-    this.state = "GEYSER_RECONNECTING";
+    const failingState = this.state;
+    logger.warn({ failingState }, "Triggering failover");
+    this.state = "RECONNECTING";
 
-    // Record disconnect slots for all programs (for gap detection on reconnect)
-    if (this.autoGapFill) {
-      for (const program of getAllPrograms()) {
-        recordDisconnectSlot(program.programId.toString());
-      }
-    }
+    // Gap detection now uses DB as source of truth - no need to record disconnect slots
 
-    // Clean up Geyser
+    // Clean up current gRPC connection
     if (this.pingInterval) {
       clearInterval(this.pingInterval);
       this.pingInterval = null;
@@ -586,39 +676,108 @@ class SubscriptionManager {
       this.geyserStream = null;
     }
 
-    // Start RPC fallback
-    await this.startRpcSubscription();
+    // Failover chain: Primary gRPC → Backup gRPC → RPC
+    if (failingState === 'GRPC_ACTIVE' && this.heliusProvider) {
+      logger.info("Primary gRPC failed, trying backup gRPC...");
+      const backupStarted = await this.startHelius();
+      if (backupStarted) {
+        logger.info("Backup gRPC now active");
+        await this.handleSmartGapFill();
+        this.scheduleGeyserReconnect();
+        return;
+      }
+    }
 
-    // Schedule Geyser reconnection
+    // Fall back to RPC
+    logger.warn("Falling back to RPC subscription");
+    await this.startRpcSubscription();
     this.scheduleGeyserReconnect();
+  }
+
+  /**
+   * Smart gap-fill: Use backup gRPC replay for small gaps (≤3000 slots), RPC crawl for larger gaps
+   */
+  private async handleSmartGapFill(): Promise<void> {
+    if (!this.autoGapFill || !this.rpcConnection) {
+      return;
+    }
+
+    const programs = getAllPrograms();
+    const currentSlot = BigInt(await this.rpcConnection.getSlot());
+
+    for (const program of programs) {
+      if (!program.backfillConfig) continue;
+
+      const programId = program.programId.toString();
+      // Use indexer name for gap detection (queries indexers table)
+      const gap = await detectGapFromDb(program.name, currentSlot);
+
+      if (!gap.hasGap) {
+        logger.debug({ program: program.name }, "No gap detected");
+        continue;
+      }
+
+      logger.info({
+        program: program.name,
+        fromSlot: gap.fromSlot.toString(),
+        toSlot: gap.toSlot.toString(),
+        gapSize: gap.gapSize.toString()
+      }, "Gap detected");
+
+      // Use backup gRPC replay for small gaps (≤3000 slots)
+      if (gap.gapSize <= 3000n && this.heliusProvider) {
+        logger.info({ program: program.name, gapSize: gap.gapSize.toString() }, "Using backup gRPC replay for gap-fill");
+        try {
+          await this.heliusProvider.replayFromSlot(
+            [programId],
+            gap.fromSlot,
+            async (data) => {
+              await this.handleHeliusData(data);
+            }
+          );
+          logger.info({ program: program.name }, "Backup gRPC replay gap-fill complete");
+        } catch (error) {
+          logger.error({ error, program: program.name }, "Backup gRPC replay failed, falling back to RPC crawl");
+          // Fall through to RPC gap-fill
+          const result = await gapFill(program, this.rpcConnection);
+          logger.info({ program: program.name, signatures: result.count }, "RPC gap-fill complete");
+        }
+      } else {
+        // Use RPC signature crawl for large gaps
+        logger.info({ program: program.name, gapSize: gap.gapSize.toString() }, "Using RPC signature crawl for gap-fill");
+        try {
+          const result = await gapFill(program, this.rpcConnection);
+          logger.info({ program: program.name, signatures: result.count }, "RPC gap-fill complete");
+        } catch (error) {
+          logger.error({ error, program: program.name }, "RPC gap-fill failed");
+        }
+      }
+    }
   }
 
   private scheduleGeyserReconnect(): void {
     this.reconnectAttempts++;
     const delay = this.calculateReconnectDelay(this.reconnectAttempts);
 
-    logger.info({ delay, attempt: this.reconnectAttempts }, "Scheduling Geyser reconnection");
+    logger.info({ delay, attempt: this.reconnectAttempts }, "Scheduling gRPC reconnection");
 
     this.reconnectTimer = setTimeout(async () => {
-      logger.info("Attempting Geyser reconnection");
+      logger.info("Attempting gRPC reconnection");
 
       const success = await this.startGeyser();
 
       if (success) {
-        logger.info("Geyser reconnected successfully");
+        logger.info("gRPC reconnected successfully");
         this.stopRpcSubscription();
         this.reconnectAttempts = 0;
 
         // Trigger gap fill for any missed slots during disconnection
-        // We'll get the current slot from the first Geyser data we receive
-        // For now, we initiate gap fill checks
+        // Uses DB as source of truth - queries latest processed slot and compares to chain
         if (this.autoGapFill && this.rpcConnection) {
-          // Use a reasonable current slot estimate - the actual gap fill will use
-          // signatures from DB to determine the actual range
-          this.handleGeyserReconnectGapFill(0n);
+          this.handleGeyserReconnectGapFill();
         }
       } else {
-        logger.warn("Geyser reconnection failed, staying on RPC");
+        logger.warn("gRPC reconnection failed, staying on RPC");
         this.scheduleGeyserReconnect();
       }
     }, delay);
@@ -743,38 +902,54 @@ class SubscriptionManager {
 
   /**
    * Handle gap fill when Geyser reconnects after a disconnection
-   * Called when we detect a gap between disconnect slot and current slot
+   * Uses DB as source of truth for gap detection
    */
-  private async handleGeyserReconnectGapFill(currentSlot: bigint): Promise<void> {
+  private async handleGeyserReconnectGapFill(): Promise<void> {
     if (!this.autoGapFill || !this.rpcConnection) {
       return;
     }
 
     const programs = getAllPrograms();
+    const currentSlot = BigInt(await this.rpcConnection.getSlot());
 
     for (const program of programs) {
       if (!program.backfillConfig) continue;
 
       const programId = program.programId.toString();
-      const gap = detectGap(programId, currentSlot);
+      // Use indexer name for gap detection (queries indexers table)
+      const gap = await detectGapFromDb(program.name, currentSlot);
 
       if (gap.hasGap) {
         logger.info({
           program: program.name,
           fromSlot: gap.fromSlot.toString(),
-          toSlot: gap.toSlot.toString()
+          toSlot: gap.toSlot.toString(),
+          gapSize: gap.gapSize.toString()
         }, "Gap detected, starting gap fill");
 
-        try {
-          const result = await gapFill(program, this.rpcConnection);
-          logger.info({
-            program: program.name,
-            signatures: result.count
-          }, "Gap fill complete");
-        } catch (error) {
-          logger.error({ error, program: program.name }, "Gap fill failed");
-        } finally {
-          clearDisconnectSlot(programId);
+        // Use smart gap-fill strategy
+        if (gap.gapSize <= 3000n && this.heliusProvider) {
+          try {
+            await this.heliusProvider.replayFromSlot(
+              [programId],
+              gap.fromSlot,
+              async (data) => {
+                await this.handleHeliusData(data);
+              }
+            );
+            logger.info({ program: program.name }, "Backup gRPC replay gap-fill complete");
+          } catch (error) {
+            logger.error({ error, program: program.name }, "Backup gRPC replay failed, using RPC");
+            const result = await gapFill(program, this.rpcConnection);
+            logger.info({ program: program.name, signatures: result.count }, "RPC gap fill complete");
+          }
+        } else {
+          try {
+            const result = await gapFill(program, this.rpcConnection);
+            logger.info({ program: program.name, signatures: result.count }, "Gap fill complete");
+          } catch (error) {
+            logger.error({ error, program: program.name }, "Gap fill failed");
+          }
         }
       }
     }
