@@ -191,9 +191,8 @@ export async function updateConditionalTokenBalancesForVaultEvents(
     // Get the conditional token mints
     const conditionalTokenMints = conditionalVaultClient.getConditionalTokenMints(vault, numOutcomes);
 
-    for (const mint of conditionalTokenMints) {
-      await insertTokenIfNotExists(db, mint);
-    }
+    // Batch insert tokens
+    await insertTokensIfNotExist(db, conditionalTokenMints);
 
     // Get the user's token accounts for these mints
     const { userConditionalAccounts } = conditionalVaultClient.getConditionalTokenAccountsAndInstructions(
@@ -202,31 +201,40 @@ export async function updateConditionalTokenBalancesForVaultEvents(
       user
     );
 
+    // Fetch all token account info in parallel
+    const accountInfoResults = await Promise.all(
+      userConditionalAccounts.map(async (userTokenAccount) => {
+        try {
+          return await token.getAccount(connection, userTokenAccount);
+        } catch (error) {
+          logger.warn(`Error fetching token account ${userTokenAccount.toString()}: ${error}`);
+          return null;
+        }
+      })
+    );
+
     // Update each conditional token account
     let hasChanges = false;
     for (let i = 0; i < userConditionalAccounts.length; i++) {
+      const accountInfo = accountInfoResults[i];
+      if (!accountInfo) continue;
+
       const userTokenAccount = userConditionalAccounts[i];
       const tokenMint = conditionalTokenMints[i];
 
-      try {
-        const accountInfo = await token.getAccount(connection, userTokenAccount);
+      const changed = await updateOrInsertTokenBalance(
+        db,
+        userTokenAccount,
+        BigInt(accountInfo.amount.toString()),
+        tokenMint,
+        user,
+        signature,
+        slot,
+        blockTime
+      );
 
-        const changed = await updateOrInsertTokenBalance(
-          db,
-          userTokenAccount,
-          BigInt(accountInfo.amount.toString()),
-          tokenMint,
-          user,
-          signature,
-          slot,
-          blockTime
-        );
-
-        if (changed) {
-          hasChanges = true;
-        }
-      } catch (error) {
-        logger.warn(`Error updating token account ${userTokenAccount.toString()}: ${error}`);
+      if (changed) {
+        hasChanges = true;
       }
     }
 
@@ -263,6 +271,57 @@ export async function insertTokenIfNotExists(db: DBConnection, mintAcct: PublicK
     }
   } catch (e) {
     logger.warn(e, "Error inserting the token");
+  }
+}
+
+/**
+ * Batch insert tokens if they don't exist
+ * More efficient than calling insertTokenIfNotExists in a loop
+ */
+export async function insertTokensIfNotExist(db: DBConnection, mintAccts: PublicKey[]) {
+  if (mintAccts.length === 0) return;
+
+  try {
+    // Get all existing tokens in a single query
+    const mintStrings = mintAccts.map(m => m.toString());
+    const existingTokens = await db.select({ mintAcct: schema.tokens.mintAcct })
+      .from(schema.tokens)
+      .where(or(...mintStrings.map(m => eq(schema.tokens.mintAcct, m))));
+
+    const existingMints = new Set(existingTokens.map(t => t.mintAcct));
+    const missingMints = mintAccts.filter(m => !existingMints.has(m.toString()));
+
+    if (missingMints.length === 0) return;
+
+    logger.info(`Batch inserting ${missingMints.length} tokens`);
+
+    // Fetch all mint metadata in parallel
+    const mintMetadata = await Promise.all(
+      missingMints.map(async (mintAcct) => {
+        try {
+          const mint = await token.getMint(connection, mintAcct);
+          return {
+            mintAcct: mintAcct.toString(),
+            symbol: mintAcct.toString().slice(0, 3),
+            name: mintAcct.toString().slice(0, 3),
+            decimals: mint.decimals,
+            supply: mint.supply.toString(),
+            updatedAt: new Date(),
+          };
+        } catch (e) {
+          logger.warn(e, `Error fetching mint ${mintAcct.toString()}`);
+          return null;
+        }
+      })
+    );
+
+    // Filter out nulls and batch insert
+    const validMints = mintMetadata.filter(m => m !== null);
+    if (validMints.length > 0) {
+      await db.insert(schema.tokens).values(validMints).onConflictDoNothing();
+    }
+  } catch (e) {
+    logger.warn(e, "Error batch inserting tokens");
   }
 }
 
@@ -626,10 +685,8 @@ export async function insertPricesFromAmmState(
     }
 
     if (prices.length > 0) {
-      for (const price of prices) {
-        await db.insert(schema.futarchy_prices).values(price).onConflictDoNothing();
-        logger.debug(`Inserted ${price.marketType} price from account update at slot ${price.slot}`);
-      }
+      await db.insert(schema.futarchy_prices).values(prices).onConflictDoNothing();
+      logger.debug(`Inserted ${prices.length} prices from account update at slot ${prices[0].slot}`);
     }
   } catch (error) {
     logger.error(`Error inserting prices from AMM state for DAO ${daoAddr}:`, {
@@ -820,10 +877,8 @@ export async function insertIfNotExistsPrices(
     }
 
     if (prices.length > 0) {
-      for (const price of prices) {
-        await db.insert(schema.futarchy_prices).values(price).onConflictDoNothing();
-        logger.debug(`Inserted ${price.marketType} price for slot ${price.slot}`);
-      }
+      await db.insert(schema.futarchy_prices).values(prices).onConflictDoNothing();
+      logger.debug(`Inserted ${prices.length} prices for slot ${prices[0].slot}`);
     }
   } catch (error) {
     logger.error(`Error inserting V6 prices for proposal ${proposalAddr}:`, {
@@ -909,10 +964,8 @@ export async function insertIfNotExistsTwaps(
     }
 
     if (twaps.length > 0) {
-      for (const twap of twaps) {
-        await db.insert(schema.futarchy_twaps).values(twap).onConflictDoNothing();
-        logger.debug(`Inserted TWAP record for ${twap.marketType} market, proposal ${proposalAddr} at slot ${twap.slot}`);
-      }
+      await db.insert(schema.futarchy_twaps).values(twaps).onConflictDoNothing();
+      logger.debug(`Inserted ${twaps.length} TWAP records for proposal ${proposalAddr} at slot ${twaps[0].slot}`);
     }
   } catch (error) {
     logger.error(`Error inserting V6 TWAPs for proposal ${proposalAddr}:`, error);

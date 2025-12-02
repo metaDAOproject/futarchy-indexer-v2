@@ -1,11 +1,12 @@
-import { Connection, PublicKey, VersionedTransactionResponse } from "@solana/web3.js";
-import * as anchor from "@coral-xyz/anchor";
+import { Connection, VersionedTransactionResponse } from "@solana/web3.js";
 import bs58 from "bs58";
-import assert from "assert";
 import { db, schema } from "@metadaoproject/indexer-db";
 import { log } from "../../logger/logger";
-import { ProgramIndexer, getProgramByOwner } from "../registry";
+import { ProgramIndexer } from "../registry";
 import { updateIndexerProgress } from "./slotTracker";
+import { withRetry, isRetryableError } from "../retry";
+import { decodeEventsFromRpc, decodeEventsFromGrpc, extractBlockTimeFromEvents } from "../eventDecoder";
+import { incrementEventCounter, getEventCount } from "../stats";
 
 const logger = log.child({ module: "transactionIndexer" });
 
@@ -22,10 +23,13 @@ export async function indexTransaction(
   filterToIndexer: boolean = false
 ): Promise<Record<string, number>> {
   try {
-    const transactionResponse = await connection.getTransaction(signature, {
-      commitment: "confirmed",
-      maxSupportedTransactionVersion: 1
-    });
+    const transactionResponse = await withRetry(
+      () => connection.getTransaction(signature, {
+        commitment: "confirmed",
+        maxSupportedTransactionVersion: 1
+      }),
+      { shouldRetry: isRetryableError }
+    );
 
     if (!transactionResponse) {
       return {};
@@ -85,46 +89,31 @@ async function parseAndProcessEvents(
     return eventCounts;
   }
 
-  for (const innerInstruction of innerInstructions) {
-    for (const ix of innerInstruction.instructions) {
-      // Build full address list: static keys + loaded addresses (for versioned transactions with ALTs)
-      const staticKeys = transactionResponse.transaction.message.staticAccountKeys;
-      const loadedWritable = transactionResponse.meta?.loadedAddresses?.writable ?? [];
-      const loadedReadonly = transactionResponse.meta?.loadedAddresses?.readonly ?? [];
-      const allAccountKeys = [...staticKeys, ...loadedWritable, ...loadedReadonly];
+  // Build full address list: static keys + loaded addresses (for versioned transactions with ALTs)
+  const staticKeys = transactionResponse.transaction.message.staticAccountKeys;
+  const loadedWritable = transactionResponse.meta?.loadedAddresses?.writable ?? [];
+  const loadedReadonly = transactionResponse.meta?.loadedAddresses?.readonly ?? [];
+  const allAccountKeys = [...staticKeys, ...loadedWritable, ...loadedReadonly];
 
-      if (ix.programIdIndex >= allAccountKeys.length) {
-        continue;
-      }
-      const programId = allAccountKeys[ix.programIdIndex];
+  // Use shared decoder
+  const decodedEvents = decodeEventsFromRpc(innerInstructions, allAccountKeys, filterIndexer);
 
-      // Find the indexer for this program
-      const indexer = getProgramByOwner(programId);
-      if (!indexer) {
-        continue;
-      }
+  // Process each decoded event
+  for (const { event, indexer } of decodedEvents) {
+    eventCounts[event.name] = (eventCounts[event.name] || 0) + 1;
+    incrementEventCounter(); // Track for health stats
 
-      // If filtering by specific indexer, skip events from other programs
-      if (filterIndexer && indexer.programId.toString() !== filterIndexer.programId.toString()) {
-        continue;
-      }
+    logger.info({
+      eventName: event.name,
+      signature,
+      slot: transactionResponse.slot,
+      program: indexer.name
+    }, `${indexer.name} event #${getEventCount()} (RPC)`);
 
-      // Try to decode as an event
-      try {
-        const ixData = anchor.utils.bytes.bs58.decode(ix.data);
-        const event = indexer.decodeEvent(Buffer.from(ixData));
-
-        if (event) {
-          eventCounts[event.name] = (eventCounts[event.name] || 0) + 1;
-          try {
-            await indexer.processEvent(event, signature, transactionResponse as any);
-          } catch (processError) {
-            logger.error({ error: processError, signature, eventName: event.name }, "Error processing event");
-          }
-        }
-      } catch {
-        // Not all instructions are events, this is expected
-      }
+    try {
+      await indexer.processEvent(event, signature, transactionResponse as any);
+    } catch (processError) {
+      logger.error({ error: processError, signature, eventName: event.name }, "Error processing event");
     }
   }
 
@@ -202,42 +191,16 @@ export async function processGrpcTransaction(data: any): Promise<void> {
 
   logger.debug({ signature, slot: slot.toString() }, "Processing gRPC transaction (gap-fill)");
 
-  // FIRST PASS: Decode all events and extract timestamp
-  let blockTime: Date | null = null;
-  const decodedEvents: Array<{ event: any; indexer: ProgramIndexer }> = [];
+  // Use shared decoder for gRPC format
+  const decodedEvents = decodeEventsFromGrpc(
+    innerInstructions,
+    transaction.transaction?.message?.accountKeys ?? [],
+    transaction.meta?.loadedWritableAddresses ?? [],
+    transaction.meta?.loadedReadonlyAddresses ?? []
+  );
 
-  for (const innerInstruction of innerInstructions) {
-    for (const ix of innerInstruction.instructions) {
-      // Build full address list from account keys + loaded addresses
-      let addresses: Uint8Array[] = [];
-      addresses = addresses.concat(transaction.transaction?.message?.accountKeys ?? []);
-      addresses = addresses.concat(transaction.meta?.loadedWritableAddresses ?? []);
-      addresses = addresses.concat(transaction.meta?.loadedReadonlyAddresses ?? []);
-
-      assert(ix.programIdIndex < addresses.length, "programIdIndex is out of bounds");
-      const programId = new PublicKey(addresses[ix.programIdIndex]);
-
-      // Find the indexer for this program
-      const indexer = getProgramByOwner(programId);
-      if (!indexer) {
-        continue;
-      }
-
-      // Try to decode as an event
-      const event = indexer.decodeEvent(Buffer.from(ix.data));
-      if (!event) {
-        continue;
-      }
-
-      decodedEvents.push({ event, indexer });
-
-      // Extract timestamp from first event that has it
-      if (!blockTime && event.data?.common?.unixTimestamp) {
-        const unixTs = Number(event.data.common.unixTimestamp);
-        blockTime = new Date(unixTs * 1000);
-      }
-    }
-  }
+  // Extract block time from events
+  const blockTime = extractBlockTimeFromEvents(decodedEvents);
 
   // INSERT SIGNATURE
   try {

@@ -8,10 +8,9 @@ import Client, {
 import { Connection, PublicKey } from "@solana/web3.js";
 import { HeliusProvider } from "./providers/helius";
 import bs58 from 'bs58';
-import assert from "assert";
-import * as anchor from "@coral-xyz/anchor";
 
 import { getAllPrograms, getProgramByOwner, getRegisteredProgramIds, ProgramIndexer } from "./registry";
+import { decodeEventsFromGrpc, extractBlockTimeFromEvents } from "./eventDecoder";
 import { serializeForLogging } from "../indexers/shared/utils";
 import { subscribeAll, setRpcConnection } from "../txLogHandler";
 import { log } from "../logger/logger";
@@ -43,13 +42,14 @@ interface SubscriptionHealth {
   geyserConnected: boolean;
 }
 
-// Stats counters
-let eventCounter = 0;
-let accountUpdateCounter = 0;
-// Per-program event counts (program name -> event name -> count)
-const eventCountsByProgram: Map<string, Map<string, number>> = new Map();
-// Per-account type counts
-const accountCountsByType: Map<string, number> = new Map();
+import {
+  getEventCount,
+  getAccountUpdateCount,
+  incrementEventCounter,
+  incrementAccountUpdateCounter,
+  eventCountsByProgram,
+  accountCountsByType,
+} from "./stats";
 
 interface StartOptions {
   dryRun?: boolean;
@@ -176,8 +176,8 @@ class SubscriptionManager {
   getHealth(): SubscriptionHealth {
     return {
       state: this.state,
-      eventsProcessed: eventCounter,
-      accountUpdatesProcessed: accountUpdateCounter,
+      eventsProcessed: getEventCount(),
+      accountUpdatesProcessed: getAccountUpdateCount(),
       lastEventTime: this.lastDataTime,
       reconnectAttempts: this.reconnectAttempts,
       geyserConnected: this.state === "GRPC_ACTIVE" || this.state === "BACKUP_GRPC_ACTIVE",
@@ -456,41 +456,16 @@ class SubscriptionManager {
 
     logger.debug({ signature, slot }, "Processing gRPC transaction");
 
-    // FIRST PASS: Decode all events and extract timestamp
-    let blockTime: Date | null = null;
-    const decodedEvents: Array<{ event: any; indexer: ProgramIndexer }> = [];
+    // Use shared decoder for gRPC format
+    const decodedEvents = decodeEventsFromGrpc(
+      innerInstructions,
+      transaction.transaction.transaction?.message?.accountKeys ?? [],
+      transaction.transaction.meta?.loadedWritableAddresses ?? [],
+      transaction.transaction.meta?.loadedReadonlyAddresses ?? []
+    );
 
-    for (const innerInstruction of innerInstructions) {
-      for (const ix of innerInstruction.instructions) {
-        let addresses: Uint8Array[] = [];
-        addresses = addresses.concat(transaction.transaction.transaction?.message?.accountKeys ?? []);
-        addresses = addresses.concat(transaction.transaction.meta?.loadedWritableAddresses ?? []);
-        addresses = addresses.concat(transaction.transaction.meta?.loadedReadonlyAddresses ?? []);
-
-        assert(ix.programIdIndex < addresses.length, "programIdIndex is out of bounds");
-        const programId = new PublicKey(addresses[ix.programIdIndex]);
-
-        // Find the indexer for this program
-        const indexer = getProgramByOwner(programId);
-        if (!indexer) {
-          continue;
-        }
-
-        // Try to decode as an event
-        const event = indexer.decodeEvent(Buffer.from(ix.data));
-        if (!event) {
-          continue;
-        }
-
-        decodedEvents.push({ event, indexer });
-
-        // Extract timestamp from first event that has it
-        if (!blockTime && event.data?.common?.unixTimestamp) {
-          const unixTs = Number(event.data.common.unixTimestamp);
-          blockTime = new Date(unixTs * 1000);
-        }
-      }
-    }
+    // Extract block time from events
+    const blockTime = extractBlockTimeFromEvents(decodedEvents);
 
     // INSERT SIGNATURE with timestamp
     if (!this.dryRun) {
@@ -525,7 +500,7 @@ class SubscriptionManager {
     const processedIndexers = new Set<string>();
 
     for (const { event, indexer } of decodedEvents) {
-      eventCounter++;
+      incrementEventCounter();
 
       if (this.dryRun) {
         // Track per-program event counts
@@ -540,7 +515,7 @@ class SubscriptionManager {
         // Log with pretty-printed JSON like geyser.ts
         const prettyData = JSON.stringify(serializeForLogging(event.data), null, 2);
         logger.info(
-          `\n=== ${indexer.name.toUpperCase()} EVENT #${eventCounter} ===\n` +
+          `\n=== ${indexer.name.toUpperCase()} EVENT #${getEventCount()} ===\n` +
           `Event: ${event.name} (Count: ${count})\n` +
           `Signature: ${signature}\n` +
           `Slot: ${slot.toString()}\n` +
@@ -550,7 +525,7 @@ class SubscriptionManager {
         );
       } else {
         // Process the event normally
-        logger.info({ eventName: event.name, signature, slot }, `${indexer.name} event #${eventCounter}`);
+        logger.info({ eventName: event.name, signature, slot }, `${indexer.name} event #${getEventCount()}`);
 
         // Create a minimal transaction response for the processor
         const txResponse = {
@@ -574,7 +549,7 @@ class SubscriptionManager {
   }
 
   private async processGeyserAccountUpdate(accountUpdate: any): Promise<void> {
-    accountUpdateCounter++;
+    incrementAccountUpdateCounter();
 
     if (!accountUpdate.account) {
       return;
@@ -611,7 +586,7 @@ class SubscriptionManager {
       // Log with pretty-printed JSON like geyser.ts
       const prettyData = JSON.stringify(serializeForLogging(decoded.data), null, 2);
       logger.info(
-        `\n=== ${indexer.name.toUpperCase()} ACCOUNT #${accountUpdateCounter} ===\n` +
+        `\n=== ${indexer.name.toUpperCase()} ACCOUNT #${getAccountUpdateCount()} ===\n` +
         `Type: ${decoded.type} (Count: ${count})\n` +
         `Pubkey: ${pubkey}\n` +
         `Slot: ${slot.toString()}\n` +
@@ -809,8 +784,8 @@ class SubscriptionManager {
     stats += `SUBSCRIPTION STATISTICS${this.dryRun ? ' (DRY-RUN)' : ''}\n`;
     stats += `${"=".repeat(60)}\n`;
     stats += `State: ${this.state}\n`;
-    stats += `Total Events: ${eventCounter}\n`;
-    stats += `Total Account Updates: ${accountUpdateCounter}\n`;
+    stats += `Total Events: ${getEventCount()}\n`;
+    stats += `Total Account Updates: ${getAccountUpdateCount()}\n`;
     stats += `Reconnect Attempts: ${this.reconnectAttempts}\n\n`;
 
     // Per-program event stats

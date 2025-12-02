@@ -5,6 +5,7 @@ import { db, schema, eq, asc, desc } from "@metadaoproject/indexer-db";
 import { log } from "../../logger/logger";
 import { ProgramIndexer, getProgramByOwner } from "../registry";
 import { indexTransaction } from "./transactionIndexer";
+import { withRetry, isRetryableError } from "../retry";
 import pLimit from "p-limit";
 
 const logger = log.child({ module: "signatureFetcher" });
@@ -111,10 +112,13 @@ export async function backfillHistorical(
         logger.info({ before: oldestSignature, program: indexer.name }, "RPC: getSignaturesForAddress");
       }
 
-      const signatures = await connection.getSignaturesForAddress(
-        programId,
-        { before: oldestSignature, limit: 1000 },
-        "finalized"
+      const signatures = await withRetry(
+        () => connection.getSignaturesForAddress(
+          programId,
+          { before: oldestSignature, limit: 1000 },
+          "finalized"
+        ),
+        { shouldRetry: isRetryableError }
       );
 
       if (signatures.length === 0) break;
@@ -210,10 +214,13 @@ export async function gapFill(
         }, "RPC: getSignaturesForAddress (gap fill)");
       }
 
-      const signatures = await connection.getSignaturesForAddress(
-        programId,
-        signaturesOptions,
-        "finalized"
+      const signatures = await withRetry(
+        () => connection.getSignaturesForAddress(
+          programId,
+          signaturesOptions,
+          "finalized"
+        ),
+        { shouldRetry: isRetryableError }
       );
 
       if (signatures.length === 0) break;
@@ -313,10 +320,13 @@ export async function reindexHistorical(
     logger.info({ program: indexer.name }, "Phase 1: Collecting signatures...");
 
     while (true) {
-      const signatures = await connection.getSignaturesForAddress(
-        programId,
-        { before: oldestSignature, limit: 1000 },
-        "finalized"
+      const signatures = await withRetry(
+        () => connection.getSignaturesForAddress(
+          programId,
+          { before: oldestSignature, limit: 1000 },
+          "finalized"
+        ),
+        { shouldRetry: isRetryableError }
       );
 
       if (signatures.length === 0) break;
