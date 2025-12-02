@@ -76,7 +76,7 @@ async function snapshotVaults(): Promise<void> {
 
     for (const vault of vaults) {
       try {
-        // Ensure underlying token exists
+        // Ensure underlying token mint exists
         await insertTokenIfNotExists(db, vault.account.underlyingTokenMint);
 
         // Insert conditional token mints
@@ -85,6 +85,14 @@ async function snapshotVaults(): Promise<void> {
             await insertTokenIfNotExists(db, mint);
           }
         }
+
+        // Insert underlying token account (FK requirement)
+        await db.insert(schema.tokenAccts).values({
+          tokenAcct: vault.account.underlyingTokenAccount.toString(),
+          mintAcct: vault.account.underlyingTokenMint.toString(),
+          ownerAcct: vault.publicKey.toString(), // vault owns this account
+          amount: "0",
+        }).onConflictDoNothing();
 
         await db.insert(schema.v0_4_conditional_vaults).values({
           conditionalVaultAddr: vault.publicKey.toString(),
