@@ -909,7 +909,7 @@ export async function insertIfNotExistsTwaps(
 
     if (twaps.length > 0) {
       for (const twap of twaps) {
-        await db.insert(schema.futarchy_twaps).values(twap);
+        await db.insert(schema.futarchy_twaps).values(twap).onConflictDoNothing();
         logger.debug(`Inserted TWAP record for ${twap.marketType} market, proposal ${proposalAddr} at slot ${twap.slot}`);
       }
     }

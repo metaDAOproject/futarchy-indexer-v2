@@ -16,12 +16,16 @@ const ENABLE_GAPFILL = true;
 // Reindex: Reset tracking and re-process all historical signatures
 // Set to true to run reindex on startup (will reset progress and crawl from beginning)
 // REINDEX_FROM_SLOT: Optional starting slot (undefined = full history)
+// ** IMPORTANT ** if the program has been upgraded, namely event data won't match what is in the imported clients from the sdk,
+// then this reindexer will silently fail and hang on that event when reindexing. we would have to manually import all verisons of the idl
+// and have some range of slots per idl to properly do a historical decode.
+// an easy way to determine what viable slot you can crawl forward from is to go any explorer and plug in the program 
+// addy, they have a Last Deployed Slot that tracks most recent upgrades.
 // REINDEX_PROGRAM: Optional program name filter (undefined = all programs)
 // needs futarchy-v0.6 not the program address
 const ENABLE_REINDEXING = true;
-const REINDEX_FROM_SLOT: number | undefined = undefined;
-const REINDEX_PROGRAM: string | undefined = "launchpad-v0.6";
-// 364369178
+const REINDEX_FROM_SLOT: number | undefined = 383015865;
+const REINDEX_PROGRAM: string | undefined = "futarchy-v0.6";
 
 const appStartTime = new Date();
 
@@ -65,6 +69,7 @@ let reindexProgress: {
   program: string;
   currentSlot: string;
   txProcessed: number;
+  eventCounts: Record<string, number>;
   startedAt: string;
 } | null = null;
 let reindexLastUpdate: Date | null = null;
@@ -213,6 +218,19 @@ async function main() {
           <td>${reindexLastUpdate ? reindexLastUpdate.toLocaleString('en-US', {timeZone: 'America/Vancouver'}) : 'Never'}</td>
         </tr>`;
         html += '</tbody></table>';
+
+        // Event counts table
+        if (reindexProgress?.eventCounts && Object.keys(reindexProgress.eventCounts).length > 0) {
+          html += '<br><h3>Events Reindexed</h3>';
+          html += '<table>';
+          html += '<thead><tr><th>Event Name</th><th>Count</th></tr></thead>';
+          html += '<tbody>';
+          for (const [eventName, count] of Object.entries(reindexProgress.eventCounts).sort((a, b) => b[1] - a[1])) {
+            html += `<tr><td>${eventName}</td><td>${count}</td></tr>`;
+          }
+          html += '</tbody></table>';
+        }
+
         html += '<p><em>Note: Reindex is isolated and does not affect the indexers table or streaming.</em></p>';
       }
 

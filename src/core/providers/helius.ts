@@ -43,7 +43,7 @@ export class HeliusProvider {
       blocksMeta: {},
       entry: {},
       accountsDataSlice: [],
-      fromSlot,  // Replay from this slot (max 3000 slots back)
+      fromSlot: fromSlot ? parseInt(fromSlot, 10) : undefined,  // Replay from this slot (max 3000 slots back)
     };
 
     await subscribe(this.config, request, onData, onError);

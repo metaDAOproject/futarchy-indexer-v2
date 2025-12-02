@@ -9,36 +9,24 @@ import { updateIndexerProgress } from "./slotTracker";
 
 const logger = log.child({ module: "transactionIndexer" });
 
-// Signatures to skip (comma-separated in env var)
-// Example: SKIP_SIGNATURES=sig1,sig2,sig3
-const SKIP_SIGNATURES = new Set(
-  (process.env.SKIP_SIGNATURES || "").split(",").filter(s => s.length > 0)
-);
-
 /**
  * Fetch and index a transaction by signature
+ * Returns event counts by event name
  */
 export async function indexTransaction(
   signature: string,
   indexer: ProgramIndexer,
   connection: Connection,
   skipSignatureInsert: boolean = false
-): Promise<void> {
-  if (SKIP_SIGNATURES.has(signature)) {
-    logger.warn({ signature }, "Skipping blocklisted signature");
-    return;
-  }
-
+): Promise<Record<string, number>> {
   try {
-    logger.info({ signature }, "Fetching transaction");
     const transactionResponse = await connection.getTransaction(signature, {
       commitment: "confirmed",
-      maxSupportedTransactionVersion: 0
+      maxSupportedTransactionVersion: 1
     });
-    logger.info({ signature, hasResponse: !!transactionResponse, slot: transactionResponse?.slot }, "Transaction fetched");
 
     if (!transactionResponse) {
-      return;
+      return {};
     }
 
     // Insert signature to DB (skip if already inserted in bulk, e.g., during reindex)
@@ -64,37 +52,47 @@ export async function indexTransaction(
     // Skip if transaction had an error
     if (transactionResponse.meta?.err) {
       logger.debug({ signature, error: transactionResponse.meta.err }, "Transaction had error, skipping");
-      return;
+      return {};
     }
 
     // Parse and process events
-    await parseAndProcessEvents(transactionResponse, signature, indexer);
+    return await parseAndProcessEvents(transactionResponse, signature);
   } catch (error: any) {
     logger.error({
       err: error?.message || error?.toString() || JSON.stringify(error),
       signature
     }, "Error indexing transaction");
+    return {};
   }
 }
 
 /**
  * Parse events from a transaction and process them through the appropriate indexer
+ * Returns event counts by event name
  */
 async function parseAndProcessEvents(
   transactionResponse: VersionedTransactionResponse,
-  signature: string,
-  primaryIndexer: ProgramIndexer
-): Promise<void> {
+  signature: string
+): Promise<Record<string, number>> {
   const innerInstructions = transactionResponse.meta?.innerInstructions ?? [];
+  const eventCounts: Record<string, number> = {};
+
+  if (innerInstructions.length === 0) {
+    return eventCounts;
+  }
 
   for (const innerInstruction of innerInstructions) {
     for (const ix of innerInstruction.instructions) {
-      // Get the program ID for this instruction
-      const accountKeys = transactionResponse.transaction.message.staticAccountKeys;
-      if (ix.programIdIndex >= accountKeys.length) {
+      // Build full address list: static keys + loaded addresses (for versioned transactions with ALTs)
+      const staticKeys = transactionResponse.transaction.message.staticAccountKeys;
+      const loadedWritable = transactionResponse.meta?.loadedAddresses?.writable ?? [];
+      const loadedReadonly = transactionResponse.meta?.loadedAddresses?.readonly ?? [];
+      const allAccountKeys = [...staticKeys, ...loadedWritable, ...loadedReadonly];
+
+      if (ix.programIdIndex >= allAccountKeys.length) {
         continue;
       }
-      const programId = accountKeys[ix.programIdIndex];
+      const programId = allAccountKeys[ix.programIdIndex];
 
       // Find the indexer for this program
       const indexer = getProgramByOwner(programId);
@@ -108,24 +106,20 @@ async function parseAndProcessEvents(
         const event = indexer.decodeEvent(Buffer.from(ixData));
 
         if (event) {
-          logger.debug({
-            signature,
-            program: indexer.name,
-            eventName: event.name
-          }, "Processing event from backfill");
-
+          eventCounts[event.name] = (eventCounts[event.name] || 0) + 1;
           try {
             await indexer.processEvent(event, signature, transactionResponse as any);
           } catch (processError) {
             logger.error({ error: processError, signature, eventName: event.name }, "Error processing event");
           }
         }
-      } catch (decodeError) {
+      } catch {
         // Not all instructions are events, this is expected
-        logger.trace({ error: decodeError }, "Failed to decode instruction as event");
       }
     }
   }
+
+  return eventCounts;
 }
 
 /**

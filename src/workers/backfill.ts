@@ -256,6 +256,7 @@ async function runReindex(
           program: progress.program,
           currentSlot: progress.currentSlot.toString(),
           txProcessed: progress.txProcessed,
+          eventCounts: progress.eventCounts,
           startedAt: progress.startedAt.toISOString(),
         }
       });

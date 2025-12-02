@@ -290,6 +290,7 @@ class SubscriptionManager {
 
     // Handle ping/pong
     if (data.pong || data.ping) {
+      logger.info("Received pong");
       this.lastPongTime = new Date();
       return;
     }
@@ -394,6 +395,7 @@ class SubscriptionManager {
         await new Promise<void>((resolve, reject) => {
           this.geyserStream.write(pingRequest, (err: Error | null | undefined) => {
             if (err === null || err === undefined) {
+              logger.info("Sent ping");
               resolve();
             } else {
               reject(err);
@@ -419,6 +421,7 @@ class SubscriptionManager {
 
     // Handle ping/pong (server sends ping, we ignore; pong is response to our ping)
     if (data.pong || data.ping) {
+      logger.info("Received pong");
       this.lastPongTime = new Date();
       return;
     }

@@ -276,6 +276,7 @@ export interface ReindexProgress {
   program: string;
   currentSlot: bigint;
   txProcessed: number;
+  eventCounts: Record<string, number>;
   startedAt: Date;
 }
 
@@ -293,6 +294,7 @@ export async function reindexHistorical(
   const programId = indexer.programId;
   const limit = pLimit(BACKFILL_CONCURRENCY);
   let processedCount = 0;
+  const totalEventCounts: Record<string, number> = {};
   const startedAt = new Date();
 
   logger.info({
@@ -372,10 +374,15 @@ export async function reindexHistorical(
       // Process each signature with concurrency
       // Skip signature insert since we already bulk-inserted above
       let batchCompleted = 0;
+      const batchEventCounts: Record<string, number> = {};
       const tasks = batch.map(sig =>
         limit(async () => {
           try {
-            await indexTransaction(sig.signature, indexer, connection, true);
+            const eventCounts = await indexTransaction(sig.signature, indexer, connection, true);
+            // Merge event counts
+            for (const [eventName, count] of Object.entries(eventCounts)) {
+              batchEventCounts[eventName] = (batchEventCounts[eventName] || 0) + count;
+            }
           } catch (error) {
             logger.error({ error, signature: sig.signature }, "Error indexing transaction");
           }
@@ -386,13 +393,20 @@ export async function reindexHistorical(
           // Log progress every 10 transactions
           if (batchCompleted % 10 === 0) {
             const currentSlot = BigInt(sig.slot);
+            // Merge batch counts with total for display
+            const currentEventCounts = { ...totalEventCounts };
+            for (const [eventName, count] of Object.entries(batchEventCounts)) {
+              currentEventCounts[eventName] = (currentEventCounts[eventName] || 0) + count;
+            }
+
             logger.info({
               program: indexer.name,
               batchNum,
               batchProgress: `${batchCompleted}/${batch.length}`,
               totalProgress: `${totalCompleted}/${allSignatures.length}`,
               percent,
-              currentSlot: currentSlot.toString()
+              currentSlot: currentSlot.toString(),
+              eventCounts: currentEventCounts
             }, "Reindex progress");
 
             // Send IPC progress update
@@ -401,6 +415,7 @@ export async function reindexHistorical(
                 program: indexer.name,
                 currentSlot,
                 txProcessed: totalCompleted,
+                eventCounts: currentEventCounts,
                 startedAt
               });
             }
@@ -412,6 +427,10 @@ export async function reindexHistorical(
         })
       );
       await Promise.all(tasks);
+      // Merge batch counts into total
+      for (const [eventName, count] of Object.entries(batchEventCounts)) {
+        totalEventCounts[eventName] = (totalEventCounts[eventName] || 0) + count;
+      }
 
       processedCount += batch.length;
       const currentSlot = BigInt(batch[batch.length - 1]?.slot ?? 0);
