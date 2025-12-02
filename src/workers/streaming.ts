@@ -9,7 +9,7 @@ import "dotenv/config";
 import { log } from "../logger/logger";
 import { subscriptionManager } from "../core/subscriptionManager";
 
-// Import all program indexers (registers them with the registry)
+// Import all program indexers (auto-registers via side effect)
 import "../indexers/futarchy/v0.6";
 import "../indexers/launchpad/v0.6";
 import "../indexers/conditional-vault/v0.4";

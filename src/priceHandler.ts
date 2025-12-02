@@ -111,19 +111,24 @@ export async function updatePrices(): Promise<{
     }
 
     const endTime = performance.now();
-    const missingPricesMessage = missingPrices.filter(Boolean).join("<br>");
-    const message = `Updated prices in ${
-      (endTime - startTime) / 1000
-    }s missing <br>${missingPricesMessage}`;
-    logger.info(message);
-    let errorMessage = "";
-    for (const error of errors) {
-      errorMessage += error + "<br>";
+    const duration = ((endTime - startTime) / 1000).toFixed(2);
+    const updatedCount = Object.keys(data).length - missingPrices.length;
+
+    logger.info({
+      duration: `${duration}s`,
+      updated: updatedCount,
+      missing: missingPrices.length
+    }, "Jupiter price update complete");
+
+    if (missingPrices.length > 0) {
+      logger.warn({ tokens: missingPrices }, "Missing price data for tokens");
     }
 
+    const message = `Updated ${updatedCount} prices in ${duration}s${missingPrices.length > 0 ? `, ${missingPrices.length} missing` : ''}`;
+
     return {
-      message: message,
-      error: errorMessage ? new Error(errorMessage) : undefined,
+      message,
+      error: errors.length > 0 ? new Error(errors.join(", ")) : undefined,
     };
   } catch (error) {
     logger.error(`Error updating prices: ${error}`);

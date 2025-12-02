@@ -21,7 +21,7 @@ import { db, schema } from "@metadaoproject/indexer-db";
 import bs58 from "bs58";
 import assert from "assert";
 
-// Import all program indexers (registers them with the registry)
+// Import all program indexers (auto-registers via side effect)
 import "../indexers/futarchy/v0.6";
 import "../indexers/launchpad/v0.6";
 import "../indexers/conditional-vault/v0.4";

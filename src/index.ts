@@ -2,8 +2,8 @@ import "dotenv/config";
 import { log } from "./logger/logger";
 import { CronJob } from "cron";
 import http from "http";
-import { updatePrices } from "./priceHandler";
 import path from "path";
+import { updatePrices } from "./priceHandler";
 
 // DRY_RUN: Log events without writing to DB (for testing)
 // set to false to write to DB
@@ -23,8 +23,8 @@ const ENABLE_GAPFILL = true;
 // addy, they have a Last Deployed Slot that tracks most recent upgrades.
 // REINDEX_PROGRAM: Optional program name filter (undefined = all programs)
 // needs futarchy-v0.6 not the program address
-const ENABLE_REINDEXING = true;
-const REINDEX_FROM_SLOT: number | undefined = 383015865;
+const ENABLE_REINDEXING = false;
+const REINDEX_FROM_SLOT: number | undefined = 383794540;
 const REINDEX_PROGRAM: string | undefined = "futarchy-v0.6";
 
 const appStartTime = new Date();
@@ -32,10 +32,6 @@ const appStartTime = new Date();
 const logger = log.child({
   module: "main"
 });
-
-interface cronFunction {
-  (): Promise<{message:string, error: Error | undefined}>;
-}
 
 class CronRunResult {
   name: string;
@@ -73,6 +69,10 @@ let reindexProgress: {
   startedAt: string;
 } | null = null;
 let reindexLastUpdate: Date | null = null;
+
+// Price handler state
+let priceHandlerLastRun: Date | null = null;
+let priceHandlerLastResult: { message: string; error: Error | undefined } | null = null;
 
 async function main() {
   logger.info("Starting main process");
@@ -133,8 +133,13 @@ async function main() {
     gapfillCron.start();
   }
 
-  // Price updates cron (commented out by default)
-  // startCron("priceHandler", "* * * * *", priceHandler);
+  // Jupiter USD price updates - runs every minute
+  const pricesCron = new CronJob("* * * * *", async () => {
+    priceHandlerLastResult = await updatePrices();
+    priceHandlerLastRun = new Date();
+  });
+  pricesCron.start();
+  logger.info("Started Jupiter price updates cron (every minute)");
 
   // Health server
   const server = http.createServer((req: any, res: any) => {
@@ -203,6 +208,20 @@ async function main() {
       html += `<li>Gap-Fill Running: ${gapfillRunning ? 'Yes' : 'No'}</li>`;
       html += `<li>Reindex Running: ${reindexProcess && !reindexProcess.killed ? 'Yes' : 'No'}</li>`;
       html += '</ul>';
+
+      // Jupiter price handler status
+      html += '<br><h3>Jupiter Price Updates</h3>';
+      html += '<table>';
+      html += '<thead><tr><th>Last Run</th><th>Status</th><th>Message</th></tr></thead>';
+      html += '<tbody>';
+      const priceStatus = priceHandlerLastResult?.error ? 'Error' : 'OK';
+      const priceStatusColor = priceHandlerLastResult?.error ? 'red' : 'green';
+      html += `<tr>
+        <td>${priceHandlerLastRun ? priceHandlerLastRun.toLocaleString('en-US', {timeZone: 'America/Vancouver'}) : 'Never'}</td>
+        <td style="color: ${priceStatusColor}">${priceStatus}</td>
+        <td>${priceHandlerLastResult?.message || 'Waiting for first run...'}</td>
+      </tr>`;
+      html += '</tbody></table>';
 
       // Reindex progress section
       if (reindexProcess && !reindexProcess.killed) {
@@ -422,26 +441,6 @@ process.on('SIGTERM', () => {
   }
   process.exit(0);
 });
-
-function startCron(cronName: string, cronFrequency: string, cf: cronFunction) {
-  const cronJob = new CronJob(cronFrequency, async () => {
-    const start = new Date();
-    let result = await cf();
-    const { message, error } = result;
-    const end = new Date();
-    let totalPreviousErrors = error ? 1 : 0;
-    const oldHealth = healthMap.get(cronName);
-    if (oldHealth) {
-      totalPreviousErrors = totalPreviousErrors + oldHealth.totalPreviousErrors;
-    }
-    healthMap.set(cronName, new CronRunResult(cronName, message, error, start, end, totalPreviousErrors));
-  });
-  cronJob.start();
-}
-
-async function priceHandler(): Promise<{message:string, error: Error|undefined}> {
-  return await updatePrices();
-}
 
 // Run the main function
 main();

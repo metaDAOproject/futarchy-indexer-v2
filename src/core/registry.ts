@@ -55,3 +55,100 @@ export function getProgramByName(name: string): ProgramIndexer | undefined {
 export function getRegisteredProgramIds(): string[] {
   return Array.from(programs.values()).map(p => p.programId.toString());
 }
+
+/**
+ * Factory configuration for creating a program indexer
+ */
+export interface ProgramIndexerConfig {
+  programId: PublicKey;
+  name: string;
+  // The Anchor program with coder (e.g., futarchyClient.autocrat, launchpadClient.launchpad)
+  program: {
+    coder: {
+      accounts: {
+        memcmp: (accountType: string) => { bytes: string };
+        decode: (accountType: string, data: Buffer) => any;
+      };
+      events: {
+        decode: (data: string) => { name: string; data: any } | null;
+      };
+    };
+  };
+  // Account types to generate discriminators for
+  accountTypes: string[];
+  // Event processor
+  processEvent: (event: { name: string; data: any }, signature: string, txResponse: VersionedTransactionResponse) => Promise<void>;
+  // Account update processor
+  processAccountUpdate: (pubkey: string, accountType: string, accountData: any, slot: bigint) => Promise<void>;
+  // Optional snapshot function for backfill
+  snapshotAccounts?: () => Promise<void>;
+}
+
+/**
+ * Factory function to create and register a program indexer with minimal boilerplate
+ */
+export function createProgramIndexer(config: ProgramIndexerConfig): ProgramIndexer {
+  const { programId, name, program, accountTypes, processEvent, processAccountUpdate, snapshotAccounts } = config;
+
+  // Generate discriminators from account types
+  const discriminators: Record<string, string> = {};
+  for (const accountType of accountTypes) {
+    discriminators[accountType] = program.coder.accounts.memcmp(accountType).bytes;
+  }
+
+  // Reverse lookup: discriminator -> account type
+  const discriminatorToType: Record<string, string> = Object.fromEntries(
+    Object.entries(discriminators).map(([type, disc]) => [disc, type])
+  );
+
+  const indexer: ProgramIndexer = {
+    programId,
+    name,
+    discriminators,
+
+    decodeEvent(data: Buffer): { name: string; data: any } | null {
+      try {
+        // Skip first 8 bytes (discriminator), encode rest as base64
+        const eventData = Buffer.from(data.slice(8)).toString('base64');
+        const event = program.coder.events.decode(eventData);
+        if (event) {
+          return { name: event.name, data: event.data };
+        }
+      } catch {
+        // Not an event, expected
+      }
+      return null;
+    },
+
+    async processEvent(event, signature, txResponse) {
+      await processEvent(event, signature, txResponse);
+    },
+
+    decodeAccount(discriminator: string, data: Buffer): { type: string; data: any } | null {
+      const accountType = discriminatorToType[discriminator];
+      if (!accountType) {
+        return null;
+      }
+      try {
+        const decoded = program.coder.accounts.decode(accountType, data);
+        return { type: accountType, data: decoded };
+      } catch {
+        return null;
+      }
+    },
+
+    async processAccountUpdate(pubkey, accountType, accountData, slot) {
+      await processAccountUpdate(pubkey, accountType, accountData, slot);
+    },
+
+    backfillConfig: {
+      signatureAddresses: [programId],
+      snapshotAccounts,
+    },
+  };
+
+  // Auto-register
+  registerProgram(indexer);
+
+  return indexer;
+}
