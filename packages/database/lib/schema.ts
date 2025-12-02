@@ -1929,7 +1929,6 @@ export const v0_7_launches = pgTable("v0_7_launches", {
   unixTimestampStarted: bigint("unix_timestamp_started", { mode: "bigint" }),
   unixTimestampClosed: bigint("unix_timestamp_closed", { mode: "bigint" }),
   totalCommittedAmount: bigint("total_committed_amount", { mode: "bigint" }).notNull(),
-  finalRaiseAmount: bigint("final_raise_amount", { mode: "bigint" }),
   state: pgEnum("state", V06LaunchState).notNull(),
   seqNum: bigint("seq_num", { mode: "bigint" }).notNull(),
   secondsForLaunch: integer("seconds_for_launch").notNull(),
@@ -1943,7 +1942,7 @@ export const v0_7_launches = pgTable("v0_7_launches", {
   totalApprovedAmount: bigint("total_approved_amount", { mode: "bigint" }).notNull(),
   additionalTokensAmount: bigint("additional_tokens_amount", { mode: "bigint" }).notNull(),
   additionalTokensRecipient: pubkey("additional_tokens_recipient"),
-  additionalTokensClaimed: boolean("additional_tokens_claimed").notNull().default(false),
+  additionalTokensClaimed: boolean("additional_tokens_claimed").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .default(sql`now()`),
@@ -1953,14 +1952,14 @@ export const v0_7_launches = pgTable("v0_7_launches", {
 
 export const v0_7_funding_records = pgTable("v0_7_funding_records", {
   fundingRecordAddr: pubkey("funding_record_addr").primaryKey(),
+  pdaBump: smallint("pda_bump").notNull(),
   launchAddr: pubkey("launch_addr")
     .notNull()
     .references(() => v0_7_launches.launchAddr),
   funderAddr: pubkey("funder_addr").notNull(),
   committedAmount: bigint("committed_amount", { mode: "bigint" }).notNull(),
-  seqNum: bigint("seq_num", { mode: "bigint" }).notNull(),
-  isTokensClaimed: boolean("is_tokens_claimed").notNull().default(false),
-  isUsdcRefunded: boolean("is_usdc_refunded").notNull().default(false),
+  isTokensClaimed: boolean("is_tokens_claimed").notNull(),
+  isUsdcRefunded: boolean("is_usdc_refunded").notNull(),
   approvedAmount: bigint("approved_amount", { mode: "bigint" }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
