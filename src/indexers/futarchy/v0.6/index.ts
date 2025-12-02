@@ -12,4 +12,6 @@ export const futarchyIndexer = createProgramIndexer({
   processEvent: processFutarchyEvent,
   processAccountUpdate: processFutarchyAccountUpdate,
   snapshotAccounts: snapshotFutarchyAccounts,
+  // Skip high-volume swap events in RPC fallback mode (indexed via GRPC account updates)
+  skipEvents: ["SpotSwap"],
 });

@@ -13,7 +13,7 @@ import * as anchor from "@coral-xyz/anchor";
 
 import { getAllPrograms, getProgramByOwner, getRegisteredProgramIds, ProgramIndexer } from "./registry";
 import { serializeForLogging } from "../indexers/shared/utils";
-import { subscribeAll } from "../txLogHandler";
+import { subscribeAll, setRpcConnection } from "../txLogHandler";
 import { log } from "../logger/logger";
 import { db, schema } from "@metadaoproject/indexer-db";
 import {
@@ -642,7 +642,12 @@ class SubscriptionManager {
     this.state = "RPC_ACTIVE";
     this.isGeyser = false;
 
-    // Use existing subscribeAll from txLogHandler
+    // Wire RPC connection to txLogHandler before subscribing
+    if (this.rpcConnection) {
+      setRpcConnection(this.rpcConnection);
+    }
+
+    // Subscribe to logs for all registered programs
     await subscribeAll();
 
     logger.info("RPC subscription active");

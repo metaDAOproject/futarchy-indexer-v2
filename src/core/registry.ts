@@ -30,6 +30,9 @@ export interface ProgramIndexer {
 
   // Optional backfill configuration
   backfillConfig?: BackfillConfig;
+
+  // Events to skip when processing via RPC logs (e.g., high-volume events like "SpotSwapEvent")
+  skipEvents?: string[];
 }
 
 const programs: Map<string, ProgramIndexer> = new Map();
@@ -82,13 +85,15 @@ export interface ProgramIndexerConfig {
   processAccountUpdate: (pubkey: string, accountType: string, accountData: any, slot: bigint) => Promise<void>;
   // Optional snapshot function for backfill
   snapshotAccounts?: () => Promise<void>;
+  // Events to skip when processing via RPC logs (e.g., high-volume events like "SpotSwapEvent")
+  skipEvents?: string[];
 }
 
 /**
  * Factory function to create and register a program indexer with minimal boilerplate
  */
 export function createProgramIndexer(config: ProgramIndexerConfig): ProgramIndexer {
-  const { programId, name, program, accountTypes, processEvent, processAccountUpdate, snapshotAccounts } = config;
+  const { programId, name, program, accountTypes, processEvent, processAccountUpdate, snapshotAccounts, skipEvents } = config;
 
   // Generate discriminators from account types
   const discriminators: Record<string, string> = {};
@@ -145,6 +150,8 @@ export function createProgramIndexer(config: ProgramIndexerConfig): ProgramIndex
       signatureAddresses: [programId],
       snapshotAccounts,
     },
+
+    skipEvents,
   };
 
   // Auto-register

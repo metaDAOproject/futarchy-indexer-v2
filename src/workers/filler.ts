@@ -1,7 +1,7 @@
 /**
- * Backfill Worker Entry Point
+ * Filler Worker Entry Point
  *
- * Handles cron-scheduled backfill and gap-fill operations.
+ * Handles cron-scheduled data filling operations.
  * This runs as a separate process from streaming to avoid blocking.
  *
  * Modes:
@@ -26,7 +26,7 @@ import "../indexers/futarchy/v0.6";
 import "../indexers/launchpad/v0.6";
 import "../indexers/conditional-vault/v0.4";
 
-const logger = log.child({ module: "backfill-worker" });
+const logger = log.child({ module: "filler-worker" });
 
 // Parse arguments: mode [fromSlot] [programName]
 const mode = process.argv[2] as 'backfill' | 'gapfill' | 'snapshot' | 'reindex';

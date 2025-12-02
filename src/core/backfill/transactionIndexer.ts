@@ -12,12 +12,14 @@ const logger = log.child({ module: "transactionIndexer" });
 /**
  * Fetch and index a transaction by signature
  * Returns event counts by event name
+ * @param filterToIndexer - If true, only process events for the provided indexer (used by RPC fallback to avoid duplicates)
  */
 export async function indexTransaction(
   signature: string,
   indexer: ProgramIndexer,
   connection: Connection,
-  skipSignatureInsert: boolean = false
+  skipSignatureInsert: boolean = false,
+  filterToIndexer: boolean = false
 ): Promise<Record<string, number>> {
   try {
     const transactionResponse = await connection.getTransaction(signature, {
@@ -55,8 +57,8 @@ export async function indexTransaction(
       return {};
     }
 
-    // Parse and process events
-    return await parseAndProcessEvents(transactionResponse, signature);
+    // Parse and process events (filter to specific indexer if requested)
+    return await parseAndProcessEvents(transactionResponse, signature, filterToIndexer ? indexer : undefined);
   } catch (error: any) {
     logger.error({
       err: error?.message || error?.toString() || JSON.stringify(error),
@@ -69,10 +71,12 @@ export async function indexTransaction(
 /**
  * Parse events from a transaction and process them through the appropriate indexer
  * Returns event counts by event name
+ * @param filterIndexer - If provided, only process events for this specific indexer (used by RPC fallback to avoid duplicates)
  */
 async function parseAndProcessEvents(
   transactionResponse: VersionedTransactionResponse,
-  signature: string
+  signature: string,
+  filterIndexer?: ProgramIndexer
 ): Promise<Record<string, number>> {
   const innerInstructions = transactionResponse.meta?.innerInstructions ?? [];
   const eventCounts: Record<string, number> = {};
@@ -100,6 +104,11 @@ async function parseAndProcessEvents(
         continue;
       }
 
+      // If filtering by specific indexer, skip events from other programs
+      if (filterIndexer && indexer.programId.toString() !== filterIndexer.programId.toString()) {
+        continue;
+      }
+
       // Try to decode as an event
       try {
         const ixData = anchor.utils.bytes.bs58.decode(ix.data);
@@ -123,8 +132,41 @@ async function parseAndProcessEvents(
 }
 
 /**
+ * Check if a transaction should be skipped based on its logs and the indexer's skipEvents config.
+ * Returns true if ALL meaningful events in the logs are in the skip list.
+ */
+function shouldSkipTransaction(logs: string[], skipEvents: string[]): boolean {
+  if (!skipEvents || skipEvents.length === 0) {
+    return false;
+  }
+
+  // Check if any log contains a skippable event
+  let hasSkippableEvent = false;
+  let hasNonSkippableEvent = false;
+
+  for (const log of logs) {
+    // Check if this log mentions any skip event
+    const isSkippable = skipEvents.some(skipEvent => log.includes(skipEvent));
+    if (isSkippable) {
+      hasSkippableEvent = true;
+    }
+
+    // Check if this log looks like a meaningful event (program log with event name pattern)
+    // Events typically appear as "Program log: <EventName>" or contain event identifiers
+    if (log.includes("Program log:") && !isSkippable) {
+      // This might be a non-skippable event
+      hasNonSkippableEvent = true;
+    }
+  }
+
+  // Skip only if we found skippable events AND no non-skippable events
+  return hasSkippableEvent && !hasNonSkippableEvent;
+}
+
+/**
  * Index a transaction from RPC logs (for real-time processing via RPC fallback)
  * This is used when Geyser is unavailable
+ * Only processes events for the specific indexer to avoid duplicates when multiple programs subscribe
  */
 export async function indexFromLogs(
   signature: string,
@@ -132,9 +174,16 @@ export async function indexFromLogs(
   indexer: ProgramIndexer,
   connection: Connection
 ): Promise<void> {
-  // For now, just delegate to the full transaction indexing
-  // In the future, we could optimize by filtering based on logs
-  await indexTransaction(signature, indexer, connection);
+  // Check if we should skip this transaction based on log contents
+  const skipEvents = indexer.skipEvents ?? [];
+  if (shouldSkipTransaction(logs, skipEvents)) {
+    logger.debug({ signature, program: indexer.name }, "Skipping transaction (only contains filtered events)");
+    return;
+  }
+
+  // filterToIndexer=true ensures we only process events for this specific indexer
+  // This prevents duplicates when a transaction touches multiple programs
+  await indexTransaction(signature, indexer, connection, false, true);
 }
 
 /**

@@ -338,7 +338,7 @@ function startStreamingWorker() {
 function startReindexWorker(args: string[]) {
   logger.info({ args }, "Starting reindex worker...");
 
-  const workerPath = path.join(__dirname, "workers", "backfill.ts");
+  const workerPath = path.join(__dirname, "workers", "filler.ts");
 
   reindexProcess = Bun.spawn(["bun", workerPath, "reindex", ...args], {
     env: process.env,
@@ -383,7 +383,7 @@ async function runBackfillWorker(
 
   logger.info(`Running ${mode} worker`);
 
-  const workerPath = path.join(__dirname, "workers", "backfill.ts");
+  const workerPath = path.join(__dirname, "workers", "filler.ts");
 
   try {
     const worker = Bun.spawn(["bun", workerPath, mode, ...extraArgs], {
