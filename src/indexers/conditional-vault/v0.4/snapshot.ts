@@ -32,16 +32,27 @@ async function snapshotQuestions(): Promise<void> {
     for (const question of questions) {
       try {
         let payoutDenominator = 0n;
-        if (question.account.payoutNumerators) {
-          for (const numerator of question.account.payoutNumerators) {
-            payoutDenominator += BigInt(numerator);
-          }
+        const payoutNumerators = question.account.payoutNumerators ?? [];
+        for (const numerator of payoutNumerators) {
+          payoutDenominator += BigInt(numerator);
         }
 
+        // Insert into v0_4_questions first (FK constraint)
+        await db.insert(schema.v0_4_questions).values({
+          questionAddr: question.publicKey.toString(),
+          oracleAddr: question.account.oracle.toString(),
+          isResolved: payoutDenominator > 0n,
+          numOutcomes: payoutNumerators.length || 2,
+          payoutNumerators,
+          payoutDenominator,
+          questionId: question.account.questionId ?? Buffer.alloc(32),
+        }).onConflictDoNothing();
+
+        // Also insert into v0_6_questions
         await db.insert(schema.v0_6_questions).values({
           questionAddr: question.publicKey.toString(),
           oracleAddr: question.account.oracle.toString(),
-          payoutNumerators: question.account.payoutNumerators ?? [],
+          payoutNumerators,
           payoutDenominator,
           questionId: question.account.questionId ?? Buffer.alloc(32),
         }).onConflictDoNothing();

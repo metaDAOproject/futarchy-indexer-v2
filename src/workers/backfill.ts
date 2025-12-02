@@ -46,12 +46,17 @@ async function main() {
 
   // Initialize backup gRPC provider for smart gap-fill
   let backupGrpcProvider: HeliusProvider | null = null;
-  if (process.env.BACKUP_GRPC_ENDPOINT && process.env.BACKUP_GRPC_API_KEY) {
+  if (process.env.BACKUP_GRPC_ENDPOINT && process.env.BACKUP_GRPC_TOKEN) {
     backupGrpcProvider = new HeliusProvider(
       process.env.BACKUP_GRPC_ENDPOINT,
-      process.env.BACKUP_GRPC_API_KEY
+      process.env.BACKUP_GRPC_TOKEN
     );
     logger.info("Backup gRPC provider initialized for gap-fill");
+  } else {
+    logger.warn({
+      hasEndpoint: !!process.env.BACKUP_GRPC_ENDPOINT,
+      hasToken: !!process.env.BACKUP_GRPC_TOKEN
+    }, "Backup gRPC provider NOT initialized - missing env vars");
   }
 
   if (mode === 'backfill') {
@@ -155,14 +160,16 @@ async function runGapFill(
       program: program.name,
       fromSlot: gap.fromSlot.toString(),
       toSlot: gap.toSlot.toString(),
-      gapSize: gap.gapSize.toString()
+      gapSize: gap.gapSize.toString(),
+      hasBackupProvider: !!backupGrpcProvider,
+      willUseGrpc: gap.gapSize <= 3000n && !!backupGrpcProvider
     }, "Gap detected");
 
     // Use backup gRPC replay for small gaps (≤3000 slots)
     if (gap.gapSize <= 3000n && backupGrpcProvider) {
-      logger.info({ program: program.name, gapSize: gap.gapSize.toString() }, "Using backup gRPC replay for gap-fill");
+      logger.info({ program: program.name, gapSize: gap.gapSize.toString() }, "Using laserstream replay for gap-fill");
       try {
-        await backupGrpcProvider.replayFromSlot(
+        const result = await backupGrpcProvider.replayFromSlot(
           [programId],
           gap.fromSlot,
           async (data) => {
@@ -170,9 +177,10 @@ async function runGapFill(
             if (data.transaction) {
               await processGrpcTransaction(data);
             }
-          }
+          },
+          gap.toSlot // Pass target slot so we know when to stop
         );
-        logger.info({ program: program.name }, "Backup gRPC replay gap-fill complete");
+        logger.info({ program: program.name, txCount: result.txCount }, "Laserstream replay gap-fill complete");
       } catch (error) {
         logger.error({ error, program: program.name }, "Backup gRPC replay failed, falling back to RPC crawl");
         // Fall through to RPC gap-fill

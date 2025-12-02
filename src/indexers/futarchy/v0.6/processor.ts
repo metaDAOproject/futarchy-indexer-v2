@@ -582,6 +582,11 @@ export async function processFutarchyAccountUpdate(
       await insertPricesFromAmmState(db, pubkey, accountData, slot);
       break;
     case 'proposal':
+      // Insert conditional tokens before upserting proposal (FK constraint)
+      await insertTokenIfNotExists(db, accountData.passBaseMint);
+      await insertTokenIfNotExists(db, accountData.passQuoteMint);
+      await insertTokenIfNotExists(db, accountData.failBaseMint);
+      await insertTokenIfNotExists(db, accountData.failQuoteMint);
       await upsertV06Proposal(accountData, new PublicKey(pubkey), slot, null, db);
       break;
     case 'stakeAccount':

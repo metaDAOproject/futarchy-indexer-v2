@@ -267,7 +267,8 @@ export async function insertTokenIfNotExists(db: DBConnection, mintAcct: PublicK
 }
 
 export async function doesQuestionExist(db: DBConnection, event: InitializeConditionalVaultEvent): Promise<boolean> {
-  const existingQuestion = await db.select().from(schema.v0_6_questions).where(eq(schema.v0_6_questions.questionAddr, event.question.toString())).limit(1);
+  // Check v0_4_questions since that's where the FK constraint points
+  const existingQuestion = await db.select().from(schema.v0_4_questions).where(eq(schema.v0_4_questions.questionAddr, event.question.toString())).limit(1);
   return existingQuestion.length > 0;
 }
 

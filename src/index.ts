@@ -24,7 +24,7 @@ const ENABLE_GAPFILL = true;
 // REINDEX_PROGRAM: Optional program name filter (undefined = all programs)
 // needs futarchy-v0.6 not the program address
 const ENABLE_REINDEXING = false;
-const REINDEX_FROM_SLOT: number | undefined = 383794540;
+const REINDEX_FROM_SLOT: number | undefined = 383871385;
 const REINDEX_PROGRAM: string | undefined = "futarchy-v0.6";
 
 const appStartTime = new Date();
@@ -69,6 +69,7 @@ let reindexProgress: {
   startedAt: string;
 } | null = null;
 let reindexLastUpdate: Date | null = null;
+let reindexCompleted: { at: Date; exitCode: number } | null = null;
 
 // Price handler state
 let priceHandlerLastRun: Date | null = null;
@@ -223,18 +224,22 @@ async function main() {
       </tr>`;
       html += '</tbody></table>';
 
-      // Reindex progress section
-      if (reindexProcess && !reindexProcess.killed) {
-        html += '<br><h2>Reindex Progress (Isolated)</h2>';
+      // Reindex progress section - show if running OR if we have progress data (completed)
+      if (reindexProgress || (reindexProcess && !reindexProcess.killed)) {
+        const isRunning = reindexProcess && !reindexProcess.killed;
+        const statusText = isRunning ? 'In Progress' : (reindexCompleted?.exitCode === 0 ? 'Completed' : 'Failed');
+        const statusColor = isRunning ? 'orange' : (reindexCompleted?.exitCode === 0 ? 'green' : 'red');
+
+        html += `<br><h2>Reindex Report <span style="color: ${statusColor}">(${statusText})</span></h2>`;
         html += '<table>';
-        html += '<thead><tr><th>Program</th><th>Current Slot</th><th>Tx Processed</th><th>Started</th><th>Last Update</th></tr></thead>';
+        html += '<thead><tr><th>Program</th><th>Current Slot</th><th>Tx Processed</th><th>Started</th><th>Completed</th></tr></thead>';
         html += '<tbody>';
         html += `<tr>
           <td>${reindexProgress?.program || 'Starting...'}</td>
           <td>${reindexProgress?.currentSlot || 'N/A'}</td>
           <td>${reindexProgress?.txProcessed || 0}</td>
           <td>${reindexProgress?.startedAt ? new Date(reindexProgress.startedAt).toLocaleString('en-US', {timeZone: 'America/Vancouver'}) : 'N/A'}</td>
-          <td>${reindexLastUpdate ? reindexLastUpdate.toLocaleString('en-US', {timeZone: 'America/Vancouver'}) : 'Never'}</td>
+          <td>${reindexCompleted ? reindexCompleted.at.toLocaleString('en-US', {timeZone: 'America/Vancouver'}) : (isRunning ? 'Running...' : 'N/A')}</td>
         </tr>`;
         html += '</tbody></table>';
 
@@ -356,10 +361,8 @@ function startReindexWorker(args: string[]) {
       logger.error(`Reindex worker exited with code ${exitCode}`);
     }
     // Don't restart - reindex is a one-time operation
-    // Clear progress after completion
-    setTimeout(() => {
-      reindexProgress = null;
-    }, 60000); // Keep progress visible for 1 minute after completion
+    // Keep progress visible with completion status
+    reindexCompleted = { at: new Date(), exitCode };
   });
 }
 

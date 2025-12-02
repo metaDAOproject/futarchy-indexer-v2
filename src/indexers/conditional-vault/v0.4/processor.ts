@@ -58,7 +58,23 @@ export async function processVaultEvent(
 
 async function handleInitializeQuestionEvent(event: InitializeQuestionEvent) {
   try {
-    const values: typeof schema.v0_6_questions.$inferInsert = {
+    // Insert into v0_4_questions first (FK constraint on v0_4_conditional_vaults)
+    const v4Values: typeof schema.v0_4_questions.$inferInsert = {
+      questionAddr: event.question.toString(),
+      oracleAddr: event.oracle.toString(),
+      isResolved: false,
+      numOutcomes: event.numOutcomes,
+      payoutNumerators: Array(event.numOutcomes).fill(0),
+      payoutDenominator: 0n,
+      questionId: event.questionId,
+    };
+
+    await db.insert(schema.v0_4_questions)
+      .values(v4Values)
+      .onConflictDoNothing();
+
+    // Also insert into v0_6_questions
+    const v6Values: typeof schema.v0_6_questions.$inferInsert = {
       questionAddr: event.question.toString(),
       oracleAddr: event.oracle.toString(),
       payoutNumerators: Array(event.numOutcomes).fill(0),
@@ -67,7 +83,7 @@ async function handleInitializeQuestionEvent(event: InitializeQuestionEvent) {
     };
 
     await db.insert(schema.v0_6_questions)
-      .values(values)
+      .values(v6Values)
       .onConflictDoNothing();
 
   } catch (error) {
