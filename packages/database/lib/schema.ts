@@ -1685,6 +1685,7 @@ export const v0_6_launches = pgTable("v0_6_launches", {
   performancePackageTokenAmount: bigint("performance_package_token_amount", { mode: "bigint" }).notNull(),
   monthsUntilInsidersCanUnlock: smallint("months_until_insiders_can_unlock").notNull(),
   pdaBump: smallint("pda_bump").notNull(),
+  teamAddress: pubkey("team_address"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .default(sql`now()`),
