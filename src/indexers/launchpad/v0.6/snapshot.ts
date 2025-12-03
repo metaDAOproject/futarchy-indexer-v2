@@ -18,7 +18,9 @@ export async function snapshotLaunchpadAccounts(): Promise<void> {
   await snapshotLaunches();
 
   // Phase 2: Snapshot all funding records
-  await snapshotFundingRecords();
+  // TODO: Write logic to determine the # of these accounts and batch the .all()
+  // call and do batch db inserts as well. for now, use reindexing to mass reindex a program
+  // await snapshotFundingRecords();
 
   logger.info("Launchpad account snapshot complete");
 }
@@ -71,6 +73,7 @@ async function snapshotLaunches(): Promise<void> {
           performancePackageTokenAmount: BigInt(launch.account.performancePackageTokenAmount?.toString() ?? '0'),
           monthsUntilInsidersCanUnlock: launch.account.monthsUntilInsidersCanUnlock ?? 0,
           pdaBump: launch.account.pdaBump,
+          teamAddress: launch.account.teamAddress?.toString() ?? null,
           updatedAtSlot: 0n,
         }).onConflictDoNothing();
       } catch (error) {
