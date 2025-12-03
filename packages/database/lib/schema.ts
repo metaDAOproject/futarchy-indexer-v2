@@ -448,6 +448,7 @@ export enum IndexerImplementation {
   // V2 Indexers (gRPC-based)
   FutarchyV06 = "FutarchyV06",
   LaunchpadV06 = "LaunchpadV06",
+  LaunchpadV07 = "LaunchpadV07",
   ConditionalVaultV04 = "ConditionalVaultV04",
 }
 export enum IndexerType {
