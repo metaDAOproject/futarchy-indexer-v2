@@ -1,5 +1,4 @@
 import { ConfirmedSignatureInfo, Connection, PublicKey, SignaturesForAddressOptions } from "@solana/web3.js";
-import { Helius } from "helius-sdk";
 import * as anchor from "@coral-xyz/anchor";
 import { db, schema, eq, asc, desc } from "@metadaoproject/indexer-db";
 import { log } from "../../logger/logger";
@@ -461,6 +460,7 @@ export async function reindexHistorical(
         program: indexer.name,
         currentSlot: BigInt(allSignatures[allSignatures.length - 1]?.slot ?? 0),
         txProcessed: processedCount,
+        eventCounts: totalEventCounts,
         startedAt
       });
     }
