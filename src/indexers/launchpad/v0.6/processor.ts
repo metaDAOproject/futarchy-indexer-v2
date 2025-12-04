@@ -52,7 +52,7 @@ export async function processLaunchpadEvent(
       await handleLaunchCloseEvent(event.data as LaunchCloseEvent, signature, transactionResponse);
       break;
     default:
-      logger.info("Unknown Launchpad event", event.name);
+      logger.info({ eventName: event.name }, "Unknown Launchpad event");
   }
 }
 

@@ -251,7 +251,7 @@ export async function insertTokenIfNotExists(db: DBConnection, mintAcct: PublicK
   try {
     const existingToken = await db.select().from(schema.tokens).where(eq(schema.tokens.mintAcct, mintAcct.toString())).limit(1);
     if (existingToken.length === 0) {
-      logger.info("Inserting token", mintAcct.toString());
+      logger.info({ mintAcct: mintAcct.toString() }, "Inserting token");
       const mint: token.Mint = await token.getMint(connection, mintAcct);
 
       // Use a transaction to ensure atomicity
@@ -410,7 +410,7 @@ export function extractReservesFromAmmState(postAmmState: any): { baseReserves: 
       quoteReserves = BigInt(postAmmState.state.futarchy?.spot?.quoteReserves?.toString() || "0");
     }
   } catch (error) {
-    logger.warn("Error extracting reserves from AMM state:", error);
+    logger.warn({ error }, "Error extracting reserves from AMM state");
   }
 
   return { baseReserves, quoteReserves };
@@ -537,7 +537,7 @@ async function getTokenDecimals(db: DBConnection, mintAcct: string): Promise<num
 
     return tokenRecord.length > 0 ? tokenRecord[0].decimals : 0;
   } catch (error) {
-    logger.warn(`Error fetching decimals for token ${mintAcct}:`, error);
+    logger.warn({ error, mintAcct }, "Error fetching decimals for token");
     return 0;
   }
 }
@@ -689,10 +689,11 @@ export async function insertPricesFromAmmState(
       logger.debug(`Inserted ${prices.length} prices from account update at slot ${prices[0].slot}`);
     }
   } catch (error) {
-    logger.error(`Error inserting prices from AMM state for DAO ${daoAddr}:`, {
+    logger.error({
       error: error instanceof Error ? error.message : error,
       stack: error instanceof Error ? error.stack : undefined,
-    });
+      daoAddr,
+    }, "Error inserting prices from AMM state for DAO");
   }
 }
 
@@ -733,7 +734,7 @@ export async function getVaultBalances(
 
     return { fromBalance, toBalance };
   } catch (error) {
-    logger.error("Error fetching vault balances:", error);
+    logger.error({ error }, "Error fetching vault balances");
     throw error;
   }
 }
@@ -790,12 +791,12 @@ export async function insertIfNotExistsMarkets(
     await db.insert(schema.futarchy_markets).values(markets).onConflictDoNothing();
     logger.debug(`Initialized markets for proposal ${proposalAddr}`);
   } catch (error) {
-    logger.error(`Error initializing markets for proposal ${proposalAddr}:`, {
+    logger.error({
       error: error instanceof Error ? error.message : error,
       stack: error instanceof Error ? error.stack : undefined,
       proposalAddr,
       daoAddr,
-    });
+    }, "Error initializing markets for proposal");
     throw error;
   }
 }
@@ -888,14 +889,14 @@ export async function insertIfNotExistsPrices(
       logger.debug(`Inserted ${prices.length} prices for slot ${prices[0].slot}`);
     }
   } catch (error) {
-    logger.error(`Error inserting V6 prices for proposal ${proposalAddr}:`, {
+    logger.error({
       error: error instanceof Error ? error.message : error,
       stack: error instanceof Error ? error.stack : undefined,
       proposalAddr,
       marketsRequested: marketsToUpdate,
       baseMint: event.postAmmState.baseMint.toString(),
       quoteMint: event.postAmmState.quoteMint.toString()
-    });
+    }, "Error inserting V6 prices for proposal");
     throw error;
   }
 }
@@ -975,6 +976,6 @@ export async function insertIfNotExistsTwaps(
       logger.debug(`Inserted ${twaps.length} TWAP records for proposal ${proposalAddr} at slot ${twaps[0].slot}`);
     }
   } catch (error) {
-    logger.error(`Error inserting V6 TWAPs for proposal ${proposalAddr}:`, error);
+    logger.error({ error, proposalAddr }, "Error inserting V6 TWAPs for proposal");
   }
 }

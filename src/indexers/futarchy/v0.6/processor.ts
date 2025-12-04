@@ -90,7 +90,7 @@ export async function processFutarchyEvent(
       await handleCollectFeesEvent(event.data as CollectFeesEvent, signature, transactionResponse);
       break;
     default:
-      logger.info("Unknown Futarchy event", event.name);
+      logger.info({ eventName: event.name }, "Unknown Futarchy event");
   }
 }
 
