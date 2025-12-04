@@ -1,4 +1,3 @@
-import "dotenv/config";
 import { log } from "./logger/logger";
 import { CronJob } from "cron";
 import http from "http";
