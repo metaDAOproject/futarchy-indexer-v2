@@ -1,36 +1,34 @@
 import { db, schema } from "@metadaoproject/indexer-db";
-import { launchpadClient } from "../../../connections/v0.6";
+import { launchpadV7Client } from "../../../connections/v0.7";
 import { insertTokenIfNotExists } from "../../shared/utils";
 import { V06LaunchState } from "@metadaoproject/indexer-db/lib/schema";
 import { log } from "../../../logger/logger";
 
-const logger = log.child({ module: "launchpad-v0.6-snapshot" });
+const logger = log.child({ module: "launchpad-v0.7-snapshot" });
 
 /**
- * Snapshot all launchpad accounts (launches, funding records)
+ * Snapshot all launchpad v0.7 accounts (launches, funding records)
  * This runs .all() for each account type and inserts with onConflictDoNothing()
  * to quickly get current state before signature crawl
  */
-export async function snapshotLaunchpadAccounts(): Promise<void> {
-  logger.info("Starting launchpad account snapshot");
+export async function snapshotLaunchpadV7Accounts(): Promise<void> {
+  logger.info("Starting launchpad v0.7 account snapshot");
 
   // Phase 1: Snapshot all launches
   await snapshotLaunches();
 
   // Phase 2: Snapshot all funding records
-  // TODO: Write logic to determine the # of these accounts and batch the .all()
-  // call and do batch db inserts as well. for now, use reindexing to mass reindex a program
-  // await snapshotFundingRecords();
+  await snapshotFundingRecords();
 
-  logger.info("Launchpad account snapshot complete");
+  logger.info("Launchpad v0.7 account snapshot complete");
 }
 
 async function snapshotLaunches(): Promise<void> {
-  logger.info("Snapshotting launches...");
+  logger.info("Snapshotting v0.7 launches...");
 
   try {
-    const launches = await launchpadClient.launchpad.account.launch.all();
-    logger.info({ count: launches.length }, "Fetched launches from chain");
+    const launches = await launchpadV7Client.launchpad.account.launch.all();
+    logger.info({ count: launches.length }, "Fetched v0.7 launches from chain");
 
     for (const launch of launches) {
       try {
@@ -53,8 +51,9 @@ async function snapshotLaunches(): Promise<void> {
           state = V06LaunchState.Initialized;
         }
 
-        await db.insert(schema.v0_6_launches).values({
+        await db.insert(schema.v0_7_launches).values({
           launchAddr: launch.publicKey.toString(),
+          pdaBump: launch.account.pdaBump,
           minimumRaiseAmount: BigInt(launch.account.minimumRaiseAmount.toString()),
           monthlySpendingLimitAmount: BigInt(launch.account.monthlySpendingLimitAmount.toString()),
           monthlySpendingLimitMembers: launch.account.monthlySpendingLimitMembers?.map(pk => pk.toString()) ?? [],
@@ -72,47 +71,51 @@ async function snapshotLaunches(): Promise<void> {
           performancePackageGrantee: launch.account.performancePackageGrantee?.toString() ?? "",
           performancePackageTokenAmount: BigInt(launch.account.performancePackageTokenAmount?.toString() ?? '0'),
           monthsUntilInsidersCanUnlock: launch.account.monthsUntilInsidersCanUnlock ?? 0,
-          pdaBump: launch.account.pdaBump,
-          teamAddress: launch.account.teamAddress?.toString() ?? null,
+          teamAddress: launch.account.teamAddress?.toString() ?? "",
+          totalApprovedAmount: BigInt(launch.account.totalApprovedAmount?.toString() ?? '0'),
+          additionalTokensAmount: BigInt(launch.account.additionalTokensAmount?.toString() ?? '0'),
+          additionalTokensRecipient: launch.account.additionalTokensRecipient?.toString() ?? null,
+          additionalTokensClaimed: launch.account.additionalTokensClaimed ?? false,
           updatedAtSlot: 0n,
         }).onConflictDoNothing();
       } catch (error) {
-        logger.warn({ error, launch: launch.publicKey.toString() }, "Error snapshotting launch");
+        logger.warn({ error, launch: launch.publicKey.toString() }, "Error snapshotting v0.7 launch");
       }
     }
 
-    logger.info({ count: launches.length }, "Launch snapshot complete");
+    logger.info({ count: launches.length }, "v0.7 Launch snapshot complete");
   } catch (error) {
-    logger.error({ error }, "Error fetching launches for snapshot");
+    logger.error({ error }, "Error fetching v0.7 launches for snapshot");
   }
 }
 
 async function snapshotFundingRecords(): Promise<void> {
-  logger.info("Snapshotting funding records...");
+  logger.info("Snapshotting v0.7 funding records...");
 
   try {
-    const fundingRecords = await launchpadClient.launchpad.account.fundingRecord.all();
-    logger.info({ count: fundingRecords.length }, "Fetched funding records from chain");
+    const fundingRecords = await launchpadV7Client.launchpad.account.fundingRecord.all();
+    logger.info({ count: fundingRecords.length }, "Fetched v0.7 funding records from chain");
 
     for (const record of fundingRecords) {
       try {
-        await db.insert(schema.v0_6_funding_records).values({
+        await db.insert(schema.v0_7_funding_records).values({
           fundingRecordAddr: record.publicKey.toString(),
+          pdaBump: record.account.pdaBump,
           launchAddr: record.account.launch.toString(),
           funderAddr: record.account.funder.toString(),
           committedAmount: BigInt(record.account.committedAmount.toString()),
-          seqNum: 0n, // FundingRecord doesn't have seqNum, will be updated by events
           isTokensClaimed: record.account.isTokensClaimed ?? false,
           isUsdcRefunded: record.account.isUsdcRefunded ?? false,
+          approvedAmount: BigInt(record.account.approvedAmount?.toString() ?? '0'),
           updatedAtSlot: 0n,
         }).onConflictDoNothing();
       } catch (error) {
-        logger.warn({ error, record: record.publicKey.toString() }, "Error snapshotting funding record");
+        logger.warn({ error, record: record.publicKey.toString() }, "Error snapshotting v0.7 funding record");
       }
     }
 
-    logger.info({ count: fundingRecords.length }, "Funding record snapshot complete");
+    logger.info({ count: fundingRecords.length }, "v0.7 Funding record snapshot complete");
   } catch (error) {
-    logger.error({ error }, "Error fetching funding records for snapshot");
+    logger.error({ error }, "Error fetching v0.7 funding records for snapshot");
   }
 }

@@ -11,6 +11,7 @@ import {
   UnstakeFromProposalEvent,
   LaunchProposalEvent,
   FinalizeProposalEvent,
+  CollectFeesEvent,
   getStakeAddr
 } from "@metadaoproject/futarchy/v0.6";
 import { schema, db, eq, sql, DBTransaction } from "@metadaoproject/indexer-db";
@@ -84,6 +85,9 @@ export async function processFutarchyEvent(
       break;
     case "WithdrawLiquidityEvent":
       await handleWithdrawLiquidityEvent(event.data as WithdrawLiquidityEvent, signature, transactionResponse);
+      break;
+    case "CollectFeesEvent":
+      await handleCollectFeesEvent(event.data as CollectFeesEvent, signature, transactionResponse);
       break;
     default:
       logger.info("Unknown Futarchy event", event.name);
@@ -565,6 +569,38 @@ async function handleWithdrawLiquidityEvent(event: WithdrawLiquidityEvent, signa
     });
   } catch (error) {
     logger.error(error, "Error in handleWithdrawLiquidityEvent");
+  }
+}
+
+async function handleCollectFeesEvent(event: CollectFeesEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+  try {
+    await db.transaction(async (trx: DBTransaction) => {
+      // Extract reserves from postAmmState
+      const { baseReserves, quoteReserves } = extractReservesFromAmmState(event.postAmmState);
+
+      // Insert fee collection record
+      await trx.insert(schema.v0_6_fee_collections).values({
+        daoAddr: event.dao.toString(),
+        signature: signature,
+        slot: BigInt(event.common.slot.toString()),
+        unixTimestamp: BigInt(event.common.unixTimestamp.toString()),
+        baseTokenAccount: event.baseTokenAccount.toString(),
+        quoteTokenAccount: event.quoteTokenAccount.toString(),
+        baseFeesCollected: BigInt(event.baseFeesCollected.toString()),
+        quoteFeesCollected: BigInt(event.quoteFeesCollected.toString()),
+      }).onConflictDoNothing();
+
+      // Update DAO AMM reserves after fee collection
+      await trx.update(schema.v0_6_daos).set({
+        ammBaseAmount: baseReserves,
+        ammQuoteAmount: quoteReserves,
+        seqNum: BigInt(event.common.daoSeqNum.toString()),
+      }).where(eq(schema.v0_6_daos.daoAddr, event.dao.toString()));
+
+      logger.info(`Fees collected for DAO ${event.dao.toString()}: ${event.baseFeesCollected.toString()} base, ${event.quoteFeesCollected.toString()} quote`);
+    });
+  } catch (error) {
+    logger.error(error, "Error in handleCollectFeesEvent");
   }
 }
 

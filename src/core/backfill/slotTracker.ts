@@ -15,6 +15,7 @@ const logger = log.child({ module: "slotTracker" });
 const INDEXER_IMPLEMENTATION_MAP: Record<string, IndexerImplementation> = {
   "futarchy-v0.6": IndexerImplementation.FutarchyV06,
   "launchpad-v0.6": IndexerImplementation.LaunchpadV06,
+  "launchpad-v0.7": IndexerImplementation.LaunchpadV07,
   "conditional-vault-v0.4": IndexerImplementation.ConditionalVaultV04,
 };
 
