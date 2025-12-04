@@ -103,7 +103,7 @@ class SubscriptionManager {
       GRPC_ENDPOINT: process.env.GRPC_ENDPOINT ? "SET" : "NOT SET",
       GRPC_TOKEN: process.env.GRPC_TOKEN ? "SET" : "NOT SET",
       BACKUP_GRPC_ENDPOINT: process.env.BACKUP_GRPC_ENDPOINT ? "SET" : "NOT SET",
-      BACKUP_GRPC_API_KEY: process.env.BACKUP_GRPC_API_KEY ? "SET" : "NOT SET",
+      BACKUP_GRPC_TOKEN: process.env.BACKUP_GRPC_TOKEN ? "SET" : "NOT SET",
       enableBackfill: this.enableBackfill,
       autoGapFill: this.autoGapFill,
     }, "Environment check");
@@ -115,10 +115,10 @@ class SubscriptionManager {
     }
 
     // Initialize backup gRPC provider if configured
-    if (process.env.BACKUP_GRPC_ENDPOINT && process.env.BACKUP_GRPC_API_KEY) {
+    if (process.env.BACKUP_GRPC_ENDPOINT && process.env.BACKUP_GRPC_TOKEN) {
       this.heliusProvider = new HeliusProvider(
         process.env.BACKUP_GRPC_ENDPOINT,
-        process.env.BACKUP_GRPC_API_KEY
+        process.env.BACKUP_GRPC_TOKEN
       );
       logger.info("Backup gRPC provider initialized");
     }

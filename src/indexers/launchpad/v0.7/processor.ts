@@ -16,7 +16,6 @@ import type { VersionedTransactionResponse } from "@solana/web3.js";
 import { V06LaunchState } from "@metadaoproject/indexer-db/lib/schema";
 import * as token from "@solana/spl-token";
 import { launchpadV7Client } from "../../../connections/v0.7";
-// Import futarchy client from v0.6 since futarchy stays on v0.6
 import { futarchyClient } from "../../../connections/v0.6";
 import { insertTokenIfNotExists } from "../../shared/utils";
 import { log } from "../../../logger/logger";
