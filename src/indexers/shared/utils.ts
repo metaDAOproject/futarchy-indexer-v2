@@ -1,15 +1,66 @@
+/**
+ * Shared utilities for all indexers
+ */
+
 import { schema, db, eq, and, or, DBTransaction } from "@metadaoproject/indexer-db";
 import { PublicKey } from "@solana/web3.js";
 import { PricesType, TwapRecord, V06LaunchState, V06ProposalState, MarketType } from "@metadaoproject/indexer-db/lib/schema";
 import * as token from "@solana/spl-token";
-import { connection, conditionalVaultClient } from "./connection";
-import { log } from "../logger/logger";
+import { connection, conditionalVaultClient } from "../../connections/v0.6";
+import { log } from "../../logger/logger";
 import { BN } from "@coral-xyz/anchor";
-import { InitializeConditionalVaultEvent, FinalizeProposalEvent, LaunchProposalEvent, ProvideLiquidityEvent, WithdrawLiquidityEvent, ConditionalSwapEvent, SpotSwapEvent, InitializeProposalEvent , SplitTokensEvent, Dao, AmmMath } from "@metadaoproject/futarchy/v0.6";
+import { InitializeConditionalVaultEvent, FinalizeProposalEvent, LaunchProposalEvent, ProvideLiquidityEvent, WithdrawLiquidityEvent, ConditionalSwapEvent, SpotSwapEvent, InitializeProposalEvent, SplitTokensEvent, Dao, AmmMath } from "@metadaoproject/futarchy/v0.6";
 
 const logger = log.child({
-  module: "v6_utils"
+  module: "shared-utils"
 });
+
+/**
+ * Serialize objects for readable logging - handles BN, PublicKey, BigInt
+ */
+export function serializeForLogging(obj: any, depth = 0, maxDepth = 10): any {
+  // Handle null/undefined
+  if (obj === null || obj === undefined) return obj;
+
+  // Handle BigNumber (BN) - check BEFORE depth limit
+  if (obj && obj.constructor && obj.constructor.name === 'BN') {
+    return obj.toString();
+  }
+
+  // Handle PublicKey - check BEFORE depth limit
+  if (obj && typeof obj === 'object' && obj._bn && typeof obj.toBase58 === 'function') {
+    return obj.toBase58();
+  }
+
+  // Handle bigint
+  if (typeof obj === 'bigint') {
+    return obj.toString();
+  }
+
+  // NOW check depth limit (after handling BN/PublicKey)
+  if (depth > maxDepth) return '[Max Depth Reached]';
+
+  // Handle arrays
+  if (Array.isArray(obj)) {
+    return obj.map(item => serializeForLogging(item, depth + 1, maxDepth));
+  }
+
+  // Handle objects
+  if (typeof obj === 'object') {
+    const serialized: any = {};
+    for (const key in obj) {
+      if (obj.hasOwnProperty(key)) {
+        serialized[key] = serializeForLogging(obj[key], depth + 1, maxDepth);
+      }
+    }
+    return serialized;
+  }
+
+  // Return primitives as-is
+  return obj;
+}
+
+// ==================== V0.6 Database Utilities ====================
 
 export type Market = {
   marketAcct: string;
@@ -48,12 +99,12 @@ export async function getActiveProposalForDao(db: DBConnection, daoAddr: string)
       eq(schema.v0_6_proposals.state, V06ProposalState.Pending)
     ))
     .limit(1);
-  
+
   if (activeProposal.length > 0) {
-    logger.info(`Found active proposal ${activeProposal[0].proposalAddr} for DAO ${daoAddr}`);
+    logger.debug(`Found active proposal ${activeProposal[0].proposalAddr} for DAO ${daoAddr}`);
     return activeProposal[0].proposalAddr;
   }
-  
+
   return null;
 }
 
@@ -71,13 +122,13 @@ export async function updateOrInsertTokenBalance(
     await insertTokenIfNotExists(db, mintAccount);
 
     const timestamp = blockTime ? new Date(blockTime * 1000) : new Date();
-    
+
     // Check if the token account exists
     const existingAccount = await db.select()
       .from(schema.tokenAccts)
       .where(eq(schema.tokenAccts.tokenAcct, tokenAccount.toString()))
       .limit(1);
-    
+
     if (existingAccount.length === 0) {
       // Insert new token account
       await db.insert(schema.tokenAccts).values({
@@ -87,20 +138,20 @@ export async function updateOrInsertTokenBalance(
         amount: amount,
         updatedAt: timestamp
       }).onConflictDoNothing();
-      
+
       logger.info(`Inserted token account ${tokenAccount.toString()} with balance ${amount.toString()}`);
       return true;
     } else {
       // Update existing token account
       const previousAmount = existingAccount[0].amount;
-      
+
       await db.update(schema.tokenAccts)
         .set({
           amount: amount,
           updatedAt: timestamp
         })
         .where(eq(schema.tokenAccts.tokenAcct, tokenAccount.toString()));
-      
+
       // Only log if balance actually changed
       if (BigInt(previousAmount.toString()) !== amount) {
         logger.info(`Updated token balance for ${tokenAccount.toString()} from ${previousAmount.toString()} to ${amount.toString()}`);
@@ -108,7 +159,7 @@ export async function updateOrInsertTokenBalance(
       }
       return false;
     }
-    
+
   } catch (error) {
     logger.error(error, `Error updating token balance for ${tokenAccount.toString()}`);
     return false;
@@ -128,57 +179,65 @@ export async function updateConditionalTokenBalancesForVaultEvents(
 ): Promise<void> {
   try {
     const vaultAccount = await conditionalVaultClient.fetchVault(vault);
-    
+
     if (!vaultAccount) {
       logger.warn(`Vault ${vault.toString()} not found, skipping balance updates`);
       return;
     }
-    
+
     // Use vault data to determine number of outcomes, or default to 2 for binary markets
-    const numOutcomes = vaultAccount.conditionalTokenMints?.length ?? 2; // NOTE: should be fine but check this if redeem event is wonky
-    
+    const numOutcomes = vaultAccount.conditionalTokenMints?.length ?? 2;
+
     // Get the conditional token mints
     const conditionalTokenMints = conditionalVaultClient.getConditionalTokenMints(vault, numOutcomes);
-    
-    for (const mint of conditionalTokenMints) {
-      await insertTokenIfNotExists(db, mint);
-    }
-    
+
+    // Batch insert tokens
+    await insertTokensIfNotExist(db, conditionalTokenMints);
+
     // Get the user's token accounts for these mints
     const { userConditionalAccounts } = conditionalVaultClient.getConditionalTokenAccountsAndInstructions(
       vault,
       numOutcomes,
       user
     );
-    
+
+    // Fetch all token account info in parallel
+    const accountInfoResults = await Promise.all(
+      userConditionalAccounts.map(async (userTokenAccount) => {
+        try {
+          return await token.getAccount(connection, userTokenAccount);
+        } catch (error) {
+          logger.warn(`Error fetching token account ${userTokenAccount.toString()}: ${error}`);
+          return null;
+        }
+      })
+    );
+
     // Update each conditional token account
     let hasChanges = false;
     for (let i = 0; i < userConditionalAccounts.length; i++) {
+      const accountInfo = accountInfoResults[i];
+      if (!accountInfo) continue;
+
       const userTokenAccount = userConditionalAccounts[i];
-      const tokenMint = conditionalTokenMints[i]; 
-      
-      try {
-        const accountInfo = await token.getAccount(connection, userTokenAccount);
-        
-        const changed = await updateOrInsertTokenBalance(
-          db,
-          userTokenAccount,
-          BigInt(accountInfo.amount.toString()),
-          tokenMint,
-          user,
-          signature,
-          slot,
-          blockTime
-        );
-        
-        if (changed) {
-          hasChanges = true;
-        }
-      } catch (error) {
-        logger.warn(`Error updating token account ${userTokenAccount.toString()}: ${error}`);
+      const tokenMint = conditionalTokenMints[i];
+
+      const changed = await updateOrInsertTokenBalance(
+        db,
+        userTokenAccount,
+        BigInt(accountInfo.amount.toString()),
+        tokenMint,
+        user,
+        signature,
+        slot,
+        blockTime
+      );
+
+      if (changed) {
+        hasChanges = true;
       }
     }
-    
+
     // Only log if there were actual balance changes
     if (hasChanges) {
       logger.info(`Updated conditional token balances for user ${user.toString()} in vault ${vault.toString()}`);
@@ -194,7 +253,7 @@ export async function insertTokenIfNotExists(db: DBConnection, mintAcct: PublicK
     if (existingToken.length === 0) {
       logger.info("Inserting token", mintAcct.toString());
       const mint: token.Mint = await token.getMint(connection, mintAcct);
-      
+
       // Use a transaction to ensure atomicity
       await db.transaction(async (trx: DBTransaction) => {
         const existingTokenInTrx = await trx.select().from(schema.tokens).where(eq(schema.tokens.mintAcct, mintAcct.toString())).limit(1);
@@ -215,8 +274,60 @@ export async function insertTokenIfNotExists(db: DBConnection, mintAcct: PublicK
   }
 }
 
+/**
+ * Batch insert tokens if they don't exist
+ * More efficient than calling insertTokenIfNotExists in a loop
+ */
+export async function insertTokensIfNotExist(db: DBConnection, mintAccts: PublicKey[]) {
+  if (mintAccts.length === 0) return;
+
+  try {
+    // Get all existing tokens in a single query
+    const mintStrings = mintAccts.map(m => m.toString());
+    const existingTokens = await db.select({ mintAcct: schema.tokens.mintAcct })
+      .from(schema.tokens)
+      .where(or(...mintStrings.map(m => eq(schema.tokens.mintAcct, m))));
+
+    const existingMints = new Set(existingTokens.map(t => t.mintAcct));
+    const missingMints = mintAccts.filter(m => !existingMints.has(m.toString()));
+
+    if (missingMints.length === 0) return;
+
+    logger.info(`Batch inserting ${missingMints.length} tokens`);
+
+    // Fetch all mint metadata in parallel
+    const mintMetadata = await Promise.all(
+      missingMints.map(async (mintAcct) => {
+        try {
+          const mint = await token.getMint(connection, mintAcct);
+          return {
+            mintAcct: mintAcct.toString(),
+            symbol: mintAcct.toString().slice(0, 3),
+            name: mintAcct.toString().slice(0, 3),
+            decimals: mint.decimals,
+            supply: mint.supply.toString(),
+            updatedAt: new Date(),
+          };
+        } catch (e) {
+          logger.warn(e, `Error fetching mint ${mintAcct.toString()}`);
+          return null;
+        }
+      })
+    );
+
+    // Filter out nulls and batch insert
+    const validMints = mintMetadata.filter(m => m !== null);
+    if (validMints.length > 0) {
+      await db.insert(schema.tokens).values(validMints).onConflictDoNothing();
+    }
+  } catch (e) {
+    logger.warn(e, "Error batch inserting tokens");
+  }
+}
+
 export async function doesQuestionExist(db: DBConnection, event: InitializeConditionalVaultEvent): Promise<boolean> {
-  const existingQuestion = await db.select().from(schema.v0_5_questions).where(eq(schema.v0_5_questions.questionAddr, event.question.toString())).limit(1);
+  // Check v0_4_questions since that's where the FK constraint points
+  const existingQuestion = await db.select().from(schema.v0_4_questions).where(eq(schema.v0_4_questions.questionAddr, event.question.toString())).limit(1);
   return existingQuestion.length > 0;
 }
 
@@ -277,8 +388,8 @@ export async function insertConditionalVault(db: DBConnection, event: Initialize
       underlyingMintAcct: event.underlyingTokenMint.toString(),
       underlyingTokenAcct: event.vaultUnderlyingTokenAccount.toString(),
       pdaBump: event.pdaBump,
-        latestVaultSeqNumApplied: 0n,
-      }).onConflictDoNothing();
+      latestVaultSeqNumApplied: 0n,
+    }).onConflictDoNothing();
   } catch (error) {
     logger.warn(error, "Error inserting the conditional vault");
   }
@@ -287,7 +398,7 @@ export async function insertConditionalVault(db: DBConnection, event: Initialize
 export function extractReservesFromAmmState(postAmmState: any): { baseReserves: bigint; quoteReserves: bigint } {
   let baseReserves = 0n;
   let quoteReserves = 0n;
-  
+
   try {
     if ('spot' in postAmmState.state) {
       // AMM in Spot mode - direct access to spot pool
@@ -300,13 +411,12 @@ export function extractReservesFromAmmState(postAmmState: any): { baseReserves: 
     }
   } catch (error) {
     logger.warn("Error extracting reserves from AMM state:", error);
-    // Return zeros as fallback
   }
-  
+
   return { baseReserves, quoteReserves };
 }
 
-export async function upsertV06Proposal(proposalAcct: any, proposalAddr: PublicKey, slot: bigint, blockTime: Date | null, trx: DBTransaction) {
+export async function upsertV06Proposal(proposalAcct: any, proposalAddr: PublicKey, slot: bigint, blockTime: Date | null, trx: DBConnection) {
   try {
     // Check if proposal already exists
     const existingProposal = await trx.select()
@@ -354,7 +464,7 @@ export async function upsertV06Proposal(proposalAcct: any, proposalAddr: PublicK
   }
 }
 
-export async function upsertV06Dao(daoAcct: any, daoAddr: PublicKey, trx: DBTransaction) {
+export async function upsertV06Dao(daoAcct: any, daoAddr: PublicKey, trx: DBConnection, slot?: bigint) {
   try {
     // Check if DAO already exists
     const existingDao = await trx.select()
@@ -368,7 +478,7 @@ export async function upsertV06Dao(daoAcct: any, daoAddr: PublicKey, trx: DBTran
       daoAddr,
       true
     );
-    
+
     const ammQuoteVaultAta = token.getAssociatedTokenAddressSync(
       daoAcct.quoteMint,
       daoAddr,
@@ -377,7 +487,6 @@ export async function upsertV06Dao(daoAcct: any, daoAddr: PublicKey, trx: DBTran
 
     const daoValues: typeof schema.v0_6_daos.$inferInsert = {
       daoAddr: daoAddr.toString(),
-      // ammAddr: daoAddr.toString(), 
       nonce: BigInt(daoAcct.nonce.toString()),
       daoCreator: daoAcct.daoCreator.toString(),
       pdaBump: daoAcct.pdaBump,
@@ -396,7 +505,6 @@ export async function upsertV06Dao(daoAcct: any, daoAddr: PublicKey, trx: DBTran
       baseToStake: BigInt(daoAcct.baseToStake.toString()),
       seqNum: BigInt(daoAcct.seqNum.toString()),
       initialSpendingLimit: daoAcct.initialSpendingLimit ? JSON.stringify(daoAcct.initialSpendingLimit) : null,
-      // AMM fields from embedded AMM
       ammBaseAmount: BigInt(daoAcct.amm.state.spot?.baseReserves?.toString() || "0"),
       ammQuoteAmount: BigInt(daoAcct.amm.state.spot?.quoteReserves?.toString() || "0"),
       ammVaultAtaBase: ammBaseVaultAta.toString(),
@@ -404,11 +512,9 @@ export async function upsertV06Dao(daoAcct: any, daoAddr: PublicKey, trx: DBTran
     };
 
     if (existingDao.length === 0) {
-      // Insert new DAO
       await trx.insert(schema.v0_6_daos).values(daoValues);
       logger.info(`Inserted DAO ${daoAddr.toString()}`);
     } else {
-      // Update existing DAO
       await trx.update(schema.v0_6_daos)
         .set(daoValues)
         .where(eq(schema.v0_6_daos.daoAddr, daoAddr.toString()));
@@ -419,127 +525,20 @@ export async function upsertV06Dao(daoAcct: any, daoAddr: PublicKey, trx: DBTran
   }
 }
 
-export async function getVaultBalances(
-    vaultAddress: PublicKey,
-    mintFrom: PublicKey,
-    mintTo: PublicKey
-  ): Promise<{ fromBalance: BN; toBalance: BN }> {
-    try {
-      // Derive the vault ATAs
-      const vaultFromAta = token.getAssociatedTokenAddressSync(
-        mintFrom,
-        vaultAddress,
-        true
-      );
-      
-      const vaultToAta = token.getAssociatedTokenAddressSync(
-        mintTo,
-        vaultAddress,
-        true
-      );
-
-      // Fetch the token account balances
-      let fromBalance = new BN(0);
-      let toBalance = new BN(0);
-
-      try {
-        const fromAccount = await token.getAccount(connection, vaultFromAta);
-        fromBalance = new BN(fromAccount.amount.toString());
-      } catch (error) {
-        console.log(`Vault from ATA doesn't exist or has 0 balance`);
-      }
-
-      try {
-        const toAccount = await token.getAccount(connection, vaultToAta);
-        toBalance = new BN(toAccount.amount.toString());
-      } catch (error) {
-        console.log(`Vault to ATA doesn't exist or has 0 balance`);
-      }
-
-      return { fromBalance, toBalance };
-    } catch (error) {
-      console.error("Error fetching vault balances:", error);
-      throw error;
-    }
-  }
-
 /**
  * Gets token decimals from the database
  */
 async function getTokenDecimals(db: DBConnection, mintAcct: string): Promise<number> {
   try {
-    const token = await db.select({ decimals: schema.tokens.decimals })
+    const tokenRecord = await db.select({ decimals: schema.tokens.decimals })
       .from(schema.tokens)
       .where(eq(schema.tokens.mintAcct, mintAcct))
       .limit(1);
-    
-    return token.length > 0 ? token[0].decimals : 0;
+
+    return tokenRecord.length > 0 ? tokenRecord[0].decimals : 0;
   } catch (error) {
     logger.warn(`Error fetching decimals for token ${mintAcct}:`, error);
     return 0;
-  }
-}
-
-export async function insertIfNotExistsMarkets(
-  db: DBConnection,
-  proposalAddr: string,
-  daoAddr: string,
-  marketTypes: string[] = ['spot', 'pass', 'fail']
-): Promise<void> {
-  try {
-    // Get DAO to find base and quote mints for spot market
-    const dao = await db.select()
-      .from(schema.v0_6_daos)
-      .where(eq(schema.v0_6_daos.daoAddr, daoAddr))
-      .limit(1);
-    
-    if (dao.length === 0) {
-      logger.warn(`DAO ${daoAddr} not found when initializing markets`);
-      return;
-    }
-
-    const markets = [];
-    
-    if (marketTypes.includes('spot')) {
-      markets.push({
-        daoAddr,
-        proposalAddr: null, 
-        marketType: 'spot',
-        baseMint: dao[0].baseMintAcct,
-        quoteMint: dao[0].quoteMintAcct,
-      });
-    }
-    
-    if (marketTypes.includes('pass')) {
-      markets.push({
-        daoAddr,
-        proposalAddr,
-        marketType: 'pass',
-        baseMint: dao[0].baseMintAcct,
-        quoteMint: dao[0].quoteMintAcct,
-      });
-    }
-    
-    if (marketTypes.includes('fail')) {
-      markets.push({
-        daoAddr,
-        proposalAddr,
-        marketType: 'fail',
-        baseMint: dao[0].baseMintAcct,
-        quoteMint: dao[0].quoteMintAcct,
-      });
-    }
-
-    await db.insert(schema.futarchy_markets).values(markets).onConflictDoNothing();
-    logger.info(`Initialized markets for proposal ${proposalAddr}`);
-  } catch (error) {
-    logger.error(`Error initializing markets for proposal ${proposalAddr}:`, {
-      error: error instanceof Error ? error.message : error,
-      stack: error instanceof Error ? error.stack : undefined,
-      proposalAddr,
-      daoAddr,
-    });
-    throw error;
   }
 }
 
@@ -558,20 +557,247 @@ function calculatePriceWithDecimals(
 
   const PRICE_SCALE = new BN(10).pow(new BN(12)); // 1e12
   const decimalDiff = baseDecimals - quoteDecimals;
-  
+
   let adjustedQuoteReserves = quoteReserves;
   if (decimalDiff !== 0) {
     const adjustment = new BN(10).pow(new BN(Math.abs(decimalDiff)));
     if (decimalDiff > 0) {
-      // Base has more decimals, scale quote up
       adjustedQuoteReserves = quoteReserves.mul(adjustment);
     } else {
-      // Quote has more decimals, scale quote down
       adjustedQuoteReserves = quoteReserves.div(adjustment);
     }
   }
-  
+
   return adjustedQuoteReserves.mul(PRICE_SCALE).div(baseReserves);
+}
+
+/**
+ * Extract and insert prices from DAO account's AMM state
+ */
+export async function insertPricesFromAmmState(
+  db: DBConnection,
+  daoAddr: string,
+  dao: any,
+  slot: bigint
+): Promise<void> {
+  try {
+    const ammState = dao.amm?.state;
+    if (!ammState) {
+      logger.debug(`No AMM state in DAO ${daoAddr}`);
+      return;
+    }
+
+    const baseMint = dao.baseMint?.toString();
+    const quoteMint = dao.quoteMint?.toString();
+
+    if (!baseMint || !quoteMint) {
+      logger.debug(`Missing base or quote mint in DAO ${daoAddr}`);
+      return;
+    }
+
+    const [baseDecimals, quoteDecimals] = await Promise.all([
+      getTokenDecimals(db, baseMint),
+      getTokenDecimals(db, quoteMint)
+    ]);
+
+    const prices = [];
+
+    if ('spot' in ammState && ammState.spot) {
+      const spotPool = ammState.spot;
+      const baseReserves = new BN(spotPool.baseReserves?.toString() || "0");
+      const quoteReserves = new BN(spotPool.quoteReserves?.toString() || "0");
+
+      if (!baseReserves.isZero() && !quoteReserves.isZero()) {
+        const spotPrice = calculatePriceWithDecimals(quoteReserves, baseReserves, quoteDecimals, baseDecimals);
+
+        prices.push({
+          daoAddr,
+          proposalAddr: null,
+          marketType: 'spot',
+          slot: slot.toString(),
+          baseReserves: baseReserves.toString(),
+          quoteReserves: quoteReserves.toString(),
+          price: spotPrice.toString()
+        });
+      }
+    }
+
+    if ('futarchy' in ammState && ammState.futarchy) {
+      const futarchyState = ammState.futarchy;
+      const activeProposalAddr = await getActiveProposalForDao(db, daoAddr);
+
+      if (futarchyState.spot) {
+        const baseReserves = new BN(futarchyState.spot.baseReserves?.toString() || "0");
+        const quoteReserves = new BN(futarchyState.spot.quoteReserves?.toString() || "0");
+
+        if (!baseReserves.isZero() && !quoteReserves.isZero()) {
+          const spotPrice = calculatePriceWithDecimals(quoteReserves, baseReserves, quoteDecimals, baseDecimals);
+
+          prices.push({
+            daoAddr,
+            proposalAddr: null,
+            marketType: 'spot',
+            slot: slot.toString(),
+            baseReserves: baseReserves.toString(),
+            quoteReserves: quoteReserves.toString(),
+            price: spotPrice.toString()
+          });
+        }
+      }
+
+      if (futarchyState.pass && activeProposalAddr) {
+        const baseReserves = new BN(futarchyState.pass.baseReserves?.toString() || "0");
+        const quoteReserves = new BN(futarchyState.pass.quoteReserves?.toString() || "0");
+
+        if (!baseReserves.isZero() && !quoteReserves.isZero()) {
+          const passPrice = calculatePriceWithDecimals(quoteReserves, baseReserves, quoteDecimals, baseDecimals);
+
+          prices.push({
+            daoAddr,
+            proposalAddr: activeProposalAddr,
+            marketType: 'pass',
+            slot: slot.toString(),
+            baseReserves: baseReserves.toString(),
+            quoteReserves: quoteReserves.toString(),
+            price: passPrice.toString()
+          });
+        }
+      }
+
+      if (futarchyState.fail && activeProposalAddr) {
+        const baseReserves = new BN(futarchyState.fail.baseReserves?.toString() || "0");
+        const quoteReserves = new BN(futarchyState.fail.quoteReserves?.toString() || "0");
+
+        if (!baseReserves.isZero() && !quoteReserves.isZero()) {
+          const failPrice = calculatePriceWithDecimals(quoteReserves, baseReserves, quoteDecimals, baseDecimals);
+
+          prices.push({
+            daoAddr,
+            proposalAddr: activeProposalAddr,
+            marketType: 'fail',
+            slot: slot.toString(),
+            baseReserves: baseReserves.toString(),
+            quoteReserves: quoteReserves.toString(),
+            price: failPrice.toString()
+          });
+        }
+      }
+    }
+
+    if (prices.length > 0) {
+      await db.insert(schema.futarchy_prices).values(prices).onConflictDoNothing();
+      logger.debug(`Inserted ${prices.length} prices from account update at slot ${prices[0].slot}`);
+    }
+  } catch (error) {
+    logger.error(`Error inserting prices from AMM state for DAO ${daoAddr}:`, {
+      error: error instanceof Error ? error.message : error,
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+  }
+}
+
+export async function getVaultBalances(
+  vaultAddress: PublicKey,
+  mintFrom: PublicKey,
+  mintTo: PublicKey
+): Promise<{ fromBalance: BN; toBalance: BN }> {
+  try {
+    const vaultFromAta = token.getAssociatedTokenAddressSync(
+      mintFrom,
+      vaultAddress,
+      true
+    );
+
+    const vaultToAta = token.getAssociatedTokenAddressSync(
+      mintTo,
+      vaultAddress,
+      true
+    );
+
+    let fromBalance = new BN(0);
+    let toBalance = new BN(0);
+
+    try {
+      const fromAccount = await token.getAccount(connection, vaultFromAta);
+      fromBalance = new BN(fromAccount.amount.toString());
+    } catch (error) {
+      logger.debug(`Vault from ATA doesn't exist or has 0 balance`);
+    }
+
+    try {
+      const toAccount = await token.getAccount(connection, vaultToAta);
+      toBalance = new BN(toAccount.amount.toString());
+    } catch (error) {
+      logger.debug(`Vault to ATA doesn't exist or has 0 balance`);
+    }
+
+    return { fromBalance, toBalance };
+  } catch (error) {
+    logger.error("Error fetching vault balances:", error);
+    throw error;
+  }
+}
+
+export async function insertIfNotExistsMarkets(
+  db: DBConnection,
+  proposalAddr: string,
+  daoAddr: string,
+  marketTypes: string[] = ['spot', 'pass', 'fail']
+): Promise<void> {
+  try {
+    const dao = await db.select()
+      .from(schema.v0_6_daos)
+      .where(eq(schema.v0_6_daos.daoAddr, daoAddr))
+      .limit(1);
+
+    if (dao.length === 0) {
+      logger.warn(`DAO ${daoAddr} not found when initializing markets`);
+      return;
+    }
+
+    const markets = [];
+
+    if (marketTypes.includes('spot')) {
+      markets.push({
+        daoAddr,
+        proposalAddr: null,
+        marketType: 'spot',
+        baseMint: dao[0].baseMintAcct,
+        quoteMint: dao[0].quoteMintAcct,
+      });
+    }
+
+    if (marketTypes.includes('pass')) {
+      markets.push({
+        daoAddr,
+        proposalAddr,
+        marketType: 'pass',
+        baseMint: dao[0].baseMintAcct,
+        quoteMint: dao[0].quoteMintAcct,
+      });
+    }
+
+    if (marketTypes.includes('fail')) {
+      markets.push({
+        daoAddr,
+        proposalAddr,
+        marketType: 'fail',
+        baseMint: dao[0].baseMintAcct,
+        quoteMint: dao[0].quoteMintAcct,
+      });
+    }
+
+    await db.insert(schema.futarchy_markets).values(markets).onConflictDoNothing();
+    logger.debug(`Initialized markets for proposal ${proposalAddr}`);
+  } catch (error) {
+    logger.error(`Error initializing markets for proposal ${proposalAddr}:`, {
+      error: error instanceof Error ? error.message : error,
+      stack: error instanceof Error ? error.stack : undefined,
+      proposalAddr,
+      daoAddr,
+    });
+    throw error;
+  }
 }
 
 /**
@@ -585,37 +811,31 @@ export async function insertIfNotExistsPrices(
   marketsToUpdate?: ('spot' | 'pass' | 'fail')[]
 ): Promise<void> {
   try {
-    // TODO: we are currently not handling spot prices and will need to hand efor when postAmmState is spot
     const futarchyState = event.postAmmState?.state?.futarchy as FutarchyState;
     if (!futarchyState) {
       logger.debug('AMM not in futarchy mode, skipping V6 price insertion');
       return;
     }
 
-    // Get token decimals
     const baseMint = event.postAmmState.baseMint.toString();
     const quoteMint = event.postAmmState.quoteMint.toString();
-    
+
     const [baseDecimals, quoteDecimals] = await Promise.all([
       getTokenDecimals(db, baseMint),
       getTokenDecimals(db, quoteMint)
     ]);
 
-    // Default to all markets if not specified
     const markets = marketsToUpdate || ['spot', 'pass', 'fail'];
-    
-    // Extract pool states and calculate prices
     const prices = [];
 
-    // Spot pool
     if (markets.includes('spot') && futarchyState.spot) {
       const spotBaseReserves = new BN(futarchyState.spot.baseReserves.toString());
       const spotQuoteReserves = new BN(futarchyState.spot.quoteReserves.toString());
       const spotPrice = calculatePriceWithDecimals(spotQuoteReserves, spotBaseReserves, quoteDecimals, baseDecimals);
-      
+
       prices.push({
         daoAddr: event.dao.toString(),
-        proposalAddr: null, // Spot market has no proposal
+        proposalAddr: null,
         marketType: 'spot',
         slot: slot.toString(),
         baseReserves: spotBaseReserves.toString(),
@@ -624,12 +844,11 @@ export async function insertIfNotExistsPrices(
       });
     }
 
-    // Pass pool
     if (markets.includes('pass') && futarchyState.pass) {
       const passBaseReserves = new BN(futarchyState.pass.baseReserves.toString());
       const passQuoteReserves = new BN(futarchyState.pass.quoteReserves.toString());
       const passPrice = calculatePriceWithDecimals(passQuoteReserves, passBaseReserves, quoteDecimals, baseDecimals);
-      
+
       prices.push({
         daoAddr: event.dao.toString(),
         proposalAddr,
@@ -641,12 +860,11 @@ export async function insertIfNotExistsPrices(
       });
     }
 
-    // Fail pool
     if (markets.includes('fail') && futarchyState.fail) {
       const failBaseReserves = new BN(futarchyState.fail.baseReserves.toString());
       const failQuoteReserves = new BN(futarchyState.fail.quoteReserves.toString());
       const failPrice = calculatePriceWithDecimals(failQuoteReserves, failBaseReserves, quoteDecimals, baseDecimals);
-      
+
       prices.push({
         daoAddr: event.dao.toString(),
         proposalAddr,
@@ -658,12 +876,9 @@ export async function insertIfNotExistsPrices(
       });
     }
 
-    // Insert prices only if they don't already exist for this slot
     if (prices.length > 0) {
-      for (const price of prices) {
-        await db.insert(schema.futarchy_prices).values(price).onConflictDoNothing();
-        logger.debug(`Inserted ${price.marketType} price for slot ${price.slot}`);
-      }
+      await db.insert(schema.futarchy_prices).values(prices).onConflictDoNothing();
+      logger.debug(`Inserted ${prices.length} prices for slot ${prices[0].slot}`);
     }
   } catch (error) {
     logger.error(`Error inserting V6 prices for proposal ${proposalAddr}:`, {
@@ -696,19 +911,18 @@ export async function insertIfNotExistsTwaps(
 
     const twaps = [];
 
-    // Process pass pool TWAP
     if (futarchyState.pass?.oracle) {
       const oracle = futarchyState.pass.oracle;
       const aggregator = new BN(oracle.aggregator.toString());
       const lastUpdatedTimestamp = new BN(oracle.lastUpdatedTimestamp.toString());
       const createdAtTimestamp = new BN(oracle.createdAtTimestamp.toString());
       const startDelaySeconds = new BN(oracle.startDelaySeconds.toString());
-      
+
       const timeElapsed = lastUpdatedTimestamp.sub(createdAtTimestamp.add(startDelaySeconds));
-      
+
       if (!aggregator.isZero() && timeElapsed.gt(new BN(0))) {
         const twapValue = aggregator.div(timeElapsed);
-        
+
         twaps.push({
           daoAddr: event.dao.toString(),
           proposalAddr,
@@ -723,19 +937,18 @@ export async function insertIfNotExistsTwaps(
       }
     }
 
-    // Process fail pool TWAP
     if (futarchyState.fail?.oracle) {
       const oracle = futarchyState.fail.oracle;
       const aggregator = new BN(oracle.aggregator.toString());
       const lastUpdatedTimestamp = new BN(oracle.lastUpdatedTimestamp.toString());
       const createdAtTimestamp = new BN(oracle.createdAtTimestamp.toString());
       const startDelaySeconds = new BN(oracle.startDelaySeconds.toString());
-      
+
       const timeElapsed = lastUpdatedTimestamp.sub(createdAtTimestamp.add(startDelaySeconds));
-      
+
       if (!aggregator.isZero() && timeElapsed.gt(new BN(0))) {
         const twapValue = aggregator.div(timeElapsed);
-        
+
         twaps.push({
           daoAddr: event.dao.toString(),
           proposalAddr,
@@ -750,14 +963,11 @@ export async function insertIfNotExistsTwaps(
       }
     }
 
-    // Insert TWAP records with existence checks
     if (twaps.length > 0) {
-      for (const twap of twaps) {
-        await db.insert(schema.futarchy_twaps).values(twap);
-        logger.debug(`Inserted TWAP record for ${twap.marketType} market, proposal ${proposalAddr} at slot ${twap.slot}`);
-      }
+      await db.insert(schema.futarchy_twaps).values(twaps).onConflictDoNothing();
+      logger.debug(`Inserted ${twaps.length} TWAP records for proposal ${proposalAddr} at slot ${twaps[0].slot}`);
     }
   } catch (error) {
     logger.error(`Error inserting V6 TWAPs for proposal ${proposalAddr}:`, error);
   }
-} 
+}

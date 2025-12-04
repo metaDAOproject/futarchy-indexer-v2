@@ -3,9 +3,8 @@ import {
   PricesRecord,
   PricesType,
 } from "@metadaoproject/indexer-db/lib/schema";
-import { connection } from "./v6_indexer/connection";
+import { connection } from "./connections/v0.6";
 import { log } from "./logger/logger";
-import env from "dotenv";
 
 const logger = log.child({
   module: "priceHandler",
@@ -26,7 +25,7 @@ export async function updatePrices(): Promise<{
 }> {
   try {
     const startTime = performance.now();
-    
+
     const v6Query = db.$with("v6").as(
       db
         .select({
@@ -44,7 +43,7 @@ export async function updatePrices(): Promise<{
     );
 
     const results = await db
-      .with(v6Query) 
+      .with(v6Query)
       .select()
       .from(v6Query)
       .execute();
@@ -60,7 +59,7 @@ export async function updatePrices(): Promise<{
     const headers: HeadersInit = {
       "Content-Type": "application/json",
     };
-    
+
     if (apiKey && apiKey.length > 0) {
       headers["x-api-key"] = apiKey;
     }
@@ -68,7 +67,7 @@ export async function updatePrices(): Promise<{
     const response = await fetch(url, {
       headers: headers,
     });
-    
+
     if (!response.ok) {
       logger.error(`Error fetching prices: ${response.statusText}`);
       return {
@@ -82,7 +81,7 @@ export async function updatePrices(): Promise<{
 
     let missingPrices = [];
     let errors = [];
-    
+
     for (const [tokenId, priceData] of Object.entries(data)) {
       if (priceData) {
         const pd = priceData as PriceData;
@@ -112,19 +111,24 @@ export async function updatePrices(): Promise<{
     }
 
     const endTime = performance.now();
-    const missingPricesMessage = missingPrices.filter(Boolean).join("<br>");
-    const message = `Updated prices in ${
-      (endTime - startTime) / 1000
-    }s missing <br>${missingPricesMessage}`;
-    logger.info(message);
-    let errorMessage = "";
-    for (const error of errors) {
-      errorMessage += error + "<br>";
+    const duration = ((endTime - startTime) / 1000).toFixed(2);
+    const updatedCount = Object.keys(data).length - missingPrices.length;
+
+    logger.info({
+      duration: `${duration}s`,
+      updated: updatedCount,
+      missing: missingPrices.length
+    }, "Jupiter price update complete");
+
+    if (missingPrices.length > 0) {
+      logger.warn({ tokens: missingPrices }, "Missing price data for tokens");
     }
 
+    const message = `Updated ${updatedCount} prices in ${duration}s${missingPrices.length > 0 ? `, ${missingPrices.length} missing` : ''}`;
+
     return {
-      message: message,
-      error: errorMessage ? new Error(errorMessage) : undefined,
+      message,
+      error: errors.length > 0 ? new Error(errors.join(", ")) : undefined,
     };
   } catch (error) {
     logger.error(`Error updating prices: ${error}`);

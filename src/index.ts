@@ -1,22 +1,37 @@
+import "dotenv/config";
 import { log } from "./logger/logger";
-import { mapLogHealth, subscribeAll } from "./txLogHandler";
-import { gapFill as v6_gapfill, backfill as v6_backfill } from "./v6_indexer/filler";
-import { captureTokenBalanceSnapshotV6 } from "./v6_indexer/snapshot";
 import { CronJob } from "cron";
 import http from "http";
+import path from "path";
 import { updatePrices } from "./priceHandler";
-import { completeStakingDataRecovery } from "./v6_indexer/backfillStakingRecords";
-import { backfillDaos } from "./v6_indexer/backfillDaos";
+
+// DRY_RUN: Log events without writing to DB (for testing)
+// set to false to write to DB
+const DRY_RUN = false;
+
+// Enable cron-scheduled backfill and gap-fill
+const ENABLE_BACKFILL = true;
+const ENABLE_GAPFILL = true;
+
+// Reindex: Reset tracking and re-process all historical signatures
+// Set to true to run reindex on startup (will reset progress and crawl from beginning)
+// REINDEX_FROM_SLOT: Optional starting slot (undefined = full history)
+// ** IMPORTANT ** if the program has been upgraded, namely event data won't match what is in the imported clients from the sdk,
+// then this reindexer will silently fail and hang on that event when reindexing. we would have to manually import all verisons of the idl
+// and have some range of slots per idl to properly do a historical decode.
+// an easy way to determine what viable slot you can crawl forward from is to go any explorer and plug in the program 
+// addy, they have a Last Deployed Slot that tracks most recent upgrades.
+// REINDEX_PROGRAM: Optional program name filter (undefined = all programs)
+// needs futarchy-v0.6 not the program address
+const ENABLE_REINDEXING = false;
+const REINDEX_FROM_SLOT: number | undefined = 383871385;
+const REINDEX_PROGRAM: string | undefined = "futarchy-v0.6";
 
 const appStartTime = new Date();
 
 const logger = log.child({
   module: "main"
 });
-
-interface cronFunction {
-  (): Promise<{message:string, error: Error | undefined}>;
-}
 
 class CronRunResult {
   name: string;
@@ -37,46 +52,97 @@ class CronRunResult {
 }
 const healthMap = new Map<string, CronRunResult>();
 
-let subscriptionProcess: any = null;
-let subscriptionHealth: any = null;
-let subscriptionLastHealthUpdate: Date | null = null;
+let streamingProcess: any = null;
+let streamingHealth: any = null;
+let streamingLastHealthUpdate: Date | null = null;
+
+let backfillRunning = false;
+let gapfillRunning = false;
+
+// Reindex state (isolated from normal indexing)
+let reindexProcess: any = null;
+let reindexProgress: {
+  program: string;
+  currentSlot: string;
+  txProcessed: number;
+  eventCounts: Record<string, number>;
+  startedAt: string;
+} | null = null;
+let reindexLastUpdate: Date | null = null;
+let reindexCompleted: { at: Date; exitCode: number } | null = null;
+
+// Price handler state
+let priceHandlerLastRun: Date | null = null;
+let priceHandlerLastResult: { message: string; error: Error | undefined } | null = null;
 
 async function main() {
-  // if (process.env.BACKFILL_STAKING_RECORDS === 'true') {
-  //   await completeStakingDataRecovery();
-  //   return;
-  // }
-  // if (process.env.BACKFILL_DAOS === 'true') {
-  //   await backfillDaos();
-  //   return;
-  // }
-  if (process.env.IS_SUBSCRIPTION_WORKER === 'true') {
-    await runSubscriptionWorker();
-    return; 
+  logger.info("Starting main process");
+  logger.info({
+    DRY_RUN,
+    ENABLE_BACKFILL,
+    ENABLE_GAPFILL,
+    ENABLE_REINDEXING,
+    REINDEX_FROM_SLOT,
+    REINDEX_PROGRAM,
+  }, "Configuration");
+
+  // Spawn reindex worker in background (isolated from streaming)
+  if (ENABLE_REINDEXING && !DRY_RUN) {
+    logger.info({
+      fromSlot: REINDEX_FROM_SLOT ?? "beginning",
+      program: REINDEX_PROGRAM ?? "all"
+    }, "Spawning reindex worker (runs in background, isolated from streaming)");
+
+    // Build args for reindex worker
+    const reindexArgs: string[] = [];
+    if (REINDEX_FROM_SLOT !== undefined) {
+      reindexArgs.push(REINDEX_FROM_SLOT.toString());
+    }
+    if (REINDEX_PROGRAM !== undefined) {
+      reindexArgs.push(REINDEX_PROGRAM);
+    }
+
+    startReindexWorker(reindexArgs);
   }
 
-  startSubscriptionWorker();
+  // Spawn streaming worker
+  startStreamingWorker();
 
-  //  time for v6
-  // let start = new Date();
-  // let res = await backfillV6()
-  // let end = new Date();
-  // let { message, error } = res;
-  // healthMap.set("backfillV6", new CronRunResult("backfillV6", message, error, start, end, error ? 1 : 0));
+  // Cron-scheduled backfill (historical signature crawl) - runs hourly
+  if (ENABLE_BACKFILL && !DRY_RUN) {
+    logger.info("Starting backfill cron (hourly)");
+    const backfillCron = new CronJob("0 * * * *", async () => {
+      if (backfillRunning) {
+        logger.warn("Backfill already running, skipping");
+        return;
+      }
+      await runBackfillWorker('backfill');
+    });
+    backfillCron.start();
+  }
 
-  // now lets frontfill v6
-  // let start = new Date();
-  // let res  = await gapFillV6()
-  // let end = new Date();
-  // let { message, error } = res;
-  // healthMap.set("gapFillV6", new CronRunResult("gapFillV6", message, error, start, end, error ? 1 : 0));
+  // Cron-scheduled gap-fill (catch missed slots) - runs every 10 minutes
+  if (ENABLE_GAPFILL && !DRY_RUN) {
+    logger.info("Starting gapfill cron (every 10 min)");
+    const gapfillCron = new CronJob("*/10 * * * *", async () => {
+      if (gapfillRunning) {
+        logger.warn("Gapfill already running, skipping");
+        return;
+      }
+      await runBackfillWorker('gapfill');
+    });
+    gapfillCron.start();
+  }
 
-  //lets start our crons now
-  //startCron("backfillV6", "*/20 * * * *", backfillV6);
-  // startCron("gapFillV6", "*/16 * * * *", gapFillV6);
-  startCron("priceHandler", "* * * * *", priceHandler);
-  //startCron("snapshotV6", "*/20 * * * *", snapshotV6);
+  // Jupiter USD price updates - runs every minute
+  const pricesCron = new CronJob("* * * * *", async () => {
+    priceHandlerLastResult = await updatePrices();
+    priceHandlerLastRun = new Date();
+  });
+  pricesCron.start();
+  logger.info("Started Jupiter price updates cron (every minute)");
 
+  // Health server
   const server = http.createServer((req: any, res: any) => {
     const reqUrl = new URL(req.url, `http://${req.headers.host}`).pathname;
     let hasError = false;
@@ -86,23 +152,15 @@ async function main() {
         break;
       }
     }
-    
-    let subscriptionHasError = false;
-    if (!subscriptionProcess || subscriptionProcess.killed) {
-      subscriptionHasError = true;
-    }
-    if (subscriptionHealth) {
-      for (const log of subscriptionHealth) {
-        if (log.error) {
-          subscriptionHasError = true;
-          break;
-        }
-      }
+
+    let streamingHasError = false;
+    if (!streamingProcess || streamingProcess.killed) {
+      streamingHasError = true;
     }
 
     if (reqUrl == "/") {
       let bgColor = "#357e4e";
-      if (hasError || subscriptionHasError) {
+      if (hasError || streamingHasError) {
         bgColor = "#ff0000";
       }
       res.writeHead(200, { 'Content-Type': 'text/html' });
@@ -114,47 +172,106 @@ async function main() {
         th,td {padding:12px 15px;}
         tr:nth-child(even) {background-color: #f3f3f3;}
         tr{border-bottom:1px solid #dddddd;}
-       
       </style>`;
       let html = "<html><body>";
       html += style;
       html += `<h1>MetaDao Indexer Health Check - Started at ${appStartTime.toLocaleString('en-US', {timeZone: 'America/Vancouver'})} </h1>`;
-      
-      html += '<br><h2>Subscription Worker Status</h2>';
+      if (DRY_RUN) {
+        html += `<h2 style="color: orange;">DRY-RUN MODE ACTIVE - No database writes</h2>`;
+      }
+
+      html += '<br><h2>Streaming Worker Status</h2>';
       html += '<table>';
-      html += '<thead><tr><th>PID</th><th>Status</th><th>Last Health Update</th></tr></thead>';
+      html += '<thead><tr><th>PID</th><th>State</th><th>Provider</th><th>Events</th><th>Account Updates</th><th>Reconnects</th><th>Last Update</th></tr></thead>';
       html += '<tbody>';
       html += `<tr>
-        <td>${subscriptionProcess?.pid || 'N/A'}</td>
-        <td>${subscriptionProcess && !subscriptionProcess.killed ? 'Running' : 'Not Running'}</td>
-        <td>${subscriptionLastHealthUpdate ? subscriptionLastHealthUpdate.toLocaleString('en-US', {timeZone: 'America/Vancouver'}) : 'Never'}</td>
+        <td>${streamingProcess?.pid || 'N/A'}</td>
+        <td>${streamingHealth?.state || 'Unknown'}</td>
+        <td>${streamingHealth?.geyserConnected ? 'gRPC' : 'RPC'}</td>
+        <td>${streamingHealth?.eventsProcessed || 0}</td>
+        <td>${streamingHealth?.accountUpdatesProcessed || 0}</td>
+        <td>${streamingHealth?.reconnectAttempts || 0}</td>
+        <td>${streamingLastHealthUpdate ? streamingLastHealthUpdate.toLocaleString('en-US', {timeZone: 'America/Vancouver'}) : 'Never'}</td>
       </tr>`;
       html += '</tbody></table>';
-      
-      html += '<br><br><h2>Backfill Health</h2>';
-      html += "<table>";
-      html += "<thead><tr><th>Name</th><th>Message</th><th>Error</th><th>Previous Errors</th><th>Start</th><th>End</th></tr></thead>";
-      html += "<tbody>";
-      for (const result of healthMap.values()) {
-        html += `<tr>
-                <td >${result.name}</td>
-                <td >${result.message}</td>
-                <td >${result.error?.message || 'None'}</td>
-                <td >${result.totalPreviousErrors}</td>
-                <td >${result.start.toLocaleString('en-US', {timeZone: 'America/Vancouver'})}</td>
-                <td >${result.end.toLocaleString('en-US', {timeZone: 'America/Vancouver'})}</td>
-              </tr>`;
-      }
-      html += "</tbody>";
-      html += "</table>";
 
-      if (subscriptionHealth && subscriptionHealth.length > 0) {
-        html += "<br><br><h2>Subscription Worker Logs</h2>";
+      html += '<br><h3>Configuration</h3>';
+      html += '<ul>';
+      html += `<li>Dry Run: ${DRY_RUN ? 'Enabled' : 'Disabled'}</li>`;
+      html += `<li>Backfill Cron: ${ENABLE_BACKFILL ? 'Hourly (0 * * * *)' : 'Disabled'}</li>`;
+      html += `<li>Gap-Fill Cron: ${ENABLE_GAPFILL ? 'Every 10 min (*/10 * * * *)' : 'Disabled'}</li>`;
+      html += `<li>Helius Backup: ${process.env.BACKUP_GRPC_ENDPOINT ? 'Configured' : 'Not configured'}</li>`;
+      html += '</ul>';
+
+      html += '<br><h3>Worker Status</h3>';
+      html += '<ul>';
+      html += `<li>Backfill Running: ${backfillRunning ? 'Yes' : 'No'}</li>`;
+      html += `<li>Gap-Fill Running: ${gapfillRunning ? 'Yes' : 'No'}</li>`;
+      html += `<li>Reindex Running: ${reindexProcess && !reindexProcess.killed ? 'Yes' : 'No'}</li>`;
+      html += '</ul>';
+
+      // Jupiter price handler status
+      html += '<br><h3>Jupiter Price Updates</h3>';
+      html += '<table>';
+      html += '<thead><tr><th>Last Run</th><th>Status</th><th>Message</th></tr></thead>';
+      html += '<tbody>';
+      const priceStatus = priceHandlerLastResult?.error ? 'Error' : 'OK';
+      const priceStatusColor = priceHandlerLastResult?.error ? 'red' : 'green';
+      html += `<tr>
+        <td>${priceHandlerLastRun ? priceHandlerLastRun.toLocaleString('en-US', {timeZone: 'America/Vancouver'}) : 'Never'}</td>
+        <td style="color: ${priceStatusColor}">${priceStatus}</td>
+        <td>${priceHandlerLastResult?.message || 'Waiting for first run...'}</td>
+      </tr>`;
+      html += '</tbody></table>';
+
+      // Reindex progress section - show if running OR if we have progress data (completed)
+      if (reindexProgress || (reindexProcess && !reindexProcess.killed)) {
+        const isRunning = reindexProcess && !reindexProcess.killed;
+        const statusText = isRunning ? 'In Progress' : (reindexCompleted?.exitCode === 0 ? 'Completed' : 'Failed');
+        const statusColor = isRunning ? 'orange' : (reindexCompleted?.exitCode === 0 ? 'green' : 'red');
+
+        html += `<br><h2>Reindex Report <span style="color: ${statusColor}">(${statusText})</span></h2>`;
+        html += '<table>';
+        html += '<thead><tr><th>Program</th><th>Current Slot</th><th>Tx Processed</th><th>Started</th><th>Completed</th></tr></thead>';
+        html += '<tbody>';
+        html += `<tr>
+          <td>${reindexProgress?.program || 'Starting...'}</td>
+          <td>${reindexProgress?.currentSlot || 'N/A'}</td>
+          <td>${reindexProgress?.txProcessed || 0}</td>
+          <td>${reindexProgress?.startedAt ? new Date(reindexProgress.startedAt).toLocaleString('en-US', {timeZone: 'America/Vancouver'}) : 'N/A'}</td>
+          <td>${reindexCompleted ? reindexCompleted.at.toLocaleString('en-US', {timeZone: 'America/Vancouver'}) : (isRunning ? 'Running...' : 'N/A')}</td>
+        </tr>`;
+        html += '</tbody></table>';
+
+        // Event counts table
+        if (reindexProgress?.eventCounts && Object.keys(reindexProgress.eventCounts).length > 0) {
+          html += '<br><h3>Events Reindexed</h3>';
+          html += '<table>';
+          html += '<thead><tr><th>Event Name</th><th>Count</th></tr></thead>';
+          html += '<tbody>';
+          for (const [eventName, count] of Object.entries(reindexProgress.eventCounts).sort((a, b) => b[1] - a[1])) {
+            html += `<tr><td>${eventName}</td><td>${count}</td></tr>`;
+          }
+          html += '</tbody></table>';
+        }
+
+        html += '<p><em>Note: Reindex is isolated and does not affect the indexers table or streaming.</em></p>';
+      }
+
+      if (healthMap.size > 0) {
+        html += '<br><br><h2>Cron Health</h2>';
         html += "<table>";
-        html += "<thead><tr><th>Name</th><th>Error</th><th>Last Message</th></tr></thead>";
+        html += "<thead><tr><th>Name</th><th>Message</th><th>Error</th><th>Previous Errors</th><th>Start</th><th>End</th></tr></thead>";
         html += "<tbody>";
-        for (const result of subscriptionHealth) {
-          html += `<tr><td>${result.name}</td><td>${result.error || 'None'}</td><td>${result.lastRun}</td></tr>`;
+        for (const result of healthMap.values()) {
+          html += `<tr>
+                  <td >${result.name}</td>
+                  <td >${result.message}</td>
+                  <td >${result.error?.message || 'None'}</td>
+                  <td >${result.totalPreviousErrors}</td>
+                  <td >${result.start.toLocaleString('en-US', {timeZone: 'America/Vancouver'})}</td>
+                  <td >${result.end.toLocaleString('en-US', {timeZone: 'America/Vancouver'})}</td>
+                </tr>`;
         }
         html += "</tbody>";
         html += "</table>";
@@ -164,7 +281,7 @@ async function main() {
       res.end(html);
     }
     else if (reqUrl == "/health") {
-      if (hasError || subscriptionHasError) {
+      if (hasError || streamingHasError) {
         res.writeHead(500, { 'Content-Type': 'text/plain' });
         res.end("Error");
       } else {
@@ -176,119 +293,157 @@ async function main() {
 
   let port = process.env.PORT ?? 8080;
   server.listen(port, () => {
-    logger.info(`Server running at ${port}`);
+    logger.info(`Health server running at ${port}`);
   });
 }
 
-async function runSubscriptionWorker() {
-  logger.info("Starting as subscription worker process");
-  
-  subscribeAll();
-  
-  setInterval(() => {
-    const health = Array.from(mapLogHealth.entries()).map(([name, result]) => ({
-      name,
-      error: result.error?.message || null,
-      lastRun: result.lastRun.toLocaleString('en-US', {timeZone: 'America/Vancouver'})
-    }));
-    
-    if (process.send) {
-      process.send({
-        type: 'health',
-        data: health
-      });
-    }
-  }, 5000);
-  
-  const server = http.createServer((req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('Subscription worker running');
-  });
-  
-  const port = process.env.SUBSCRIPTION_PORT || 8082;
-  server.listen(port, () => {
-    logger.info(`Subscription worker health server on port ${port}`);
-  });
-  
-  process.on('SIGTERM', () => {
-    logger.info('Subscription worker shutting down...');
-    process.exit(0);
-  });
-}
+/**
+ * Start the streaming worker process
+ */
+function startStreamingWorker() {
+  logger.info("Starting streaming worker...");
 
-function startSubscriptionWorker() {
-  logger.info("Starting subscription worker process...");
-  
-  subscriptionProcess = Bun.spawn(["bun", __filename], {
-    env: { 
+  const workerPath = path.join(__dirname, "workers", "streaming.ts");
+
+  streamingProcess = Bun.spawn(["bun", workerPath], {
+    env: {
       ...process.env,
-      IS_SUBSCRIPTION_WORKER: 'true'
+      DRY_RUN: DRY_RUN ? 'true' : 'false',
     },
     stdout: "inherit",
     stderr: "inherit",
     ipc(message: any) {
       if (message.type === 'health') {
-        subscriptionHealth = message.data;
-        subscriptionLastHealthUpdate = new Date();
+        streamingHealth = message.data;
+        streamingLastHealthUpdate = new Date();
       }
     }
   });
-  
-  logger.info(`Subscription worker started with PID: ${subscriptionProcess.pid}`);
-  
-  subscriptionProcess.exited.then((exitCode: number) => {  
-    logger.error(`Subscription worker exited with code ${exitCode}`);
-    
+
+  logger.info(`Streaming worker started with PID: ${streamingProcess.pid}`);
+
+  streamingProcess.exited.then((exitCode: number) => {
+    logger.error(`Streaming worker exited with code ${exitCode}`);
+
     setTimeout(() => {
-      logger.info('Restarting subscription worker...');
-      startSubscriptionWorker();
+      logger.info('Restarting streaming worker...');
+      startStreamingWorker();
     }, 5000);
   });
 }
 
+/**
+ * Start the reindex worker process (runs in background, isolated from streaming)
+ */
+function startReindexWorker(args: string[]) {
+  logger.info({ args }, "Starting reindex worker...");
+
+  const workerPath = path.join(__dirname, "workers", "filler.ts");
+
+  reindexProcess = Bun.spawn(["bun", workerPath, "reindex", ...args], {
+    env: process.env,
+    stdout: "inherit",
+    stderr: "inherit",
+    ipc(message: any) {
+      if (message.type === 'reindex-progress') {
+        reindexProgress = message.data;
+        reindexLastUpdate = new Date();
+      }
+    }
+  });
+
+  logger.info(`Reindex worker started with PID: ${reindexProcess.pid}`);
+
+  reindexProcess.exited.then((exitCode: number) => {
+    if (exitCode === 0) {
+      logger.info("Reindex worker completed successfully");
+    } else {
+      logger.error(`Reindex worker exited with code ${exitCode}`);
+    }
+    // Don't restart - reindex is a one-time operation
+    // Keep progress visible with completion status
+    reindexCompleted = { at: new Date(), exitCode };
+  });
+}
+
+/**
+ * Run a backfill worker process
+ */
+async function runBackfillWorker(
+  mode: 'backfill' | 'gapfill' | 'snapshot' | 'reindex',
+  extraArgs: string[] = []
+): Promise<void> {
+  const start = new Date();
+
+  if (mode === 'backfill') {
+    backfillRunning = true;
+  } else if (mode === 'gapfill') {
+    gapfillRunning = true;
+  }
+
+  logger.info(`Running ${mode} worker`);
+
+  const workerPath = path.join(__dirname, "workers", "filler.ts");
+
+  try {
+    const worker = Bun.spawn(["bun", workerPath, mode, ...extraArgs], {
+      env: process.env,
+      stdout: "inherit",
+      stderr: "inherit",
+    });
+
+    const exitCode = await worker.exited;
+    const end = new Date();
+
+    if (exitCode === 0) {
+      healthMap.set(mode, new CronRunResult(
+        mode,
+        `Completed successfully`,
+        undefined,
+        start,
+        end,
+        healthMap.get(mode)?.totalPreviousErrors || 0
+      ));
+      logger.info({ exitCode }, `${mode} worker completed`);
+    } else {
+      const error = new Error(`Worker exited with code ${exitCode}`);
+      healthMap.set(mode, new CronRunResult(
+        mode,
+        `Failed with exit code ${exitCode}`,
+        error,
+        start,
+        end,
+        (healthMap.get(mode)?.totalPreviousErrors || 0) + 1
+      ));
+      logger.error({ mode, exitCode }, "Backfill worker failed");
+    }
+  } catch (error) {
+    const end = new Date();
+    healthMap.set(mode, new CronRunResult(
+      mode,
+      `Error: ${error}`,
+      error as Error,
+      start,
+      end,
+      (healthMap.get(mode)?.totalPreviousErrors || 0) + 1
+    ));
+    logger.error({ mode, error }, "Backfill worker error");
+  } finally {
+    if (mode === 'backfill') {
+      backfillRunning = false;
+    } else if (mode === 'gapfill') {
+      gapfillRunning = false;
+    }
+  }
+}
+
 process.on('SIGTERM', () => {
   logger.info('Main process shutting down...');
-  if (subscriptionProcess) {
-    subscriptionProcess.kill();
+  if (streamingProcess) {
+    streamingProcess.kill();
   }
   process.exit(0);
 });
 
-function startCron(cronName: string, cronFrequency: string, cf: cronFunction) {
-  const cronJob = new CronJob(cronFrequency, async () => {
-    const start = new Date();
-    let result = await cf();
-    const { message, error } = result;
-    const end = new Date();
-    let totalPreviousErrors = error ? 1 : 0;
-    const oldHealth = healthMap.get(cronName);
-    if (oldHealth) {
-      totalPreviousErrors = totalPreviousErrors + oldHealth.totalPreviousErrors;
-    }
-    healthMap.set(cronName, new CronRunResult(cronName, message, error, start, end, totalPreviousErrors));
-  });
-  cronJob.start();
-}
-
-async function backfillV6(): Promise<{message:string, error: Error|undefined}> {
-  return await v6_backfill();
-}
-
-async function gapFillV6(): Promise<{message:string, error: Error|undefined}> {
-  return await v6_gapfill();
-}
-
-async function priceHandler(): Promise<{message:string, error: Error|undefined}> {
-  return await updatePrices();
-}
-
-async function snapshotV6(): Promise<{message:string, error: Error|undefined}> {
-  return await captureTokenBalanceSnapshotV6();
-}
-
 // Run the main function
-if (process.env.REPROCESS == "true") {
-  // reprocess();
-} else {
-  main();
-}
+main();

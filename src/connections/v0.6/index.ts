@@ -14,7 +14,7 @@ if (!RPC_ENDPOINT) {
 
 export const connection: Connection = new Connection(RPC_ENDPOINT, "confirmed");
 
-
+// Log the IP we're connecting to for debugging
 try {
   const hostname = new URL(RPC_ENDPOINT).hostname;
   const addresses = await resolve4(hostname);
@@ -25,13 +25,16 @@ try {
   console.log("Hostname we're connecting to: ", hostname);
 }
 
-
-// the indexer will only be reading, not writing
+// The indexer will only be reading, not writing
 export const readonlyWallet: Wallet = undefined as unknown as Wallet;
 export const provider = new AnchorProvider(connection, readonlyWallet, {
   commitment: "confirmed",
 });
 
+// SDK v0.6 clients - used by:
+// - futarchy/v0.6
+// - launchpad/v0.6
+// - conditional-vault/v0.4
 export const conditionalVaultClient = ConditionalVaultClient.createClient({ provider });
 export const launchpadClient = LaunchpadClient.createClient({ provider });
 export const futarchyClient = FutarchyClient.createClient({ provider });
