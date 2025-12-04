@@ -288,7 +288,7 @@ export async function insertTokensIfNotExist(db: DBConnection, mintAccts: Public
       .from(schema.tokens)
       .where(or(...mintStrings.map(m => eq(schema.tokens.mintAcct, m))));
 
-    const existingMints = new Set(existingTokens.map(t => t.mintAcct));
+    const existingMints = new Set(existingTokens.map((t: { mintAcct: string }) => t.mintAcct));
     const missingMints = mintAccts.filter(m => !existingMints.has(m.toString()));
 
     if (missingMints.length === 0) return;
@@ -812,8 +812,11 @@ export async function insertIfNotExistsPrices(
 ): Promise<void> {
   try {
     const futarchyState = event.postAmmState?.state?.futarchy as FutarchyState;
-    if (!futarchyState) {
-      logger.debug('AMM not in futarchy mode, skipping V6 price insertion');
+    const spotModeState = event.postAmmState?.state?.spot as { baseReserves: BN; quoteReserves: BN } | undefined;
+
+    // If neither futarchy nor spot mode state exists, skip
+    if (!futarchyState && !spotModeState) {
+      logger.debug('AMM has no futarchy or spot state, skipping V6 price insertion');
       return;
     }
 
@@ -828,23 +831,27 @@ export async function insertIfNotExistsPrices(
     const markets = marketsToUpdate || ['spot', 'pass', 'fail'];
     const prices = [];
 
-    if (markets.includes('spot') && futarchyState.spot) {
-      const spotBaseReserves = new BN(futarchyState.spot.baseReserves.toString());
-      const spotQuoteReserves = new BN(futarchyState.spot.quoteReserves.toString());
-      const spotPrice = calculatePriceWithDecimals(spotQuoteReserves, spotBaseReserves, quoteDecimals, baseDecimals);
+    // Handle spot prices - check both futarchy mode (futarchyState.spot) and spot mode (spotModeState)
+    if (markets.includes('spot')) {
+      const spotReserves = futarchyState?.spot || spotModeState;
+      if (spotReserves) {
+        const spotBaseReserves = new BN(spotReserves.baseReserves.toString());
+        const spotQuoteReserves = new BN(spotReserves.quoteReserves.toString());
+        const spotPrice = calculatePriceWithDecimals(spotQuoteReserves, spotBaseReserves, quoteDecimals, baseDecimals);
 
-      prices.push({
-        daoAddr: event.dao.toString(),
-        proposalAddr: null,
-        marketType: 'spot',
-        slot: slot.toString(),
-        baseReserves: spotBaseReserves.toString(),
-        quoteReserves: spotQuoteReserves.toString(),
-        price: spotPrice.toString()
-      });
+        prices.push({
+          daoAddr: event.dao.toString(),
+          proposalAddr: null,
+          marketType: 'spot',
+          slot: slot.toString(),
+          baseReserves: spotBaseReserves.toString(),
+          quoteReserves: spotQuoteReserves.toString(),
+          price: spotPrice.toString()
+        });
+      }
     }
 
-    if (markets.includes('pass') && futarchyState.pass) {
+    if (markets.includes('pass') && futarchyState?.pass) {
       const passBaseReserves = new BN(futarchyState.pass.baseReserves.toString());
       const passQuoteReserves = new BN(futarchyState.pass.quoteReserves.toString());
       const passPrice = calculatePriceWithDecimals(passQuoteReserves, passBaseReserves, quoteDecimals, baseDecimals);
@@ -860,7 +867,7 @@ export async function insertIfNotExistsPrices(
       });
     }
 
-    if (markets.includes('fail') && futarchyState.fail) {
+    if (markets.includes('fail') && futarchyState?.fail) {
       const failBaseReserves = new BN(futarchyState.fail.baseReserves.toString());
       const failQuoteReserves = new BN(futarchyState.fail.quoteReserves.toString());
       const failPrice = calculatePriceWithDecimals(failQuoteReserves, failBaseReserves, quoteDecimals, baseDecimals);
