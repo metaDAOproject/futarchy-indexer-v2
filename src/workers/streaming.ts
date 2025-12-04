@@ -5,7 +5,6 @@
  * Failover chain: Yellowstone → Helius → RPC
  */
 
-import "dotenv/config";
 import { log } from "../logger/logger";
 import { subscriptionManager } from "../core/subscriptionManager";
 

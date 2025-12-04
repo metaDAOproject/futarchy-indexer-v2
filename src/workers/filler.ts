@@ -11,7 +11,6 @@
  *   - reindex [slot] [programId]: Reset and reindex from beginning or specific slot
  */
 
-import "dotenv/config";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { log } from "../logger/logger";
 import { getAllPrograms, getProgramByOwner, getProgramByName, ProgramIndexer } from "../core/registry";
