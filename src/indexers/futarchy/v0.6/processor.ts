@@ -188,7 +188,7 @@ async function handleInitializeProposalEvent(event: InitializeProposalEvent, _si
 async function handleStakeToProposalEvent(event: StakeToProposalEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
     const [stakePda] = getStakeAddr(
-      futarchyClient.autocrat.programId,
+      futarchyClient.futarchy.programId,
       event.proposal,
       event.staker
     );
@@ -230,7 +230,7 @@ async function handleStakeToProposalEvent(event: StakeToProposalEvent, signature
 
       let actualStakedAmount: string;
       try {
-        const stakeAccountData = await futarchyClient.autocrat.account.stakeAccount.fetch(stakePda);
+        const stakeAccountData = await futarchyClient.futarchy.account.stakeAccount.fetch(stakePda);
         actualStakedAmount = stakeAccountData.amount.toString();
       } catch {
         actualStakedAmount = event.amount.toString();
@@ -271,7 +271,7 @@ async function handleStakeToProposalEvent(event: StakeToProposalEvent, signature
 async function handleUnstakeFromProposalEvent(event: UnstakeFromProposalEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
     const [stakePda] = getStakeAddr(
-      futarchyClient.autocrat.programId,
+      futarchyClient.futarchy.programId,
       event.proposal,
       event.staker
     );
@@ -313,7 +313,7 @@ async function handleUnstakeFromProposalEvent(event: UnstakeFromProposalEvent, s
 
       let actualStakedAmount: string;
       try {
-        const stakeAccountData = await futarchyClient.autocrat.account.stakeAccount.fetch(stakePda);
+        const stakeAccountData = await futarchyClient.futarchy.account.stakeAccount.fetch(stakePda);
         actualStakedAmount = stakeAccountData.amount.toString();
       } catch {
         actualStakedAmount = "0";

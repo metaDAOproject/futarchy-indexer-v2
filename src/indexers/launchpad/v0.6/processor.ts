@@ -7,6 +7,14 @@ import {
   LaunchRefundedEvent,
   LaunchStartedEvent,
   LaunchCloseEvent,
+  v0_6_0_LaunchpadEvent,
+  v0_6_0_LaunchInitializedEvent,
+  v0_6_0_LaunchClaimEvent,
+  v0_6_0_LaunchCompletedEvent,
+  v0_6_0_LaunchFundedEvent,
+  v0_6_0_LaunchRefundedEvent,
+  v0_6_0_LaunchStartedEvent,
+  v0_6_0_LaunchCloseEvent,
 } from "@metadaoproject/futarchy/v0.6";
 import { schema, db, eq, and, sql, DBTransaction } from "@metadaoproject/indexer-db";
 import { PublicKey } from "@solana/web3.js";
@@ -25,38 +33,38 @@ const logger = log.child({
 type DBConnection = any;
 
 export async function processLaunchpadEvent(
-  event: { name: string; data: LaunchpadEvent },
+  event: { name: string; data: LaunchpadEvent | v0_6_0_LaunchpadEvent },
   signature: string,
   transactionResponse: VersionedTransactionResponse
 ) {
   switch (event.name) {
     case "LaunchClaimEvent":
-      await handleLaunchClaimEvent(event.data as LaunchClaimEvent, signature, transactionResponse);
+      await handleLaunchClaimEvent(event.data as LaunchClaimEvent | v0_6_0_LaunchClaimEvent, signature, transactionResponse);
       break;
     case "LaunchCompletedEvent":
-      await handleLaunchCompletedEvent(event.data as LaunchCompletedEvent, signature, transactionResponse);
+      await handleLaunchCompletedEvent(event.data as LaunchCompletedEvent | v0_6_0_LaunchCompletedEvent, signature, transactionResponse);
       break;
     case "LaunchFundedEvent":
-      await handleLaunchFundedEvent(event.data as LaunchFundedEvent, signature, transactionResponse);
+      await handleLaunchFundedEvent(event.data as LaunchFundedEvent | v0_6_0_LaunchFundedEvent, signature, transactionResponse);
       break;
     case "LaunchInitializedEvent":
-      await handleLaunchInitializedEvent(event.data as LaunchInitializedEvent, signature, transactionResponse);
+      await handleLaunchInitializedEvent(event.data as LaunchInitializedEvent | v0_6_0_LaunchInitializedEvent, signature, transactionResponse);
       break;
     case "LaunchRefundedEvent":
-      await handleLaunchRefundedEvent(event.data as LaunchRefundedEvent, signature, transactionResponse);
+      await handleLaunchRefundedEvent(event.data as LaunchRefundedEvent | v0_6_0_LaunchRefundedEvent, signature, transactionResponse);
       break;
     case "LaunchStartedEvent":
-      await handleLaunchStartedEvent(event.data as LaunchStartedEvent, signature, transactionResponse);
+      await handleLaunchStartedEvent(event.data as LaunchStartedEvent | v0_6_0_LaunchStartedEvent, signature, transactionResponse);
       break;
     case "LaunchCloseEvent":
-      await handleLaunchCloseEvent(event.data as LaunchCloseEvent, signature, transactionResponse);
+      await handleLaunchCloseEvent(event.data as LaunchCloseEvent | v0_6_0_LaunchCloseEvent, signature, transactionResponse);
       break;
     default:
       logger.info("Unknown Launchpad event", event.name);
   }
 }
 
-async function handleLaunchClaimEvent(event: LaunchClaimEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+async function handleLaunchClaimEvent(event: LaunchClaimEvent | v0_6_0_LaunchClaimEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
     await db.transaction(async (trx: DBTransaction) => {
       const [existingClaim] = await trx.select()
@@ -92,7 +100,7 @@ async function handleLaunchClaimEvent(event: LaunchClaimEvent, signature: string
   }
 }
 
-async function handleLaunchCompletedEvent(event: LaunchCompletedEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+async function handleLaunchCompletedEvent(event: LaunchCompletedEvent | v0_6_0_LaunchCompletedEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
     await db.transaction(async (trx: DBTransaction) => {
       const [existingLaunch] = await trx.select()
@@ -200,7 +208,7 @@ async function handleLaunchCompletedEvent(event: LaunchCompletedEvent, signature
   }
 }
 
-async function handleLaunchFundedEvent(event: LaunchFundedEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+async function handleLaunchFundedEvent(event: LaunchFundedEvent | v0_6_0_LaunchFundedEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
     await db.transaction(async (trx: DBTransaction) => {
       const [existingFund] = await trx.select()
@@ -292,7 +300,7 @@ async function handleLaunchFundedEvent(event: LaunchFundedEvent, signature: stri
   }
 }
 
-async function handleLaunchInitializedEvent(event: LaunchInitializedEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+async function handleLaunchInitializedEvent(event: LaunchInitializedEvent | v0_6_0_LaunchInitializedEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
     await db.transaction(async (trx: DBTransaction) => {
       const [existingLaunch] = await trx.select()
@@ -307,11 +315,14 @@ async function handleLaunchInitializedEvent(event: LaunchInitializedEvent, signa
 
       await insertTokenIfNotExists(trx, event.baseMint);
 
+      // Check for newer event fields that don't exist in v0_6_0_LaunchInitializedEvent
+      const hasNewerFields = 'monthsUntilInsidersCanUnlock' in event;
+
       await trx.insert(schema.v0_6_launches).values({
         launchAddr: event.launch.toString(),
         minimumRaiseAmount: BigInt(event.minimumRaiseAmount.toString()),
-        monthlySpendingLimitAmount: BigInt(event.monthlySpendingLimitAmount.toString()),
-        monthlySpendingLimitMembers: event.monthlySpendingLimitMembers.map(pk => pk.toString()),
+        monthlySpendingLimitAmount: hasNewerFields ? BigInt((event as LaunchInitializedEvent).monthlySpendingLimitAmount.toString()) : 0n,
+        monthlySpendingLimitMembers: hasNewerFields ? (event as LaunchInitializedEvent).monthlySpendingLimitMembers.map(pk => pk.toString()) : [],
         launchAuthority: event.launchAuthority.toString(),
         launchSigner: event.launchSigner.toString(),
         launchSignerPdaBump: event.launchSignerPdaBump,
@@ -323,9 +334,9 @@ async function handleLaunchInitializedEvent(event: LaunchInitializedEvent, signa
         state: V06LaunchState.Initialized,
         seqNum: 0n,
         secondsForLaunch: event.secondsForLaunch,
-        performancePackageGrantee: event.performancePackageGrantee.toString(),
-        performancePackageTokenAmount: BigInt(event.performancePackageTokenAmount.toString()),
-        monthsUntilInsidersCanUnlock: event.monthsUntilInsidersCanUnlock,
+        performancePackageGrantee: hasNewerFields ? (event as LaunchInitializedEvent).performancePackageGrantee.toString() : "",
+        performancePackageTokenAmount: hasNewerFields ? BigInt((event as LaunchInitializedEvent).performancePackageTokenAmount.toString()) : 0n,
+        monthsUntilInsidersCanUnlock: hasNewerFields ? (event as LaunchInitializedEvent).monthsUntilInsidersCanUnlock : 0,
         pdaBump: event.pdaBump,
       }).onConflictDoNothing();
     });
@@ -334,7 +345,7 @@ async function handleLaunchInitializedEvent(event: LaunchInitializedEvent, signa
   }
 }
 
-async function handleLaunchRefundedEvent(event: LaunchRefundedEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+async function handleLaunchRefundedEvent(event: LaunchRefundedEvent | v0_6_0_LaunchRefundedEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
     await db.transaction(async (trx: DBTransaction) => {
       const [existingRefund] = await trx.select()
@@ -370,7 +381,7 @@ async function handleLaunchRefundedEvent(event: LaunchRefundedEvent, signature: 
   }
 }
 
-async function handleLaunchStartedEvent(event: LaunchStartedEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+async function handleLaunchStartedEvent(event: LaunchStartedEvent | v0_6_0_LaunchStartedEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
     await db.transaction(async (trx: DBTransaction) => {
       const [existingLaunch] = await trx.select()
@@ -395,7 +406,7 @@ async function handleLaunchStartedEvent(event: LaunchStartedEvent, signature: st
   }
 }
 
-async function handleLaunchCloseEvent(event: LaunchCloseEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+async function handleLaunchCloseEvent(event: LaunchCloseEvent | v0_6_0_LaunchCloseEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
     await db.transaction(async (trx: DBTransaction) => {
       const [existingLaunch] = await trx.select()

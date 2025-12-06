@@ -288,7 +288,7 @@ export async function insertTokensIfNotExist(db: DBConnection, mintAccts: Public
       .from(schema.tokens)
       .where(or(...mintStrings.map(m => eq(schema.tokens.mintAcct, m))));
 
-    const existingMints = new Set(existingTokens.map(t => t.mintAcct));
+    const existingMints = new Set(existingTokens.map((t: { mintAcct: string }) => t.mintAcct));
     const missingMints = mintAccts.filter(m => !existingMints.has(m.toString()));
 
     if (missingMints.length === 0) return;
