@@ -1,8 +1,30 @@
 import { PublicKey } from "@solana/web3.js";
 import type { VersionedTransactionResponse } from "@solana/web3.js";
 import { log } from "../logger/logger";
+import vm from "node:vm";
 
 const logger = log.child({ module: "registry" });
+
+// Timeout for event decoding to prevent Anchor's infinite loop bug
+const DECODE_TIMEOUT_MS = 1000;
+
+/**
+ * Safely decode with timeout protection against Anchor's infinite loop bug.
+ * Uses vm.Script with timeout to kill runaway decoding.
+ */
+function decodeWithTimeout(
+  decoder: (data: string) => { name: string; data: any } | null,
+  eventData: string,
+  timeoutMs: number = DECODE_TIMEOUT_MS
+): { name: string; data: any } | null {
+  const context = { decoder, eventData, result: null as { name: string; data: any } | null };
+  vm.createContext(context);
+
+  const script = new vm.Script('result = decoder(eventData)');
+  script.runInContext(context, { timeout: timeoutMs });
+
+  return context.result;
+}
 
 /**
  * Configuration for backfill operations
@@ -115,14 +137,19 @@ export function createProgramIndexer(config: ProgramIndexerConfig): ProgramIndex
       try {
         // Skip first 8 bytes (discriminator), encode rest as base64
         const eventData = Buffer.from(data.slice(8)).toString('base64');
-        const event = program.coder.events.decode(eventData);
-        if (event) {
-          return { name: event.name, data: event.data };
+        // Use timeout-protected decode to prevent Anchor's infinite loop bug
+        const event = decodeWithTimeout(
+          (d) => program.coder.events.decode(d),
+          eventData
+        );
+        return event;
+      } catch (error) {
+        // Timeout errors will have code 'ERR_SCRIPT_EXECUTION_TIMEOUT'
+        if ((error as any)?.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT') {
+          logger.warn({ dataLength: data.length }, "Event decode timed out (possible Anchor infinite loop)");
         }
-      } catch {
-        // Not an event, expected
+        return null;
       }
-      return null;
     },
 
     async processEvent(event, signature, txResponse) {

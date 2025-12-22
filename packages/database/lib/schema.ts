@@ -1814,6 +1814,8 @@ export const v0_6_daos = pgTable("v0_6_daos", {
   baseToStake: bigint("base_to_stake", { mode: "bigint" }).notNull(),
   seqNum: bigint("seq_num", { mode: "bigint" }).notNull(),
   initialSpendingLimit: jsonb("initial_spending_limit"),
+  teamSponsoredPassThresholdBps: smallint("team_sponsored_pass_threshold_bps").notNull().default(0),
+  teamAddress: pubkey("team_address").notNull().default(""),
   // Embedded AMM fields (1:1 relationship)
   ammBaseAmount: bigint("amm_base_amount", { mode: "bigint" }).notNull(),
   ammQuoteAmount: bigint("amm_quote_amount", { mode: "bigint" }).notNull(),
@@ -1843,6 +1845,7 @@ export const v0_6_proposals = pgTable("v0_6_proposals", {
   passQuoteMint: pubkey("pass_quote_mint").notNull().references(() => tokens.mintAcct),
   failBaseMint: pubkey("fail_base_mint").notNull().references(() => tokens.mintAcct),
   failQuoteMint: pubkey("fail_quote_mint").notNull().references(() => tokens.mintAcct),
+  isTeamSponsored: boolean("is_team_sponsored").notNull().default(false),
   launchedAt: timestamp("launched_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
@@ -1944,6 +1947,8 @@ export const v0_7_launches = pgTable("v0_7_launches", {
   additionalTokensAmount: bigint("additional_tokens_amount", { mode: "bigint" }).notNull(),
   additionalTokensRecipient: pubkey("additional_tokens_recipient"),
   additionalTokensClaimed: boolean("additional_tokens_claimed").notNull(),
+  unixTimestampCompleted: bigint("unix_timestamp_completed", { mode: "bigint" }),
+  isPerformancePackageInitialized: boolean("is_performance_package_initialized").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .default(sql`now()`),
@@ -2036,6 +2041,65 @@ export const v0_7_additional_token_claims = pgTable("v0_7_additional_token_claim
     .default(sql`now()`),
 }, (table) => ({
   launchIdx: index("v0_7_additional_token_claims_launch_index").on(table.launchAddr),
+}));
+
+export const v0_7_bid_walls = pgTable("v0_7_bid_walls", {
+  bidWallAddr: pubkey("bid_wall_addr").primaryKey(),
+  nonce: bigint("nonce", { mode: "bigint" }).notNull(),
+  createdTimestamp: bigint("created_timestamp", { mode: "bigint" }).notNull(),
+  initialAmmQuoteReserves: bigint("initial_amm_quote_reserves", { mode: "bigint" }).notNull(),
+  quoteAmount: bigint("quote_amount", { mode: "bigint" }).notNull(),
+  feesCollected: bigint("fees_collected", { mode: "bigint" }).notNull(),
+  baseBoughtAmount: bigint("base_bought_amount", { mode: "bigint" }).notNull(),
+  seqNum: bigint("seq_num", { mode: "bigint" }).notNull(),
+  creator: pubkey("creator").notNull(),
+  authority: pubkey("authority").notNull(),
+  daoTreasury: pubkey("dao_treasury").notNull(),
+  baseMint: pubkey("base_mint").notNull().references(() => tokens.mintAcct),
+  feeRecipient: pubkey("fee_recipient").notNull(),
+  durationSeconds: integer("duration_seconds").notNull(),
+  pdaBump: smallint("pda_bump").notNull(),
+  isClosed: boolean("is_closed").notNull().default(false),
+  isCanceled: boolean("is_canceled").notNull().default(false),
+  updatedAtSlot: slot("updated_at_slot").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .default(sql`now()`),
+}, (table) => ({
+  creatorIdx: index("v0_7_bid_walls_creator_index").on(table.creator),
+  baseMintIdx: index("v0_7_bid_walls_base_mint_index").on(table.baseMint),
+}));
+
+export const v0_7_bid_wall_sales = pgTable("v0_7_bid_wall_sales", {
+  id: bigserial("id", { mode: "bigint" }).primaryKey(),
+  bidWallAddr: pubkey("bid_wall_addr").notNull().references(() => v0_7_bid_walls.bidWallAddr),
+  txSignature: transaction("tx_signature").notNull(),
+  user: pubkey("user").notNull(),
+  amountIn: bigint("amount_in", { mode: "bigint" }).notNull(),
+  amountOut: bigint("amount_out", { mode: "bigint" }).notNull(),
+  fee: bigint("fee", { mode: "bigint" }).notNull(),
+  slot: slot("slot").notNull(),
+  timestamp: timestamp("timestamp", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .default(sql`now()`),
+}, (table) => ({
+  bidWallIdx: index("v0_7_bid_wall_sales_bid_wall_index").on(table.bidWallAddr),
+  userIdx: index("v0_7_bid_wall_sales_user_index").on(table.user),
+}));
+
+export const v0_7_bid_wall_fee_collections = pgTable("v0_7_bid_wall_fee_collections", {
+  id: bigserial("id", { mode: "bigint" }).primaryKey(),
+  bidWallAddr: pubkey("bid_wall_addr").notNull().references(() => v0_7_bid_walls.bidWallAddr),
+  txSignature: transaction("tx_signature").notNull(),
+  feesCollected: bigint("fees_collected", { mode: "bigint" }).notNull(),
+  slot: slot("slot").notNull(),
+  timestamp: timestamp("timestamp", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .default(sql`now()`),
+}, (table) => ({
+  bidWallIdx: index("v0_7_bid_wall_fee_collections_bid_wall_index").on(table.bidWallAddr),
 }));
 
 export const futarchy_markets = pgTable("futarchy_markets", {

@@ -601,12 +601,32 @@ class SubscriptionManager {
   }
 
   private handleGeyserError(error: Error): void {
-    logger.error({ error }, "gRPC stream error");
+    // Categorize gRPC errors - transient vs critical
+    const grpcError = error as any;
+    const code = grpcError?.code;
+    const details = grpcError?.details || '';
+
+    // Transient errors that trigger automatic recovery (log as warn, not error)
+    const isTransient =
+      code === 14 || // UNAVAILABLE - 503, connection dropped, etc.
+      code === 1 ||  // CANCELLED - call cancelled during failover/shutdown
+      code === 4 ||  // DEADLINE_EXCEEDED - timeout
+      code === 8 ||  // RESOURCE_EXHAUSTED - rate limiting
+      details.includes('503') ||
+      details.includes('Connection dropped') ||
+      details.includes('Call cancelled');
+
+    if (isTransient) {
+      logger.warn({ code, details }, "gRPC stream disconnected (transient), triggering failover");
+    } else {
+      logger.error({ error, code, details }, "gRPC stream error (unexpected)");
+    }
+
     this.triggerFailover();
   }
 
   private handleGeyserEnd(): void {
-    logger.warn("gRPC stream ended");
+    logger.info("gRPC stream ended, triggering failover");
     this.triggerFailover();
   }
 
