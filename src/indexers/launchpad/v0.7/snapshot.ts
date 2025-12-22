@@ -76,6 +76,8 @@ async function snapshotLaunches(): Promise<void> {
           additionalTokensAmount: BigInt(launch.account.additionalTokensAmount?.toString() ?? '0'),
           additionalTokensRecipient: launch.account.additionalTokensRecipient?.toString() ?? null,
           additionalTokensClaimed: launch.account.additionalTokensClaimed ?? false,
+          unixTimestampCompleted: launch.account.unixTimestampCompleted ? BigInt(launch.account.unixTimestampCompleted.toString()) : null,
+          isPerformancePackageInitialized: launch.account.isPerformancePackageInitialized,
           updatedAtSlot: 0n,
         }).onConflictDoNothing();
       } catch (error) {

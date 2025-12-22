@@ -10,7 +10,7 @@ import { updatePrices } from "./priceHandler";
 const DRY_RUN = false;
 
 // Enable cron-scheduled backfill and gap-fill
-const ENABLE_BACKFILL = true;
+const ENABLE_BACKFILL = false;
 const ENABLE_GAPFILL = true;
 
 // Reindex: Reset tracking and re-process all historical signatures

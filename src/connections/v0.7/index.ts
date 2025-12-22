@@ -1,6 +1,6 @@
 import { Connection } from "@solana/web3.js";
 import { AnchorProvider, Wallet } from "@coral-xyz/anchor";
-import { LaunchpadClient } from "@metadaoproject/futarchy/v0.7";
+import { LaunchpadClient, BidWallClient } from "@metadaoproject/futarchy/v0.7";
 
 export const RPC_ENDPOINT = process.env.RPC_ENDPOINT ?? "";
 
@@ -18,4 +18,6 @@ export const provider = new AnchorProvider(connection, readonlyWallet, {
 
 // SDK v0.7 clients - used by:
 // - launchpad/v0.7
+// - bid-wall/v0.7
 export const launchpadV7Client = LaunchpadClient.createClient({ provider });
+export const bidWallClient = BidWallClient.createClient({ provider });

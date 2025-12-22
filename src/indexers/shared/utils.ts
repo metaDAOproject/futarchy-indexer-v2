@@ -444,6 +444,7 @@ export async function upsertV06Proposal(proposalAcct: any, proposalAddr: PublicK
       failQuoteMint: proposalAcct.failQuoteMint.toString(),
       baseVaultAddr: proposalAcct.baseVault.toString(),
       quoteVaultAddr: proposalAcct.quoteVault.toString(),
+      isTeamSponsored: proposalAcct.isTeamSponsored,
     };
 
     if (existingProposal.length === 0) {
@@ -451,7 +452,9 @@ export async function upsertV06Proposal(proposalAcct: any, proposalAddr: PublicK
         ...baseProposalValues,
         createdAt: blockTime || new Date(),
       };
-      await trx.insert(schema.v0_6_proposals).values(insertValues);
+      await trx.insert(schema.v0_6_proposals)
+        .values(insertValues)
+        .onConflictDoNothing();  // Handle race condition - another process may have inserted
       logger.info(`Inserted proposal ${proposalAddr.toString()}`);
     } else {
       await trx.update(schema.v0_6_proposals)
@@ -505,6 +508,8 @@ export async function upsertV06Dao(daoAcct: any, daoAddr: PublicKey, trx: DBConn
       baseToStake: BigInt(daoAcct.baseToStake.toString()),
       seqNum: BigInt(daoAcct.seqNum.toString()),
       initialSpendingLimit: daoAcct.initialSpendingLimit ? JSON.stringify(daoAcct.initialSpendingLimit) : null,
+      teamSponsoredPassThresholdBps: daoAcct.teamSponsoredPassThresholdBps,
+      teamAddress: daoAcct.teamAddress.toString(),
       ammBaseAmount: BigInt(daoAcct.amm.state.spot?.baseReserves?.toString() || "0"),
       ammQuoteAmount: BigInt(daoAcct.amm.state.spot?.quoteReserves?.toString() || "0"),
       ammVaultAtaBase: ammBaseVaultAta.toString(),
@@ -512,7 +517,9 @@ export async function upsertV06Dao(daoAcct: any, daoAddr: PublicKey, trx: DBConn
     };
 
     if (existingDao.length === 0) {
-      await trx.insert(schema.v0_6_daos).values(daoValues);
+      await trx.insert(schema.v0_6_daos)
+        .values(daoValues)
+        .onConflictDoNothing();  // Handle race condition
       logger.info(`Inserted DAO ${daoAddr.toString()}`);
     } else {
       await trx.update(schema.v0_6_daos)

@@ -24,7 +24,9 @@ import assert from "assert";
 // Import all program indexers (auto-registers via side effect)
 import "../indexers/futarchy/v0.6";
 import "../indexers/launchpad/v0.6";
+import "../indexers/launchpad/v0.7";
 import "../indexers/conditional-vault/v0.4";
+import "../indexers/bid-wall/v0.7";
 
 const logger = log.child({ module: "filler-worker" });
 

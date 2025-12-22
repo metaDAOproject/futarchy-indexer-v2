@@ -12,6 +12,7 @@ import {
   LaunchProposalEvent,
   FinalizeProposalEvent,
   CollectFeesEvent,
+  SponsorProposalEvent,
   getStakeAddr
 } from "@metadaoproject/futarchy/v0.6";
 import { schema, db, eq, sql, DBTransaction } from "@metadaoproject/indexer-db";
@@ -88,6 +89,9 @@ export async function processFutarchyEvent(
       break;
     case "CollectFeesEvent":
       await handleCollectFeesEvent(event.data as CollectFeesEvent, signature, transactionResponse);
+      break;
+    case "SponsorProposalEvent":
+      await handleSponsorProposalEvent(event.data as SponsorProposalEvent, signature, transactionResponse);
       break;
     default:
       logger.info({ eventName: event.name }, "Unknown Futarchy event");
@@ -188,7 +192,7 @@ async function handleInitializeProposalEvent(event: InitializeProposalEvent, _si
 async function handleStakeToProposalEvent(event: StakeToProposalEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
     const [stakePda] = getStakeAddr(
-      futarchyClient.autocrat.programId,
+      futarchyClient.futarchy.programId,
       event.proposal,
       event.staker
     );
@@ -230,7 +234,7 @@ async function handleStakeToProposalEvent(event: StakeToProposalEvent, signature
 
       let actualStakedAmount: string;
       try {
-        const stakeAccountData = await futarchyClient.autocrat.account.stakeAccount.fetch(stakePda);
+        const stakeAccountData = await futarchyClient.futarchy.account.stakeAccount.fetch(stakePda);
         actualStakedAmount = stakeAccountData.amount.toString();
       } catch {
         actualStakedAmount = event.amount.toString();
@@ -271,7 +275,7 @@ async function handleStakeToProposalEvent(event: StakeToProposalEvent, signature
 async function handleUnstakeFromProposalEvent(event: UnstakeFromProposalEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
     const [stakePda] = getStakeAddr(
-      futarchyClient.autocrat.programId,
+      futarchyClient.futarchy.programId,
       event.proposal,
       event.staker
     );
@@ -313,7 +317,7 @@ async function handleUnstakeFromProposalEvent(event: UnstakeFromProposalEvent, s
 
       let actualStakedAmount: string;
       try {
-        const stakeAccountData = await futarchyClient.autocrat.account.stakeAccount.fetch(stakePda);
+        const stakeAccountData = await futarchyClient.futarchy.account.stakeAccount.fetch(stakePda);
         actualStakedAmount = stakeAccountData.amount.toString();
       } catch {
         actualStakedAmount = "0";
@@ -601,6 +605,18 @@ async function handleCollectFeesEvent(event: CollectFeesEvent, signature: string
     });
   } catch (error) {
     logger.error(error, "Error in handleCollectFeesEvent");
+  }
+}
+
+async function handleSponsorProposalEvent(event: SponsorProposalEvent, _signature: string, _transactionResponse: VersionedTransactionResponse) {
+  try {
+    await db.update(schema.v0_6_proposals).set({
+      isTeamSponsored: true,
+    }).where(eq(schema.v0_6_proposals.proposalAddr, event.proposal.toString()));
+
+    logger.info(`Proposal ${event.proposal.toString()} sponsored by ${event.teamAddress.toString()}`);
+  } catch (error) {
+    logger.error(error, "Error in handleSponsorProposalEvent");
   }
 }
 
