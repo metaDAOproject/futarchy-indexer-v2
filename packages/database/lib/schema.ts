@@ -2102,6 +2102,19 @@ export const v0_7_bid_wall_fee_collections = pgTable("v0_7_bid_wall_fee_collecti
   bidWallIdx: index("v0_7_bid_wall_fee_collections_bid_wall_index").on(table.bidWallAddr),
 }));
 
+export const v0_7_launch_points = pgTable("v0_7_launch_points", {
+  launchAddr: pubkey("launch_addr")
+    .notNull()
+    .references(() => v0_7_launches.launchAddr),
+  userAddr: pubkey("user_addr").notNull(),
+  points: bigint("points", { mode: "bigint" }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .default(sql`now()`),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.launchAddr, table.userAddr] }),
+}));
+
 export const futarchy_markets = pgTable("futarchy_markets", {
   daoAddr: pubkey("dao_addr").notNull().references(() => v0_6_daos.daoAddr),
   proposalAddr: pubkey("proposal_addr").references(() => v0_6_proposals.proposalAddr),
