@@ -1752,7 +1752,7 @@ export const v0_6_claims = pgTable("v0_6_claims", {
 
 export const v0_6_conditional_swaps = pgTable("v0_6_conditional_swaps", {
   id: bigserial("id", { mode: "bigint" }).primaryKey(),
-  signature: transaction("signature").notNull().references(() => signatures.signature),
+  signature: transaction("signature").notNull().unique().references(() => signatures.signature),
   slot: slot("slot").notNull(),
   unixTimestamp: bigint("unix_timestamp", { mode: "bigint" }).notNull(),
   daoAddr: pubkey("dao_addr").notNull().references(() => v0_6_daos.daoAddr),
@@ -1775,7 +1775,7 @@ export const v0_6_conditional_swaps = pgTable("v0_6_conditional_swaps", {
 
 export const v0_6_spot_swaps = pgTable("v0_6_spot_swaps", {
   id: bigserial("id", { mode: "bigint" }).primaryKey(),
-  signature: transaction("signature").notNull().references(() => signatures.signature),
+  signature: transaction("signature").notNull().unique().references(() => signatures.signature),
   slot: slot("slot").notNull(),
   unixTimestamp: bigint("unix_timestamp", { mode: "bigint" }).notNull(),
   daoAddr: pubkey("dao_addr").notNull().references(() => v0_6_daos.daoAddr),
