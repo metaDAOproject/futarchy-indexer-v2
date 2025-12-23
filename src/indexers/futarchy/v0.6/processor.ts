@@ -535,6 +535,47 @@ async function handleProvideLiquidityEvent(event: ProvideLiquidityEvent, signatu
         seqNum: BigInt(event.common.daoSeqNum.toString()),
       }).where(eq(schema.v0_6_daos.daoAddr, event.dao.toString()));
 
+      // Derive ammPosition PDA - positionAuthority is available in ProvideLiquidityEvent
+      const [ammPositionPda] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("amm_position"),
+          event.dao.toBuffer(),
+          event.positionAuthority.toBuffer(),
+        ],
+        futarchyClient.futarchy.programId
+      );
+
+      // Upsert AmmPosition - only in RPC mode (gRPC handles via account streaming)
+      if (!isGeyser) {
+        const ammPositionAcct = await futarchyClient.futarchy.account.ammPosition.fetch(ammPositionPda);
+        await trx.insert(schema.v0_7_amm_positions).values({
+          ammPositionAddr: ammPositionPda.toString(),
+          daoAddr: event.dao.toString(),
+          positionAuthority: event.positionAuthority.toString(),
+          liquidity: ammPositionAcct.liquidity.toString(),
+          updatedAtSlot: BigInt(event.common.slot.toString()),
+        }).onConflictDoUpdate({
+          target: schema.v0_7_amm_positions.ammPositionAddr,
+          set: {
+            liquidity: ammPositionAcct.liquidity.toString(),
+            updatedAtSlot: sql`GREATEST(${BigInt(event.common.slot.toString())}, ${schema.v0_7_amm_positions.updatedAtSlot})`,
+          }
+        });
+      }
+
+      // Insert liquidity event
+      await trx.insert(schema.v0_7_liquidity_events).values({
+        ammPositionAddr: ammPositionPda.toString(),
+        daoAddr: event.dao.toString(),
+        txSignature: signature,
+        eventType: "provide",
+        baseAmount: BigInt(event.baseAmount.toString()),
+        quoteAmount: BigInt(event.quoteAmount.toString()),
+        liquidityDelta: event.liquidityMinted.toString(),
+        slot: BigInt(event.common.slot.toString()),
+        timestamp: new Date(event.common.unixTimestamp.mul(new BN(1000)).toNumber()),
+      }).onConflictDoNothing();
+
       const proposal = await getActiveProposalForDao(trx, event.dao.toString());
 
       if (proposal) {
@@ -561,6 +602,38 @@ async function handleWithdrawLiquidityEvent(event: WithdrawLiquidityEvent, signa
         ammQuoteAmount: quoteReserves,
         seqNum: BigInt(event.common.daoSeqNum.toString()),
       }).where(eq(schema.v0_6_daos.daoAddr, event.dao.toString()));
+
+      // Derive ammPosition PDA - liquidityProvider IS positionAuthority (enforced by program)
+      const [ammPositionPda] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("amm_position"),
+          event.dao.toBuffer(),
+          event.liquidityProvider.toBuffer(),
+        ],
+        futarchyClient.futarchy.programId
+      );
+
+      // Update AmmPosition - only in RPC mode (gRPC handles via account streaming)
+      if (!isGeyser) {
+        const ammPositionAcct = await futarchyClient.futarchy.account.ammPosition.fetch(ammPositionPda);
+        await trx.update(schema.v0_7_amm_positions).set({
+          liquidity: ammPositionAcct.liquidity.toString(),
+          updatedAtSlot: sql`GREATEST(${BigInt(event.common.slot.toString())}, ${schema.v0_7_amm_positions.updatedAtSlot})`,
+        }).where(eq(schema.v0_7_amm_positions.ammPositionAddr, ammPositionPda.toString()));
+      }
+
+      // Insert liquidity event
+      await trx.insert(schema.v0_7_liquidity_events).values({
+        ammPositionAddr: ammPositionPda.toString(),
+        daoAddr: event.dao.toString(),
+        txSignature: signature,
+        eventType: "withdraw",
+        baseAmount: BigInt(event.baseAmount.toString()),
+        quoteAmount: BigInt(event.quoteAmount.toString()),
+        liquidityDelta: event.liquidityWithdrawn.toString(),
+        slot: BigInt(event.common.slot.toString()),
+        timestamp: new Date(event.common.unixTimestamp.mul(new BN(1000)).toNumber()),
+      }).onConflictDoNothing();
 
       const proposal = await getActiveProposalForDao(trx, event.dao.toString());
 
@@ -646,6 +719,21 @@ export async function processFutarchyAccountUpdate(
         totalStaked: accountData.amount.toString(),
         updatedAtSlot: slot,
       }).where(eq(schema.v0_6_staking_record.stakeAddr, pubkey));
+      break;
+    case 'ammPosition':
+      await db.insert(schema.v0_7_amm_positions).values({
+        ammPositionAddr: pubkey,
+        daoAddr: accountData.dao.toString(),
+        positionAuthority: accountData.positionAuthority.toString(),
+        liquidity: accountData.liquidity.toString(),
+        updatedAtSlot: slot,
+      }).onConflictDoUpdate({
+        target: schema.v0_7_amm_positions.ammPositionAddr,
+        set: {
+          liquidity: accountData.liquidity.toString(),
+          updatedAtSlot: sql`GREATEST(${slot}, ${schema.v0_7_amm_positions.updatedAtSlot})`,
+        },
+      });
       break;
     default:
       logger.debug({ pubkey, accountType }, "Unknown Futarchy account type in update");

@@ -145,6 +145,8 @@ async function handleLaunchCompletedEvent(event: LaunchCompletedEvent, signature
               baseToStake: BigInt(dao.baseToStake?.toString() || '0'),
               seqNum: BigInt(dao.seqNum.toString()),
               initialSpendingLimit: dao.initialSpendingLimit || null,
+              teamSponsoredPassThresholdBps: dao.teamSponsoredPassThresholdBps ?? 0,
+              teamAddress: dao.teamAddress?.toString() ?? "",
               ammBaseAmount: 0n,
               ammQuoteAmount: 0n,
               ammVaultAtaBase: token.getAssociatedTokenAddressSync(

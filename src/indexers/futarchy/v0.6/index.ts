@@ -8,7 +8,7 @@ export const futarchyIndexer = createProgramIndexer({
   programId: FUTARCHY_PROGRAM_ID,
   name: "futarchy-v0.6",
   program: futarchyClient.futarchy,
-  accountTypes: ["dao", "proposal", "stakeAccount"],
+  accountTypes: ["dao", "proposal", "stakeAccount", "ammPosition"],
   processEvent: processFutarchyEvent,
   processAccountUpdate: processFutarchyAccountUpdate,
   snapshotAccounts: snapshotFutarchyAccounts,
