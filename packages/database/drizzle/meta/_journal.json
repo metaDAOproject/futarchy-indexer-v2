@@ -456,6 +456,13 @@
       "when": 1766439581741,
       "tag": "0064_spicy_wilson_fisk",
       "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1766531325376,
+      "tag": "0065_flawless_franklin_richards",
+      "breakpoints": true
     }
   ]
 }
