@@ -61,8 +61,8 @@ async function handlePerformancePackageInitializedEvent(
 
     await db.transaction(async (trx: DBTransaction) => {
       const [existing] = await trx.select()
-        .from(schema.v0_7_performance_packages)
-        .where(eq(schema.v0_7_performance_packages.performancePackageAddr, event.performancePackage.toString()))
+        .from(schema.v0_6_performance_packages)
+        .where(eq(schema.v0_6_performance_packages.performancePackageAddr, event.performancePackage.toString()))
         .limit(1);
 
       if (existing) {
@@ -80,7 +80,7 @@ async function handlePerformancePackageInitializedEvent(
         stateStr = "Unlocked";
       }
 
-      await trx.insert(schema.v0_7_performance_packages).values({
+      await trx.insert(schema.v0_6_performance_packages).values({
         performancePackageAddr: event.performancePackage.toString(),
         recipient: account.recipient.toString(),
         tokenMint: account.tokenMint.toString(),
@@ -111,11 +111,11 @@ async function handleUnlockStartedEvent(
 ) {
   try {
     await db.transaction(async (trx: DBTransaction) => {
-      await trx.update(schema.v0_7_performance_packages).set({
+      await trx.update(schema.v0_6_performance_packages).set({
         state: "UnlockStarted",
         seqNum: BigInt(event.common.performancePackageSeqNum.toString()),
-        updatedAtSlot: sql`GREATEST(${BigInt(event.common.slot.toString())}, ${schema.v0_7_performance_packages.updatedAtSlot})`,
-      }).where(eq(schema.v0_7_performance_packages.performancePackageAddr, event.performancePackage.toString()));
+        updatedAtSlot: sql`GREATEST(${BigInt(event.common.slot.toString())}, ${schema.v0_6_performance_packages.updatedAtSlot})`,
+      }).where(eq(schema.v0_6_performance_packages.performancePackageAddr, event.performancePackage.toString()));
 
       logger.info(`UnlockStarted for PerformancePackage: ${event.performancePackage.toString()}`);
     });
@@ -131,7 +131,7 @@ async function handleUnlockCompletedEvent(
 ) {
   try {
     // Insert unlock record
-    await db.insert(schema.v0_7_performance_package_unlocks).values({
+    await db.insert(schema.v0_6_performance_package_unlocks).values({
       performancePackageAddr: event.performancePackage.toString(),
       txSignature: signature,
       tokenAmount: BigInt(event.tokenAmount.toString()),
@@ -154,19 +154,19 @@ async function handleUnlockCompletedEvent(
         stateStr = "Unlocked";
       }
 
-      await db.update(schema.v0_7_performance_packages).set({
+      await db.update(schema.v0_6_performance_packages).set({
         alreadyUnlockedAmount: BigInt(account.alreadyUnlockedAmount.toString()),
         state: stateStr,
         seqNum: BigInt(account.seqNum.toString()),
-        updatedAtSlot: sql`GREATEST(${BigInt(event.common.slot.toString())}, ${schema.v0_7_performance_packages.updatedAtSlot})`,
-      }).where(eq(schema.v0_7_performance_packages.performancePackageAddr, event.performancePackage.toString()));
+        updatedAtSlot: sql`GREATEST(${BigInt(event.common.slot.toString())}, ${schema.v0_6_performance_packages.updatedAtSlot})`,
+      }).where(eq(schema.v0_6_performance_packages.performancePackageAddr, event.performancePackage.toString()));
     } catch (fetchError) {
       // Account might be closed after full unlock - mark as fully unlocked
       logger.debug({ performancePackage: event.performancePackage.toString() }, "Could not fetch account after unlock, may be closed");
-      await db.update(schema.v0_7_performance_packages).set({
+      await db.update(schema.v0_6_performance_packages).set({
         state: "Unlocked",
-        updatedAtSlot: sql`GREATEST(${BigInt(event.common.slot.toString())}, ${schema.v0_7_performance_packages.updatedAtSlot})`,
-      }).where(eq(schema.v0_7_performance_packages.performancePackageAddr, event.performancePackage.toString()));
+        updatedAtSlot: sql`GREATEST(${BigInt(event.common.slot.toString())}, ${schema.v0_6_performance_packages.updatedAtSlot})`,
+      }).where(eq(schema.v0_6_performance_packages.performancePackageAddr, event.performancePackage.toString()));
     }
 
     logger.info(`UnlockCompleted for PerformancePackage: ${event.performancePackage.toString()}, amount: ${event.tokenAmount.toString()}`);
@@ -206,14 +206,14 @@ async function handleChangeExecutedEvent(
       stateStr = "Unlocked";
     }
 
-    await db.update(schema.v0_7_performance_packages).set({
+    await db.update(schema.v0_6_performance_packages).set({
       recipient: account.recipient.toString(),
       performancePackageAuthority: account.performancePackageAuthority.toString(),
       tranches: account.tranches,
       state: stateStr,
       seqNum: BigInt(account.seqNum.toString()),
       updatedAtSlot: BigInt(transactionResponse.slot),
-    }).where(eq(schema.v0_7_performance_packages.performancePackageAddr, event.performancePackage.toString()));
+    }).where(eq(schema.v0_6_performance_packages.performancePackageAddr, event.performancePackage.toString()));
 
     logger.info(`ChangeExecuted for PerformancePackage: ${event.performancePackage.toString()}`);
   } catch (error) {
@@ -227,11 +227,11 @@ async function handlePerformancePackageAuthorityChangedEvent(
   transactionResponse: VersionedTransactionResponse
 ) {
   try {
-    await db.update(schema.v0_7_performance_packages).set({
+    await db.update(schema.v0_6_performance_packages).set({
       performancePackageAuthority: event.newAuthority.toString(),
       seqNum: BigInt(event.common.performancePackageSeqNum.toString()),
       updatedAtSlot: BigInt(event.common.slot.toString()),
-    }).where(eq(schema.v0_7_performance_packages.performancePackageAddr, event.locker.toString()));
+    }).where(eq(schema.v0_6_performance_packages.performancePackageAddr, event.locker.toString()));
 
     logger.info(`PerformancePackageAuthorityChanged: ${event.locker.toString()} -> ${event.newAuthority.toString()}`);
   } catch (error) {
@@ -259,7 +259,7 @@ export async function processPerformancePackageAccountUpdate(
       stateStr = "Unlocked";
     }
 
-    await db.insert(schema.v0_7_performance_packages).values({
+    await db.insert(schema.v0_6_performance_packages).values({
       performancePackageAddr: pubkey,
       recipient: accountData.recipient.toString(),
       tokenMint: accountData.tokenMint.toString(),
@@ -275,7 +275,7 @@ export async function processPerformancePackageAccountUpdate(
       pdaBump: accountData.pdaBump,
       updatedAtSlot: slot,
     }).onConflictDoUpdate({
-      target: schema.v0_7_performance_packages.performancePackageAddr,
+      target: schema.v0_6_performance_packages.performancePackageAddr,
       set: {
         recipient: accountData.recipient.toString(),
         performancePackageAuthority: accountData.performancePackageAuthority.toString(),
@@ -283,8 +283,8 @@ export async function processPerformancePackageAccountUpdate(
         alreadyUnlockedAmount: BigInt(accountData.alreadyUnlockedAmount.toString()),
         state: stateStr,
         tranches: accountData.tranches,
-        seqNum: sql`CASE WHEN ${slot} >= ${schema.v0_7_performance_packages.updatedAtSlot} THEN ${BigInt(accountData.seqNum.toString())} ELSE ${schema.v0_7_performance_packages.seqNum} END`,
-        updatedAtSlot: sql`GREATEST(${slot}, ${schema.v0_7_performance_packages.updatedAtSlot})`,
+        seqNum: sql`CASE WHEN ${slot} >= ${schema.v0_6_performance_packages.updatedAtSlot} THEN ${BigInt(accountData.seqNum.toString())} ELSE ${schema.v0_6_performance_packages.seqNum} END`,
+        updatedAtSlot: sql`GREATEST(${slot}, ${schema.v0_6_performance_packages.updatedAtSlot})`,
       }
     });
   } catch (error) {

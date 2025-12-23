@@ -27,7 +27,7 @@ export async function snapshotPerformancePackageAccounts(): Promise<void> {
           stateStr = "Unlocked";
         }
 
-        await db.insert(schema.v0_7_performance_packages).values({
+        await db.insert(schema.v0_6_performance_packages).values({
           performancePackageAddr: publicKey.toString(),
           recipient: account.recipient.toString(),
           tokenMint: account.tokenMint.toString(),

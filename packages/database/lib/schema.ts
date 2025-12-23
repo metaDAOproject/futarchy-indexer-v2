@@ -2104,7 +2104,7 @@ export const v0_7_bid_wall_fee_collections = pgTable("v0_7_bid_wall_fee_collecti
   txSignatureUnique: unique("v0_7_bid_wall_fee_collections_tx_signature_unique").on(table.txSignature),
 }));
 
-export const v0_7_performance_packages = pgTable("v0_7_performance_packages", {
+export const v0_6_performance_packages = pgTable("v0_6_performance_packages", {
   performancePackageAddr: pubkey("performance_package_addr").primaryKey(),
   launchAddr: pubkey("launch_addr"),
   daoAddr: pubkey("dao_addr"),
@@ -2125,14 +2125,14 @@ export const v0_7_performance_packages = pgTable("v0_7_performance_packages", {
     .default(sql`now()`),
   updatedAtSlot: slot("updated_at_slot").notNull(),
 }, (table) => ({
-  recipientIdx: index("v0_7_performance_packages_recipient_index").on(table.recipient),
-  tokenMintIdx: index("v0_7_performance_packages_token_mint_index").on(table.tokenMint),
+  recipientIdx: index("v0_6_performance_packages_recipient_index").on(table.recipient),
+  tokenMintIdx: index("v0_6_performance_packages_token_mint_index").on(table.tokenMint),
 }));
 
-export const v0_7_performance_package_unlocks = pgTable("v0_7_performance_package_unlocks", {
+export const v0_6_performance_package_unlocks = pgTable("v0_6_performance_package_unlocks", {
   id: bigserial("id", { mode: "bigint" }).primaryKey(),
   performancePackageAddr: pubkey("performance_package_addr").notNull()
-    .references(() => v0_7_performance_packages.performancePackageAddr),
+    .references(() => v0_6_performance_packages.performancePackageAddr),
   txSignature: transaction("tx_signature").notNull(),
   tokenAmount: bigint("token_amount", { mode: "bigint" }).notNull(),
   recipient: pubkey("recipient").notNull(),
@@ -2143,11 +2143,11 @@ export const v0_7_performance_package_unlocks = pgTable("v0_7_performance_packag
     .notNull()
     .default(sql`now()`),
 }, (table) => ({
-  packageIdx: index("v0_7_pp_unlocks_package_index").on(table.performancePackageAddr),
-  txSignatureUnique: unique("v0_7_pp_unlocks_tx_signature_unique").on(table.txSignature),
+  packageIdx: index("v0_6_pp_unlocks_package_index").on(table.performancePackageAddr),
+  txSignatureUnique: unique("v0_6_pp_unlocks_tx_signature_unique").on(table.txSignature),
 }));
 
-export const v0_7_amm_positions = pgTable("v0_7_amm_positions", {
+export const v0_6_amm_positions = pgTable("v0_6_amm_positions", {
   ammPositionAddr: pubkey("amm_position_addr").primaryKey(),
   daoAddr: pubkey("dao_addr").notNull().references(() => v0_6_daos.daoAddr),
   positionAuthority: pubkey("position_authority").notNull(),
@@ -2157,14 +2157,14 @@ export const v0_7_amm_positions = pgTable("v0_7_amm_positions", {
     .default(sql`now()`),
   updatedAtSlot: slot("updated_at_slot").notNull(),
 }, (table) => ({
-  daoIdx: index("v0_7_amm_positions_dao_index").on(table.daoAddr),
-  authorityIdx: index("v0_7_amm_positions_authority_index").on(table.positionAuthority),
+  daoIdx: index("v0_6_amm_positions_dao_index").on(table.daoAddr),
+  authorityIdx: index("v0_6_amm_positions_authority_index").on(table.positionAuthority),
 }));
 
-export const v0_7_liquidity_events = pgTable("v0_7_liquidity_events", {
+export const v0_6_liquidity_events = pgTable("v0_6_liquidity_events", {
   id: bigserial("id", { mode: "bigint" }).primaryKey(),
   ammPositionAddr: pubkey("amm_position_addr").notNull()
-    .references(() => v0_7_amm_positions.ammPositionAddr),
+    .references(() => v0_6_amm_positions.ammPositionAddr),
   daoAddr: pubkey("dao_addr").notNull().references(() => v0_6_daos.daoAddr),
   txSignature: transaction("tx_signature").notNull(),
   eventType: varchar("event_type", { length: 20 }).notNull(),
@@ -2177,9 +2177,9 @@ export const v0_7_liquidity_events = pgTable("v0_7_liquidity_events", {
     .notNull()
     .default(sql`now()`),
 }, (table) => ({
-  positionIdx: index("v0_7_liquidity_events_position_index").on(table.ammPositionAddr),
-  daoIdx: index("v0_7_liquidity_events_dao_index").on(table.daoAddr),
-  txSignatureUnique: unique("v0_7_liquidity_events_tx_signature_unique").on(table.txSignature),
+  positionIdx: index("v0_6_liquidity_events_position_index").on(table.ammPositionAddr),
+  daoIdx: index("v0_6_liquidity_events_dao_index").on(table.daoAddr),
+  txSignatureUnique: unique("v0_6_liquidity_events_tx_signature_unique").on(table.txSignature),
 }));
 
 export const futarchy_markets = pgTable("futarchy_markets", {
