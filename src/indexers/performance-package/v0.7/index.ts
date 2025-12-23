@@ -7,7 +7,7 @@ import { snapshotPerformancePackageAccounts } from "./snapshot";
 export const performancePackageIndexer = createProgramIndexer({
   programId: PRICE_BASED_PERFORMANCE_PACKAGE_PROGRAM_ID,
   name: "performance-package-v0.7",
-  program: priceBasedPerformancePackageClient.program,
+  programs: [priceBasedPerformancePackageClient.program],
   accountTypes: ["performancePackage"],
   processEvent: processPerformancePackageEvent,
   processAccountUpdate: processPerformancePackageAccountUpdate,

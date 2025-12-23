@@ -21,8 +21,8 @@ export class LogResult {
 
 export const mapLogHealth = new Map<string, LogResult>();
 
-// RPC connection reference (set by subscriptionManager before subscribing)
 let rpcConnection: Connection | null = null;
+const subscriptionIds: number[] = [];
 
 export function setRpcConnection(connection: Connection) {
   rpcConnection = connection;
@@ -39,12 +39,11 @@ async function subscribeToProgram(indexer: ProgramIndexer) {
 
   const programId = indexer.programId;
 
-  rpcConnection.onLogs(programId, async (logs: Logs, ctx: Context) => {
+  const subId = rpcConnection.onLogs(programId, async (logs: Logs, ctx: Context) => {
     let err: Error | undefined = undefined;
     try {
       logger.debug({ program: indexer.name, signature: logs.signature }, "RPC log received");
 
-      // Wait before fetching - transaction may not be available immediately
       await new Promise((resolve) => setTimeout(resolve, 500));
 
       if (logs.signature) {
@@ -66,7 +65,8 @@ async function subscribeToProgram(indexer: ProgramIndexer) {
     );
   }, "confirmed");
 
-  logger.info({ program: indexer.name, programId: programId.toString() }, "Subscribed to RPC logs");
+  subscriptionIds.push(subId);
+  logger.info({ program: indexer.name, programId: programId.toString(), subId }, "Subscribed to RPC logs");
 }
 
 /**
@@ -95,4 +95,22 @@ export async function subscribeAll() {
   await Promise.all(programs.map(indexer => subscribeToProgram(indexer)));
 
   logger.info("RPC log subscriptions active for all programs");
+}
+
+export async function unsubscribeAll() {
+  if (!rpcConnection) return;
+
+  logger.info({ count: subscriptionIds.length }, "Unsubscribing from all RPC logs");
+
+  for (const subId of subscriptionIds) {
+    try {
+      await rpcConnection.removeOnLogsListener(subId);
+      logger.debug({ subId }, "Removed log listener");
+    } catch (error) {
+      logger.warn({ subId, error }, "Failed to remove log listener");
+    }
+  }
+
+  subscriptionIds.length = 0;
+  logger.info("Unsubscribed from all RPC logs");
 }

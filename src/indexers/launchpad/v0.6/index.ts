@@ -7,7 +7,10 @@ import { snapshotLaunchpadAccounts } from "./snapshot";
 export const launchpadIndexer = createProgramIndexer({
   programId: LAUNCHPAD_PROGRAM_ID,
   name: "launchpad-v0.6",
-  program: launchpadClient.launchpad,
+  programs: [
+    launchpadClient.launchpad,         // v0.6.1 (current)
+    launchpadClient.v0_6_0_launchpad,  // v0.6.0 (old)
+  ],
   accountTypes: ["launch", "fundingRecord"],
   processEvent: processLaunchpadEvent,
   processAccountUpdate: processLaunchpadAccountUpdate,

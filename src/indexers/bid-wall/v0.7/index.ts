@@ -7,7 +7,7 @@ import { snapshotBidWallAccounts } from "./snapshot";
 export const bidWallIndexer = createProgramIndexer({
   programId: BID_WALL_PROGRAM_ID,
   name: "bid-wall-v0.7",
-  program: bidWallClient.bidWallProgram,
+  programs: [bidWallClient.bidWallProgram],
   accountTypes: ["bidWall"],
   processEvent: processBidWallEvent,
   processAccountUpdate: processBidWallAccountUpdate,

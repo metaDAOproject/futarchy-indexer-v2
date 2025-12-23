@@ -12,7 +12,7 @@ import bs58 from 'bs58';
 import { getAllPrograms, getProgramByOwner, getRegisteredProgramIds, ProgramIndexer } from "./registry";
 import { decodeEventsFromGrpc, extractBlockTimeFromEvents } from "./eventDecoder";
 import { serializeForLogging } from "../indexers/shared/utils";
-import { subscribeAll, setRpcConnection } from "../txLogHandler";
+import { subscribeAll, setRpcConnection, unsubscribeAll } from "../txLogHandler";
 import { log } from "../logger/logger";
 import { db, schema } from "@metadaoproject/indexer-db";
 import {
@@ -649,9 +649,14 @@ class SubscriptionManager {
   }
 
   private stopRpcSubscription(): void {
-    // RPC subscriptions are managed by connection.onLogs
-    // They auto-reconnect, so we just update state
     logger.info("Stopping RPC subscription");
+    unsubscribeAll();
+  }
+
+  private stopBackupGrpc(): void {
+    if (this.heliusProvider) {
+      this.heliusProvider.stop();
+    }
   }
 
   // ==================== Failover Logic ====================
@@ -772,6 +777,7 @@ class SubscriptionManager {
       if (success) {
         logger.info("gRPC reconnected successfully");
         this.stopRpcSubscription();
+        this.stopBackupGrpc();
         this.reconnectAttempts = 0;
 
         // Trigger gap fill for any missed slots during disconnection

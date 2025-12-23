@@ -13,7 +13,20 @@ import {
   FinalizeProposalEvent,
   CollectFeesEvent,
   SponsorProposalEvent,
-  getStakeAddr
+  getStakeAddr,
+  v0_6_0_FutarchyEvent,
+  v0_6_0_SpotSwapEvent,
+  v0_6_0_ConditionalSwapEvent,
+  v0_6_0_ProvideLiquidityEvent,
+  v0_6_0_WithdrawLiquidityEvent,
+  v0_6_0_InitializeDaoEvent,
+  v0_6_0_UpdateDaoEvent,
+  v0_6_0_InitializeProposalEvent,
+  v0_6_0_StakeToProposalEvent,
+  v0_6_0_UnstakeFromProposalEvent,
+  v0_6_0_LaunchProposalEvent,
+  v0_6_0_FinalizeProposalEvent,
+  v0_6_0_CollectFeesEvent,
 } from "@metadaoproject/futarchy/v0.6";
 import { schema, db, eq, sql, DBTransaction } from "@metadaoproject/indexer-db";
 import { PublicKey } from "@solana/web3.js";
@@ -49,46 +62,46 @@ export function setGeyserMode(enabled: boolean) {
 type DBConnection = any;
 
 export async function processFutarchyEvent(
-  event: { name: string; data: FutarchyEvent },
+  event: { name: string; data: FutarchyEvent | v0_6_0_FutarchyEvent },
   signature: string,
   transactionResponse: VersionedTransactionResponse
 ) {
   switch (event.name) {
     case "InitializeDaoEvent":
-      await handleInitializeDaoEvent(event.data as InitializeDaoEvent, signature, transactionResponse);
+      await handleInitializeDaoEvent(event.data as InitializeDaoEvent | v0_6_0_InitializeDaoEvent, signature, transactionResponse);
       break;
     case "UpdateDaoEvent":
-      await handleUpdateDaoEvent(event.data as UpdateDaoEvent, signature, transactionResponse);
+      await handleUpdateDaoEvent(event.data as UpdateDaoEvent | v0_6_0_UpdateDaoEvent, signature, transactionResponse);
       break;
     case "InitializeProposalEvent":
-      await handleInitializeProposalEvent(event.data as InitializeProposalEvent, signature, transactionResponse);
+      await handleInitializeProposalEvent(event.data as InitializeProposalEvent | v0_6_0_InitializeProposalEvent, signature, transactionResponse);
       break;
     case "StakeToProposalEvent":
-      await handleStakeToProposalEvent(event.data as StakeToProposalEvent, signature, transactionResponse);
+      await handleStakeToProposalEvent(event.data as StakeToProposalEvent | v0_6_0_StakeToProposalEvent, signature, transactionResponse);
       break;
     case "UnstakeFromProposalEvent":
-      await handleUnstakeFromProposalEvent(event.data as UnstakeFromProposalEvent, signature, transactionResponse);
+      await handleUnstakeFromProposalEvent(event.data as UnstakeFromProposalEvent | v0_6_0_UnstakeFromProposalEvent, signature, transactionResponse);
       break;
     case "LaunchProposalEvent":
-      await handleLaunchProposalEvent(event.data as LaunchProposalEvent, signature, transactionResponse);
+      await handleLaunchProposalEvent(event.data as LaunchProposalEvent | v0_6_0_LaunchProposalEvent, signature, transactionResponse);
       break;
     case "FinalizeProposalEvent":
-      await handleFinalizeProposalEvent(event.data as FinalizeProposalEvent, signature, transactionResponse);
+      await handleFinalizeProposalEvent(event.data as FinalizeProposalEvent | v0_6_0_FinalizeProposalEvent, signature, transactionResponse);
       break;
     case "SpotSwapEvent":
-      await handleSpotSwapEvent(event.data as SpotSwapEvent, signature, transactionResponse);
+      await handleSpotSwapEvent(event.data as SpotSwapEvent | v0_6_0_SpotSwapEvent, signature, transactionResponse);
       break;
     case "ConditionalSwapEvent":
-      await handleConditionalSwapEvent(event.data as ConditionalSwapEvent, signature, transactionResponse);
+      await handleConditionalSwapEvent(event.data as ConditionalSwapEvent | v0_6_0_ConditionalSwapEvent, signature, transactionResponse);
       break;
     case "ProvideLiquidityEvent":
-      await handleProvideLiquidityEvent(event.data as ProvideLiquidityEvent, signature, transactionResponse);
+      await handleProvideLiquidityEvent(event.data as ProvideLiquidityEvent | v0_6_0_ProvideLiquidityEvent, signature, transactionResponse);
       break;
     case "WithdrawLiquidityEvent":
-      await handleWithdrawLiquidityEvent(event.data as WithdrawLiquidityEvent, signature, transactionResponse);
+      await handleWithdrawLiquidityEvent(event.data as WithdrawLiquidityEvent | v0_6_0_WithdrawLiquidityEvent, signature, transactionResponse);
       break;
     case "CollectFeesEvent":
-      await handleCollectFeesEvent(event.data as CollectFeesEvent, signature, transactionResponse);
+      await handleCollectFeesEvent(event.data as CollectFeesEvent | v0_6_0_CollectFeesEvent, signature, transactionResponse);
       break;
     case "SponsorProposalEvent":
       await handleSponsorProposalEvent(event.data as SponsorProposalEvent, signature, transactionResponse);
@@ -98,7 +111,7 @@ export async function processFutarchyEvent(
   }
 }
 
-async function handleInitializeDaoEvent(event: InitializeDaoEvent, _signature: string, _transactionResponse: VersionedTransactionResponse) {
+async function handleInitializeDaoEvent(event: InitializeDaoEvent | v0_6_0_InitializeDaoEvent, _signature: string, _transactionResponse: VersionedTransactionResponse) {
   try {
     if (isGeyser) {
       const existingDao = await db.select()
@@ -130,7 +143,7 @@ async function handleInitializeDaoEvent(event: InitializeDaoEvent, _signature: s
   }
 }
 
-async function handleUpdateDaoEvent(event: UpdateDaoEvent, _signature: string, _transactionResponse: VersionedTransactionResponse) {
+async function handleUpdateDaoEvent(event: UpdateDaoEvent | v0_6_0_UpdateDaoEvent, _signature: string, _transactionResponse: VersionedTransactionResponse) {
   try {
     if (isGeyser) return;
 
@@ -150,7 +163,7 @@ async function handleUpdateDaoEvent(event: UpdateDaoEvent, _signature: string, _
   }
 }
 
-async function handleInitializeProposalEvent(event: InitializeProposalEvent, _signature: string, transactionResponse: VersionedTransactionResponse) {
+async function handleInitializeProposalEvent(event: InitializeProposalEvent | v0_6_0_InitializeProposalEvent, _signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
     if (isGeyser) {
       const existingProposal = await db.select()
@@ -189,7 +202,7 @@ async function handleInitializeProposalEvent(event: InitializeProposalEvent, _si
   }
 }
 
-async function handleStakeToProposalEvent(event: StakeToProposalEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+async function handleStakeToProposalEvent(event: StakeToProposalEvent | v0_6_0_StakeToProposalEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
     const [stakePda] = getStakeAddr(
       futarchyClient.futarchy.programId,
@@ -272,7 +285,7 @@ async function handleStakeToProposalEvent(event: StakeToProposalEvent, signature
   }
 }
 
-async function handleUnstakeFromProposalEvent(event: UnstakeFromProposalEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+async function handleUnstakeFromProposalEvent(event: UnstakeFromProposalEvent | v0_6_0_UnstakeFromProposalEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
     const [stakePda] = getStakeAddr(
       futarchyClient.futarchy.programId,
@@ -355,7 +368,7 @@ async function handleUnstakeFromProposalEvent(event: UnstakeFromProposalEvent, s
   }
 }
 
-async function handleLaunchProposalEvent(event: LaunchProposalEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+async function handleLaunchProposalEvent(event: LaunchProposalEvent | v0_6_0_LaunchProposalEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
     await db.transaction(async (trx: DBTransaction) => {
       // Update proposal state to Pending
@@ -394,9 +407,12 @@ async function handleLaunchProposalEvent(event: LaunchProposalEvent, signature: 
             seqNum: BigInt(event.common.daoSeqNum.toString()),
           }).where(eq(schema.v0_6_daos.daoAddr, event.dao.toString()));
 
-          await trx.update(schema.v0_6_proposals).set({
-            launchedAt: new Date(event.timestampEnqueued.mul(new BN(1000)).toNumber()),
-          }).where(eq(schema.v0_6_proposals.proposalAddr, event.proposal.toString()));
+          // timestampEnqueued only exists in newer v0.6.1+ events
+          if ('timestampEnqueued' in event) {
+            await trx.update(schema.v0_6_proposals).set({
+              launchedAt: new Date((event as LaunchProposalEvent).timestampEnqueued.mul(new BN(1000)).toNumber()),
+            }).where(eq(schema.v0_6_proposals.proposalAddr, event.proposal.toString()));
+          }
 
         } catch (fetchError) {
           logger.warn(`Could not fetch AMM vault balances for DAO ${event.dao.toString()}: ${fetchError}`);
@@ -417,7 +433,7 @@ async function handleLaunchProposalEvent(event: LaunchProposalEvent, signature: 
   }
 }
 
-async function handleFinalizeProposalEvent(event: FinalizeProposalEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+async function handleFinalizeProposalEvent(event: FinalizeProposalEvent | v0_6_0_FinalizeProposalEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
     const proposalAcct = await futarchyClient.fetchProposal(event.proposal);
 
@@ -438,7 +454,7 @@ async function handleFinalizeProposalEvent(event: FinalizeProposalEvent, signatu
   }
 }
 
-async function handleSpotSwapEvent(event: SpotSwapEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+async function handleSpotSwapEvent(event: SpotSwapEvent | v0_6_0_SpotSwapEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
     await db.transaction(async (trx: DBTransaction) => {
       // Extract reserves from postAmmState
@@ -479,7 +495,7 @@ async function handleSpotSwapEvent(event: SpotSwapEvent, signature: string, tran
   }
 }
 
-async function handleConditionalSwapEvent(event: ConditionalSwapEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+async function handleConditionalSwapEvent(event: ConditionalSwapEvent | v0_6_0_ConditionalSwapEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
     await db.transaction(async (trx: DBTransaction) => {
       // Extract reserves from postAmmState
@@ -522,7 +538,7 @@ async function handleConditionalSwapEvent(event: ConditionalSwapEvent, signature
   }
 }
 
-async function handleProvideLiquidityEvent(event: ProvideLiquidityEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+async function handleProvideLiquidityEvent(event: ProvideLiquidityEvent | v0_6_0_ProvideLiquidityEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
     await db.transaction(async (trx: DBTransaction) => {
       // Extract reserves from postAmmState
@@ -590,7 +606,7 @@ async function handleProvideLiquidityEvent(event: ProvideLiquidityEvent, signatu
   }
 }
 
-async function handleWithdrawLiquidityEvent(event: WithdrawLiquidityEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+async function handleWithdrawLiquidityEvent(event: WithdrawLiquidityEvent | v0_6_0_WithdrawLiquidityEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
     await db.transaction(async (trx: DBTransaction) => {
       // Extract reserves from postAmmState
@@ -649,7 +665,7 @@ async function handleWithdrawLiquidityEvent(event: WithdrawLiquidityEvent, signa
   }
 }
 
-async function handleCollectFeesEvent(event: CollectFeesEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+async function handleCollectFeesEvent(event: CollectFeesEvent | v0_6_0_CollectFeesEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
     await db.transaction(async (trx: DBTransaction) => {
       // Extract reserves from postAmmState

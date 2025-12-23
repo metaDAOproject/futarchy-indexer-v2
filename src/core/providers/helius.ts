@@ -5,6 +5,7 @@ const logger = log.child({ module: "laserstream" });
 
 export class HeliusProvider {
   private config: LaserstreamConfig;
+  private streamHandle: any = null;
 
   constructor(endpoint: string, apiKey: string) {
     this.config = { endpoint, apiKey };
@@ -75,14 +76,25 @@ export class HeliusProvider {
 
     logger.info("Connecting to laserstream...");
     try {
-      const stream = await subscribe(this.config, request, wrappedOnData, wrappedOnError);
-      logger.info({ streamId: stream?.id }, "Stream connected");
-      // Note: subscribe() returns when stream ends or errors
+      this.streamHandle = await subscribe(this.config, request, wrappedOnData, wrappedOnError);
+      logger.info({ streamId: this.streamHandle?.id }, "Stream connected");
     } catch (err) {
       logger.error({ error: (err as Error).message }, "Subscribe threw error");
       throw err;
     }
     logger.info({ txCount }, "Subscription ended");
+  }
+
+  stop(): void {
+    if (this.streamHandle) {
+      logger.info("Stopping backup GRPC stream");
+      try {
+        this.streamHandle.cancel();
+      } catch (error) {
+        logger.warn({ error }, "Error cancelling stream");
+      }
+      this.streamHandle = null;
+    }
   }
 
   /**

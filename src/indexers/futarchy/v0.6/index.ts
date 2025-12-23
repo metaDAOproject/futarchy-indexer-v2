@@ -7,7 +7,10 @@ import { snapshotFutarchyAccounts } from "./snapshot";
 export const futarchyIndexer = createProgramIndexer({
   programId: FUTARCHY_PROGRAM_ID,
   name: "futarchy-v0.6",
-  program: futarchyClient.futarchy,
+  programs: [
+    futarchyClient.futarchy,         // current (v0.6.1)
+    futarchyClient.v0_6_0_futarchy,  // old (v0.6.0)
+  ],
   accountTypes: ["dao", "proposal", "stakeAccount", "ammPosition"],
   processEvent: processFutarchyEvent,
   processAccountUpdate: processFutarchyAccountUpdate,

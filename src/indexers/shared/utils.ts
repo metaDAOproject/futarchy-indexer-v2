@@ -9,7 +9,25 @@ import * as token from "@solana/spl-token";
 import { connection, conditionalVaultClient } from "../../connections/v0.6";
 import { log } from "../../logger/logger";
 import { BN } from "@coral-xyz/anchor";
-import { InitializeConditionalVaultEvent, FinalizeProposalEvent, LaunchProposalEvent, ProvideLiquidityEvent, WithdrawLiquidityEvent, ConditionalSwapEvent, SpotSwapEvent, InitializeProposalEvent, SplitTokensEvent, Dao, AmmMath } from "@metadaoproject/futarchy/v0.6";
+import {
+  InitializeConditionalVaultEvent,
+  FinalizeProposalEvent,
+  LaunchProposalEvent,
+  ProvideLiquidityEvent,
+  WithdrawLiquidityEvent,
+  ConditionalSwapEvent,
+  SpotSwapEvent,
+  InitializeProposalEvent,
+  SplitTokensEvent,
+  Dao,
+  AmmMath,
+  v0_6_0_FinalizeProposalEvent,
+  v0_6_0_LaunchProposalEvent,
+  v0_6_0_ProvideLiquidityEvent,
+  v0_6_0_WithdrawLiquidityEvent,
+  v0_6_0_ConditionalSwapEvent,
+  v0_6_0_SpotSwapEvent,
+} from "@metadaoproject/futarchy/v0.6";
 
 const logger = log.child({
   module: "shared-utils"
@@ -813,7 +831,8 @@ export async function insertIfNotExistsMarkets(
  */
 export async function insertIfNotExistsPrices(
   db: DBConnection,
-  event: LaunchProposalEvent | ConditionalSwapEvent | SpotSwapEvent | ProvideLiquidityEvent | WithdrawLiquidityEvent | FinalizeProposalEvent,
+  event: LaunchProposalEvent | ConditionalSwapEvent | SpotSwapEvent | ProvideLiquidityEvent | WithdrawLiquidityEvent | FinalizeProposalEvent |
+         v0_6_0_LaunchProposalEvent | v0_6_0_ConditionalSwapEvent | v0_6_0_SpotSwapEvent | v0_6_0_ProvideLiquidityEvent | v0_6_0_WithdrawLiquidityEvent | v0_6_0_FinalizeProposalEvent,
   proposalAddr: string,
   slot: BN,
   marketsToUpdate?: ('spot' | 'pass' | 'fail')[]
@@ -913,7 +932,8 @@ export async function insertIfNotExistsPrices(
  */
 export async function insertIfNotExistsTwaps(
   db: DBConnection,
-  event: ConditionalSwapEvent | ProvideLiquidityEvent | WithdrawLiquidityEvent | FinalizeProposalEvent,
+  event: ConditionalSwapEvent | ProvideLiquidityEvent | WithdrawLiquidityEvent | FinalizeProposalEvent |
+         v0_6_0_ConditionalSwapEvent | v0_6_0_ProvideLiquidityEvent | v0_6_0_WithdrawLiquidityEvent | v0_6_0_FinalizeProposalEvent,
   proposalAddr: string,
   slot: BN
 ): Promise<void> {
