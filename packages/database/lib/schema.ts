@@ -2106,8 +2106,6 @@ export const v0_7_bid_wall_fee_collections = pgTable("v0_7_bid_wall_fee_collecti
 
 export const v0_6_performance_packages = pgTable("v0_6_performance_packages", {
   performancePackageAddr: pubkey("performance_package_addr").primaryKey(),
-  launchAddr: pubkey("launch_addr"),
-  daoAddr: pubkey("dao_addr"),
   recipient: pubkey("recipient").notNull(),
   tokenMint: pubkey("token_mint").notNull().references(() => tokens.mintAcct),
   performancePackageAuthority: pubkey("performance_package_authority").notNull(),

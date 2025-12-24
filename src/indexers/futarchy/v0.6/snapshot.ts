@@ -20,7 +20,8 @@ export async function snapshotFutarchyAccounts(): Promise<void> {
   await snapshotProposals();
 
   // Phase 3: Snapshot all stake accounts
-  await snapshotStakeAccounts();
+  // Disabled - don't want to override event-sourced staking records
+  // await snapshotStakeAccounts();
 
   logger.info("Futarchy account snapshot complete");
 }

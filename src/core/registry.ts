@@ -6,7 +6,7 @@ import vm from "node:vm";
 const logger = log.child({ module: "registry" });
 
 // Timeout for event decoding to prevent Anchor's infinite loop bug
-const DECODE_TIMEOUT_MS = 1000;
+const DECODE_TIMEOUT_MS = 20;
 
 /**
  * Safely decode with timeout protection against Anchor's infinite loop bug.

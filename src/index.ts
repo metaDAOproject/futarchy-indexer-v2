@@ -15,16 +15,11 @@ const ENABLE_GAPFILL = true;
 // Reindex: Reset tracking and re-process all historical signatures
 // Set to true to run reindex on startup (will reset progress and crawl from beginning)
 // REINDEX_FROM_SLOT: Optional starting slot (undefined = full history)
-// ** IMPORTANT ** if the program has been upgraded, namely event data won't match what is in the imported clients from the sdk,
-// then this reindexer will silently fail and hang on that event when reindexing. we would have to manually import all verisons of the idl
-// and have some range of slots per idl to properly do a historical decode.
-// an easy way to determine what viable slot you can crawl forward from is to go any explorer and plug in the program 
-// addy, they have a Last Deployed Slot that tracks most recent upgrades.
 // REINDEX_PROGRAM: Optional program name filter (undefined = all programs)
 // needs futarchy-v0.6 not the program address
 const ENABLE_REINDEXING = false;
-const REINDEX_FROM_SLOT: number | undefined = 383871385;
-const REINDEX_PROGRAM: string | undefined = "futarchy-v0.6";
+const REINDEX_FROM_SLOT: number | undefined = 371599949;
+const REINDEX_PROGRAM: string | undefined = "launchpad-v0.6";
 
 const appStartTime = new Date();
 

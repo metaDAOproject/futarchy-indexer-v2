@@ -18,7 +18,8 @@ export async function snapshotLaunchpadV7Accounts(): Promise<void> {
   await snapshotLaunches();
 
   // Phase 2: Snapshot all funding records
-  await snapshotFundingRecords();
+  // Disabled - don't want to override event-sourced funding records
+  // await snapshotFundingRecords();
 
   logger.info("Launchpad v0.7 account snapshot complete");
 }

@@ -109,7 +109,7 @@ interface FutarchyState {
 type DBConnection = any; // TODO: Fix typing..
 
 // Helper function to get the active (Pending) proposal for a DAO
-export async function getActiveProposalForDao(db: DBConnection, daoAddr: string): Promise<string | null> {
+export async function getActiveProposalForDao(db: DBConnection, daoAddr: string, source?: string): Promise<string | null> {
   const activeProposal = await db.select()
     .from(schema.v0_6_proposals)
     .where(and(
@@ -119,7 +119,7 @@ export async function getActiveProposalForDao(db: DBConnection, daoAddr: string)
     .limit(1);
 
   if (activeProposal.length > 0) {
-    logger.debug(`Found active proposal ${activeProposal[0].proposalAddr} for DAO ${daoAddr}`);
+    logger.debug(`Found active proposal ${activeProposal[0].proposalAddr} for DAO ${daoAddr} (${source || 'unknown'})`);
     return activeProposal[0].proposalAddr;
   }
 
@@ -649,7 +649,7 @@ export async function insertPricesFromAmmState(
 
     if ('futarchy' in ammState && ammState.futarchy) {
       const futarchyState = ammState.futarchy;
-      const activeProposalAddr = await getActiveProposalForDao(db, daoAddr);
+      const activeProposalAddr = await getActiveProposalForDao(db, daoAddr, 'account-update');
 
       if (futarchyState.spot) {
         const baseReserves = new BN(futarchyState.spot.baseReserves?.toString() || "0");
@@ -858,12 +858,13 @@ export async function insertIfNotExistsPrices(
     const markets = marketsToUpdate || ['spot', 'pass', 'fail'];
     const prices = [];
 
-    // Handle spot prices - check both futarchy mode (futarchyState.spot) and spot mode (spotModeState)
     if (markets.includes('spot')) {
       const spotReserves = futarchyState?.spot || spotModeState;
-      if (spotReserves) {
-        const spotBaseReserves = new BN(spotReserves.baseReserves.toString());
-        const spotQuoteReserves = new BN(spotReserves.quoteReserves.toString());
+      const spotBase = spotReserves?.baseReserves;
+      const spotQuote = spotReserves?.quoteReserves;
+      if (spotBase && spotQuote) {
+        const spotBaseReserves = new BN(spotBase.toString());
+        const spotQuoteReserves = new BN(spotQuote.toString());
         const spotPrice = calculatePriceWithDecimals(spotQuoteReserves, spotBaseReserves, quoteDecimals, baseDecimals);
 
         prices.push({
@@ -878,36 +879,44 @@ export async function insertIfNotExistsPrices(
       }
     }
 
-    if (markets.includes('pass') && futarchyState?.pass) {
-      const passBaseReserves = new BN(futarchyState.pass.baseReserves.toString());
-      const passQuoteReserves = new BN(futarchyState.pass.quoteReserves.toString());
-      const passPrice = calculatePriceWithDecimals(passQuoteReserves, passBaseReserves, quoteDecimals, baseDecimals);
+    if (markets.includes('pass')) {
+      const passBase = futarchyState?.pass?.baseReserves;
+      const passQuote = futarchyState?.pass?.quoteReserves;
+      if (passBase && passQuote) {
+        const passBaseReserves = new BN(passBase.toString());
+        const passQuoteReserves = new BN(passQuote.toString());
+        const passPrice = calculatePriceWithDecimals(passQuoteReserves, passBaseReserves, quoteDecimals, baseDecimals);
 
-      prices.push({
-        daoAddr: event.dao.toString(),
-        proposalAddr,
-        marketType: 'pass',
-        slot: slot.toString(),
-        baseReserves: passBaseReserves.toString(),
-        quoteReserves: passQuoteReserves.toString(),
-        price: passPrice.toString()
-      });
+        prices.push({
+          daoAddr: event.dao.toString(),
+          proposalAddr,
+          marketType: 'pass',
+          slot: slot.toString(),
+          baseReserves: passBaseReserves.toString(),
+          quoteReserves: passQuoteReserves.toString(),
+          price: passPrice.toString()
+        });
+      }
     }
 
-    if (markets.includes('fail') && futarchyState?.fail) {
-      const failBaseReserves = new BN(futarchyState.fail.baseReserves.toString());
-      const failQuoteReserves = new BN(futarchyState.fail.quoteReserves.toString());
-      const failPrice = calculatePriceWithDecimals(failQuoteReserves, failBaseReserves, quoteDecimals, baseDecimals);
+    if (markets.includes('fail')) {
+      const failBase = futarchyState?.fail?.baseReserves;
+      const failQuote = futarchyState?.fail?.quoteReserves;
+      if (failBase && failQuote) {
+        const failBaseReserves = new BN(failBase.toString());
+        const failQuoteReserves = new BN(failQuote.toString());
+        const failPrice = calculatePriceWithDecimals(failQuoteReserves, failBaseReserves, quoteDecimals, baseDecimals);
 
-      prices.push({
-        daoAddr: event.dao.toString(),
-        proposalAddr,
-        marketType: 'fail',
-        slot: slot.toString(),
-        baseReserves: failBaseReserves.toString(),
-        quoteReserves: failQuoteReserves.toString(),
-        price: failPrice.toString()
-      });
+        prices.push({
+          daoAddr: event.dao.toString(),
+          proposalAddr,
+          marketType: 'fail',
+          slot: slot.toString(),
+          baseReserves: failBaseReserves.toString(),
+          quoteReserves: failQuoteReserves.toString(),
+          price: failPrice.toString()
+        });
+      }
     }
 
     if (prices.length > 0) {
@@ -946,12 +955,12 @@ export async function insertIfNotExistsTwaps(
 
     const twaps = [];
 
-    if (futarchyState.pass?.oracle) {
-      const oracle = futarchyState.pass.oracle;
-      const aggregator = new BN(oracle.aggregator.toString());
-      const lastUpdatedTimestamp = new BN(oracle.lastUpdatedTimestamp.toString());
-      const createdAtTimestamp = new BN(oracle.createdAtTimestamp.toString());
-      const startDelaySeconds = new BN(oracle.startDelaySeconds.toString());
+    const passOracle = futarchyState.pass?.oracle;
+    if (passOracle?.aggregator && passOracle?.lastUpdatedTimestamp && passOracle?.createdAtTimestamp && passOracle?.startDelaySeconds) {
+      const aggregator = new BN(passOracle.aggregator.toString());
+      const lastUpdatedTimestamp = new BN(passOracle.lastUpdatedTimestamp.toString());
+      const createdAtTimestamp = new BN(passOracle.createdAtTimestamp.toString());
+      const startDelaySeconds = new BN(passOracle.startDelaySeconds.toString());
 
       const timeElapsed = lastUpdatedTimestamp.sub(createdAtTimestamp.add(startDelaySeconds));
 
@@ -964,20 +973,20 @@ export async function insertIfNotExistsTwaps(
           marketType: 'pass',
           slot: slot.toString(),
           aggregator: aggregator.toString(),
-          lastObservation: oracle.lastObservation.toString(),
-          lastPrice: oracle.lastPrice.toString(),
+          lastObservation: passOracle.lastObservation.toString(),
+          lastPrice: passOracle.lastPrice.toString(),
           twapValue: twapValue.toString(),
           timeElapsedSeconds: timeElapsed.toString()
         });
       }
     }
 
-    if (futarchyState.fail?.oracle) {
-      const oracle = futarchyState.fail.oracle;
-      const aggregator = new BN(oracle.aggregator.toString());
-      const lastUpdatedTimestamp = new BN(oracle.lastUpdatedTimestamp.toString());
-      const createdAtTimestamp = new BN(oracle.createdAtTimestamp.toString());
-      const startDelaySeconds = new BN(oracle.startDelaySeconds.toString());
+    const failOracle = futarchyState.fail?.oracle;
+    if (failOracle?.aggregator && failOracle?.lastUpdatedTimestamp && failOracle?.createdAtTimestamp && failOracle?.startDelaySeconds) {
+      const aggregator = new BN(failOracle.aggregator.toString());
+      const lastUpdatedTimestamp = new BN(failOracle.lastUpdatedTimestamp.toString());
+      const createdAtTimestamp = new BN(failOracle.createdAtTimestamp.toString());
+      const startDelaySeconds = new BN(failOracle.startDelaySeconds.toString());
 
       const timeElapsed = lastUpdatedTimestamp.sub(createdAtTimestamp.add(startDelaySeconds));
 
@@ -990,8 +999,8 @@ export async function insertIfNotExistsTwaps(
           marketType: 'fail',
           slot: slot.toString(),
           aggregator: aggregator.toString(),
-          lastObservation: oracle.lastObservation.toString(),
-          lastPrice: oracle.lastPrice.toString(),
+          lastObservation: failOracle.lastObservation.toString(),
+          lastPrice: failOracle.lastPrice.toString(),
           twapValue: twapValue.toString(),
           timeElapsedSeconds: timeElapsed.toString()
         });

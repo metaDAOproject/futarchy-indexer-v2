@@ -481,7 +481,7 @@ async function handleSpotSwapEvent(event: SpotSwapEvent | v0_6_0_SpotSwapEvent, 
         seqNum: BigInt(event.common.daoSeqNum.toString()),
       }).where(eq(schema.v0_6_daos.daoAddr, event.dao.toString()));
 
-      const proposal = await getActiveProposalForDao(trx, event.dao.toString());
+      const proposal = await getActiveProposalForDao(trx, event.dao.toString(), 'event');
 
       if (proposal) {
         await insertIfNotExistsMarkets(trx, proposal.toString(), event.dao.toString())
@@ -592,7 +592,7 @@ async function handleProvideLiquidityEvent(event: ProvideLiquidityEvent | v0_6_0
         timestamp: new Date(event.common.unixTimestamp.mul(new BN(1000)).toNumber()),
       }).onConflictDoNothing();
 
-      const proposal = await getActiveProposalForDao(trx, event.dao.toString());
+      const proposal = await getActiveProposalForDao(trx, event.dao.toString(), 'event');
 
       if (proposal) {
         await insertIfNotExistsMarkets(trx, proposal.toString(), event.dao.toString())
@@ -651,7 +651,7 @@ async function handleWithdrawLiquidityEvent(event: WithdrawLiquidityEvent | v0_6
         timestamp: new Date(event.common.unixTimestamp.mul(new BN(1000)).toNumber()),
       }).onConflictDoNothing();
 
-      const proposal = await getActiveProposalForDao(trx, event.dao.toString());
+      const proposal = await getActiveProposalForDao(trx, event.dao.toString(), 'event');
 
       if (proposal) {
         await insertIfNotExistsMarkets(trx, proposal.toString(), event.dao.toString())
