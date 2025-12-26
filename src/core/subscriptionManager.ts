@@ -170,6 +170,9 @@ class SubscriptionManager {
     // Stop RPC subscriptions
     this.stopRpcSubscription();
 
+    // Stop backup gRPC
+    this.stopBackupGrpc();
+
     this.state = "INITIALIZING";
   }
 
@@ -696,9 +699,15 @@ class SubscriptionManager {
       }
     }
 
+    // Clean up backup gRPC if it was active (transitioning from backup to RPC)
+    if (failingState === 'BACKUP_GRPC_ACTIVE') {
+      this.stopBackupGrpc();
+    }
+
     // Fall back to RPC
     logger.warn("Falling back to RPC subscription");
     await this.startRpcSubscription();
+    await this.handleSmartGapFill();
     this.scheduleGeyserReconnect();
   }
 

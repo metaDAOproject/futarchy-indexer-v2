@@ -183,11 +183,12 @@ async function runGapFill(
           gap.toSlot // Pass target slot so we know when to stop
         );
         logger.info({ program: program.name, txCount: result.txCount }, "Laserstream replay gap-fill complete");
+        await setIndexerSlot(program.name, gap.toSlot);
       } catch (error) {
         logger.error({ error, program: program.name }, "Backup gRPC replay failed, falling back to RPC crawl");
-        // Fall through to RPC gap-fill
         const result = await gapFill(program, rpcConnection);
         logger.info({ program: program.name, signatures: result.count }, "RPC gap-fill complete");
+        await setIndexerSlot(program.name, gap.toSlot);
       }
     } else {
       // Use RPC signature crawl for large gaps
@@ -195,6 +196,7 @@ async function runGapFill(
       try {
         const result = await gapFill(program, rpcConnection);
         logger.info({ program: program.name, signatures: result.count }, "RPC gap-fill complete");
+        await setIndexerSlot(program.name, gap.toSlot);
       } catch (error) {
         logger.error({ error, program: program.name }, "RPC gap-fill failed");
       }
