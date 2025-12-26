@@ -9,6 +9,7 @@ import {
   LaunchCloseEvent,
   FundingRecordApprovalSetEvent,
   LaunchClaimAdditionalTokenAllocationEvent,
+  LaunchPerformancePackageInitializedEvent,
 } from "@metadaoproject/futarchy/v0.7";
 import { schema, db, eq, and, sql, DBTransaction } from "@metadaoproject/indexer-db";
 import { PublicKey } from "@solana/web3.js";
@@ -16,7 +17,6 @@ import type { VersionedTransactionResponse } from "@solana/web3.js";
 import { V06LaunchState } from "@metadaoproject/indexer-db/lib/schema";
 import * as token from "@solana/spl-token";
 import { launchpadV7Client } from "../../../connections/v0.7";
-// Import futarchy client from v0.6 since futarchy stays on v0.6
 import { futarchyClient } from "../../../connections/v0.6";
 import { insertTokenIfNotExists } from "../../shared/utils";
 import { log } from "../../../logger/logger";
@@ -60,6 +60,9 @@ export async function processLaunchpadV7Event(
       break;
     case "LaunchClaimAdditionalTokenAllocationEvent":
       await handleLaunchClaimAdditionalTokenAllocationEvent(event.data as LaunchClaimAdditionalTokenAllocationEvent, signature, transactionResponse);
+      break;
+    case "LaunchPerformancePackageInitializedEvent":
+      await handleLaunchPerformancePackageInitializedEvent(event.data as LaunchPerformancePackageInitializedEvent, signature, transactionResponse);
       break;
     default:
       logger.info({ eventName: event.name }, "Unknown Launchpad v0.7 event");
@@ -319,6 +322,8 @@ async function handleLaunchCompletedEvent(event: LaunchCompletedEvent, signature
               baseToStake: BigInt(dao.baseToStake?.toString() || '0'),
               seqNum: BigInt(dao.seqNum.toString()),
               initialSpendingLimit: dao.initialSpendingLimit || null,
+              teamSponsoredPassThresholdBps: dao.teamSponsoredPassThresholdBps ?? 0,
+              teamAddress: dao.teamAddress?.toString() ?? "",
               ammBaseAmount: 0n,
               ammQuoteAmount: 0n,
               ammVaultAtaBase: token.getAssociatedTokenAddressSync(
@@ -364,6 +369,8 @@ async function handleLaunchCompletedEvent(event: LaunchCompletedEvent, signature
               additionalTokensAmount: BigInt(launchAccount.additionalTokensAmount?.toString() ?? '0'),
               additionalTokensRecipient: launchAccount.additionalTokensRecipient?.toString() ?? null,
               additionalTokensClaimed: launchAccount.additionalTokensClaimed ?? false,
+              unixTimestampCompleted: launchAccount.unixTimestampCompleted ? BigInt(launchAccount.unixTimestampCompleted.toString()) : null,
+              isPerformancePackageInitialized: launchAccount.isPerformancePackageInitialized,
             };
           }
         } catch (fetchError) {
@@ -497,6 +504,24 @@ async function handleLaunchClaimAdditionalTokenAllocationEvent(event: LaunchClai
     });
   } catch (error) {
     logger.error(error, "Error in handleLaunchClaimAdditionalTokenAllocationEvent");
+  }
+}
+
+async function handleLaunchPerformancePackageInitializedEvent(event: LaunchPerformancePackageInitializedEvent, _signature: string, _transactionResponse: VersionedTransactionResponse) {
+  try {
+    // Log the performance package initialization
+    logger.info({
+      launch: event.launch.toString(),
+      performancePackage: event.performancePackage.toString(),
+    }, "Performance package initialized for launch");
+
+    // Update the launch record to mark performance package as initialized
+    await db.update(schema.v0_7_launches).set({
+      isPerformancePackageInitialized: true,
+      updatedAtSlot: BigInt(event.common.slot.toString()),
+    }).where(eq(schema.v0_7_launches.launchAddr, event.launch.toString()));
+  } catch (error) {
+    logger.error(error, "Error in handleLaunchPerformancePackageInitializedEvent");
   }
 }
 

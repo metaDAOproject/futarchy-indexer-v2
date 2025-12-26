@@ -18,7 +18,8 @@ export async function snapshotLaunchpadV7Accounts(): Promise<void> {
   await snapshotLaunches();
 
   // Phase 2: Snapshot all funding records
-  await snapshotFundingRecords();
+  // Disabled - don't want to override event-sourced funding records
+  // await snapshotFundingRecords();
 
   logger.info("Launchpad v0.7 account snapshot complete");
 }
@@ -76,6 +77,8 @@ async function snapshotLaunches(): Promise<void> {
           additionalTokensAmount: BigInt(launch.account.additionalTokensAmount?.toString() ?? '0'),
           additionalTokensRecipient: launch.account.additionalTokensRecipient?.toString() ?? null,
           additionalTokensClaimed: launch.account.additionalTokensClaimed ?? false,
+          unixTimestampCompleted: launch.account.unixTimestampCompleted ? BigInt(launch.account.unixTimestampCompleted.toString()) : null,
+          isPerformancePackageInitialized: launch.account.isPerformancePackageInitialized,
           updatedAtSlot: 0n,
         }).onConflictDoNothing();
       } catch (error) {

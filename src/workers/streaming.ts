@@ -13,8 +13,13 @@ import "../indexers/futarchy/v0.6";
 import "../indexers/launchpad/v0.6";
 import "../indexers/launchpad/v0.7";
 import "../indexers/conditional-vault/v0.4";
+import "../indexers/bid-wall/v0.7";
+import "../indexers/performance-package/v0.7";
 
 const logger = log.child({ module: "streaming-worker" });
+
+// Resource reference for cleanup
+let healthInterval: NodeJS.Timeout | null = null;
 
 async function main() {
   const dryRun = process.env.DRY_RUN === 'true';
@@ -36,7 +41,7 @@ async function main() {
   });
 
   // Periodic health reporting
-  setInterval(() => {
+  healthInterval = setInterval(() => {
     const health = subscriptionManager.getHealth();
     if (process.send) {
       process.send({ type: 'health', data: health });
@@ -44,9 +49,19 @@ async function main() {
   }, 5000);
 
   // Graceful shutdown
-  process.on('SIGTERM', () => {
+  process.on('SIGTERM', async () => {
     logger.info('Streaming worker shutting down...');
-    subscriptionManager.stop();
+
+    // Clear health reporting interval
+    if (healthInterval) {
+      clearInterval(healthInterval);
+      healthInterval = null;
+    }
+
+    // Stop subscription manager (cleans up gRPC, backup gRPC, RPC)
+    await subscriptionManager.stop();
+
+    logger.info('Streaming worker stopped');
     process.exit(0);
   });
 }

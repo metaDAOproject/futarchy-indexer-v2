@@ -15,16 +15,11 @@ const ENABLE_GAPFILL = true;
 // Reindex: Reset tracking and re-process all historical signatures
 // Set to true to run reindex on startup (will reset progress and crawl from beginning)
 // REINDEX_FROM_SLOT: Optional starting slot (undefined = full history)
-// ** IMPORTANT ** if the program has been upgraded, namely event data won't match what is in the imported clients from the sdk,
-// then this reindexer will silently fail and hang on that event when reindexing. we would have to manually import all verisons of the idl
-// and have some range of slots per idl to properly do a historical decode.
-// an easy way to determine what viable slot you can crawl forward from is to go any explorer and plug in the program 
-// addy, they have a Last Deployed Slot that tracks most recent upgrades.
 // REINDEX_PROGRAM: Optional program name filter (undefined = all programs)
 // needs futarchy-v0.6 not the program address
 const ENABLE_REINDEXING = false;
-const REINDEX_FROM_SLOT: number | undefined = 383871385;
-const REINDEX_PROGRAM: string | undefined = "futarchy-v0.6";
+const REINDEX_FROM_SLOT: number | undefined = 371599949;
+const REINDEX_PROGRAM: string | undefined = "launchpad-v0.6";
 
 const appStartTime = new Date();
 
@@ -74,6 +69,12 @@ let reindexCompleted: { at: Date; exitCode: number } | null = null;
 let priceHandlerLastRun: Date | null = null;
 let priceHandlerLastResult: { message: string; error: Error | undefined } | null = null;
 
+// Resource references for cleanup
+let backfillCron: CronJob | null = null;
+let gapfillCron: CronJob | null = null;
+let pricesCron: CronJob | null = null;
+let httpServer: ReturnType<typeof http.createServer> | null = null;
+
 async function main() {
   logger.info("Starting main process");
   logger.info({
@@ -110,7 +111,7 @@ async function main() {
   // Cron-scheduled backfill (historical signature crawl) - runs hourly
   if (ENABLE_BACKFILL && !DRY_RUN) {
     logger.info("Starting backfill cron (hourly)");
-    const backfillCron = new CronJob("0 * * * *", async () => {
+    backfillCron = new CronJob("0 * * * *", async () => {
       if (backfillRunning) {
         logger.warn("Backfill already running, skipping");
         return;
@@ -123,7 +124,7 @@ async function main() {
   // Cron-scheduled gap-fill (catch missed slots) - runs every 10 minutes
   if (ENABLE_GAPFILL && !DRY_RUN) {
     logger.info("Starting gapfill cron (every 10 min)");
-    const gapfillCron = new CronJob("*/10 * * * *", async () => {
+    gapfillCron = new CronJob("*/10 * * * *", async () => {
       if (gapfillRunning) {
         logger.warn("Gapfill already running, skipping");
         return;
@@ -134,7 +135,7 @@ async function main() {
   }
 
   // Jupiter USD price updates - runs every minute
-  const pricesCron = new CronJob("* * * * *", async () => {
+  pricesCron = new CronJob("* * * * *", async () => {
     priceHandlerLastResult = await updatePrices();
     priceHandlerLastRun = new Date();
   });
@@ -142,7 +143,7 @@ async function main() {
   logger.info("Started Jupiter price updates cron (every minute)");
 
   // Health server
-  const server = http.createServer((req: any, res: any) => {
+  httpServer = http.createServer((req: any, res: any) => {
     const reqUrl = new URL(req.url, `http://${req.headers.host}`).pathname;
     let hasError = false;
     for (const result of healthMap.values()) {
@@ -291,7 +292,7 @@ async function main() {
   });
 
   let port = process.env.PORT ?? 8080;
-  server.listen(port, () => {
+  httpServer.listen(port, () => {
     logger.info(`Health server running at ${port}`);
   });
 }
@@ -438,9 +439,37 @@ async function runBackfillWorker(
 
 process.on('SIGTERM', () => {
   logger.info('Main process shutting down...');
+
+  // Stop cron jobs first (prevent new work)
+  if (backfillCron) {
+    backfillCron.stop();
+    logger.info('Stopped backfill cron');
+  }
+  if (gapfillCron) {
+    gapfillCron.stop();
+    logger.info('Stopped gapfill cron');
+  }
+  if (pricesCron) {
+    pricesCron.stop();
+    logger.info('Stopped prices cron');
+  }
+
+  // Kill worker processes
   if (streamingProcess) {
     streamingProcess.kill();
+    logger.info('Sent SIGTERM to streaming worker');
   }
+  if (reindexProcess) {
+    reindexProcess.kill();
+    logger.info('Sent SIGTERM to reindex worker');
+  }
+
+  // Close HTTP server
+  if (httpServer) {
+    httpServer.close();
+    logger.info('Closed HTTP server');
+  }
+
   process.exit(0);
 });
 

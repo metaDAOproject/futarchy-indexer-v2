@@ -12,7 +12,21 @@ import {
   LaunchProposalEvent,
   FinalizeProposalEvent,
   CollectFeesEvent,
-  getStakeAddr
+  SponsorProposalEvent,
+  getStakeAddr,
+  v0_6_0_FutarchyEvent,
+  v0_6_0_SpotSwapEvent,
+  v0_6_0_ConditionalSwapEvent,
+  v0_6_0_ProvideLiquidityEvent,
+  v0_6_0_WithdrawLiquidityEvent,
+  v0_6_0_InitializeDaoEvent,
+  v0_6_0_UpdateDaoEvent,
+  v0_6_0_InitializeProposalEvent,
+  v0_6_0_StakeToProposalEvent,
+  v0_6_0_UnstakeFromProposalEvent,
+  v0_6_0_LaunchProposalEvent,
+  v0_6_0_FinalizeProposalEvent,
+  v0_6_0_CollectFeesEvent,
 } from "@metadaoproject/futarchy/v0.6";
 import { schema, db, eq, sql, DBTransaction } from "@metadaoproject/indexer-db";
 import { PublicKey } from "@solana/web3.js";
@@ -48,53 +62,56 @@ export function setGeyserMode(enabled: boolean) {
 type DBConnection = any;
 
 export async function processFutarchyEvent(
-  event: { name: string; data: FutarchyEvent },
+  event: { name: string; data: FutarchyEvent | v0_6_0_FutarchyEvent },
   signature: string,
   transactionResponse: VersionedTransactionResponse
 ) {
   switch (event.name) {
     case "InitializeDaoEvent":
-      await handleInitializeDaoEvent(event.data as InitializeDaoEvent, signature, transactionResponse);
+      await handleInitializeDaoEvent(event.data as InitializeDaoEvent | v0_6_0_InitializeDaoEvent, signature, transactionResponse);
       break;
     case "UpdateDaoEvent":
-      await handleUpdateDaoEvent(event.data as UpdateDaoEvent, signature, transactionResponse);
+      await handleUpdateDaoEvent(event.data as UpdateDaoEvent | v0_6_0_UpdateDaoEvent, signature, transactionResponse);
       break;
     case "InitializeProposalEvent":
-      await handleInitializeProposalEvent(event.data as InitializeProposalEvent, signature, transactionResponse);
+      await handleInitializeProposalEvent(event.data as InitializeProposalEvent | v0_6_0_InitializeProposalEvent, signature, transactionResponse);
       break;
     case "StakeToProposalEvent":
-      await handleStakeToProposalEvent(event.data as StakeToProposalEvent, signature, transactionResponse);
+      await handleStakeToProposalEvent(event.data as StakeToProposalEvent | v0_6_0_StakeToProposalEvent, signature, transactionResponse);
       break;
     case "UnstakeFromProposalEvent":
-      await handleUnstakeFromProposalEvent(event.data as UnstakeFromProposalEvent, signature, transactionResponse);
+      await handleUnstakeFromProposalEvent(event.data as UnstakeFromProposalEvent | v0_6_0_UnstakeFromProposalEvent, signature, transactionResponse);
       break;
     case "LaunchProposalEvent":
-      await handleLaunchProposalEvent(event.data as LaunchProposalEvent, signature, transactionResponse);
+      await handleLaunchProposalEvent(event.data as LaunchProposalEvent | v0_6_0_LaunchProposalEvent, signature, transactionResponse);
       break;
     case "FinalizeProposalEvent":
-      await handleFinalizeProposalEvent(event.data as FinalizeProposalEvent, signature, transactionResponse);
+      await handleFinalizeProposalEvent(event.data as FinalizeProposalEvent | v0_6_0_FinalizeProposalEvent, signature, transactionResponse);
       break;
     case "SpotSwapEvent":
-      await handleSpotSwapEvent(event.data as SpotSwapEvent, signature, transactionResponse);
+      await handleSpotSwapEvent(event.data as SpotSwapEvent | v0_6_0_SpotSwapEvent, signature, transactionResponse);
       break;
     case "ConditionalSwapEvent":
-      await handleConditionalSwapEvent(event.data as ConditionalSwapEvent, signature, transactionResponse);
+      await handleConditionalSwapEvent(event.data as ConditionalSwapEvent | v0_6_0_ConditionalSwapEvent, signature, transactionResponse);
       break;
     case "ProvideLiquidityEvent":
-      await handleProvideLiquidityEvent(event.data as ProvideLiquidityEvent, signature, transactionResponse);
+      await handleProvideLiquidityEvent(event.data as ProvideLiquidityEvent | v0_6_0_ProvideLiquidityEvent, signature, transactionResponse);
       break;
     case "WithdrawLiquidityEvent":
-      await handleWithdrawLiquidityEvent(event.data as WithdrawLiquidityEvent, signature, transactionResponse);
+      await handleWithdrawLiquidityEvent(event.data as WithdrawLiquidityEvent | v0_6_0_WithdrawLiquidityEvent, signature, transactionResponse);
       break;
     case "CollectFeesEvent":
-      await handleCollectFeesEvent(event.data as CollectFeesEvent, signature, transactionResponse);
+      await handleCollectFeesEvent(event.data as CollectFeesEvent | v0_6_0_CollectFeesEvent, signature, transactionResponse);
+      break;
+    case "SponsorProposalEvent":
+      await handleSponsorProposalEvent(event.data as SponsorProposalEvent, signature, transactionResponse);
       break;
     default:
-      logger.info("Unknown Futarchy event", event.name);
+      logger.info({ eventName: event.name }, "Unknown Futarchy event");
   }
 }
 
-async function handleInitializeDaoEvent(event: InitializeDaoEvent, _signature: string, _transactionResponse: VersionedTransactionResponse) {
+async function handleInitializeDaoEvent(event: InitializeDaoEvent | v0_6_0_InitializeDaoEvent, _signature: string, _transactionResponse: VersionedTransactionResponse) {
   try {
     if (isGeyser) {
       const existingDao = await db.select()
@@ -126,7 +143,7 @@ async function handleInitializeDaoEvent(event: InitializeDaoEvent, _signature: s
   }
 }
 
-async function handleUpdateDaoEvent(event: UpdateDaoEvent, _signature: string, _transactionResponse: VersionedTransactionResponse) {
+async function handleUpdateDaoEvent(event: UpdateDaoEvent | v0_6_0_UpdateDaoEvent, _signature: string, _transactionResponse: VersionedTransactionResponse) {
   try {
     if (isGeyser) return;
 
@@ -146,7 +163,7 @@ async function handleUpdateDaoEvent(event: UpdateDaoEvent, _signature: string, _
   }
 }
 
-async function handleInitializeProposalEvent(event: InitializeProposalEvent, _signature: string, transactionResponse: VersionedTransactionResponse) {
+async function handleInitializeProposalEvent(event: InitializeProposalEvent | v0_6_0_InitializeProposalEvent, _signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
     if (isGeyser) {
       const existingProposal = await db.select()
@@ -185,10 +202,10 @@ async function handleInitializeProposalEvent(event: InitializeProposalEvent, _si
   }
 }
 
-async function handleStakeToProposalEvent(event: StakeToProposalEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+async function handleStakeToProposalEvent(event: StakeToProposalEvent | v0_6_0_StakeToProposalEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
     const [stakePda] = getStakeAddr(
-      futarchyClient.autocrat.programId,
+      futarchyClient.futarchy.programId,
       event.proposal,
       event.staker
     );
@@ -230,7 +247,7 @@ async function handleStakeToProposalEvent(event: StakeToProposalEvent, signature
 
       let actualStakedAmount: string;
       try {
-        const stakeAccountData = await futarchyClient.autocrat.account.stakeAccount.fetch(stakePda);
+        const stakeAccountData = await futarchyClient.futarchy.account.stakeAccount.fetch(stakePda);
         actualStakedAmount = stakeAccountData.amount.toString();
       } catch {
         actualStakedAmount = event.amount.toString();
@@ -268,10 +285,10 @@ async function handleStakeToProposalEvent(event: StakeToProposalEvent, signature
   }
 }
 
-async function handleUnstakeFromProposalEvent(event: UnstakeFromProposalEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+async function handleUnstakeFromProposalEvent(event: UnstakeFromProposalEvent | v0_6_0_UnstakeFromProposalEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
     const [stakePda] = getStakeAddr(
-      futarchyClient.autocrat.programId,
+      futarchyClient.futarchy.programId,
       event.proposal,
       event.staker
     );
@@ -313,7 +330,7 @@ async function handleUnstakeFromProposalEvent(event: UnstakeFromProposalEvent, s
 
       let actualStakedAmount: string;
       try {
-        const stakeAccountData = await futarchyClient.autocrat.account.stakeAccount.fetch(stakePda);
+        const stakeAccountData = await futarchyClient.futarchy.account.stakeAccount.fetch(stakePda);
         actualStakedAmount = stakeAccountData.amount.toString();
       } catch {
         actualStakedAmount = "0";
@@ -351,7 +368,7 @@ async function handleUnstakeFromProposalEvent(event: UnstakeFromProposalEvent, s
   }
 }
 
-async function handleLaunchProposalEvent(event: LaunchProposalEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+async function handleLaunchProposalEvent(event: LaunchProposalEvent | v0_6_0_LaunchProposalEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
     await db.transaction(async (trx: DBTransaction) => {
       // Update proposal state to Pending
@@ -390,9 +407,12 @@ async function handleLaunchProposalEvent(event: LaunchProposalEvent, signature: 
             seqNum: BigInt(event.common.daoSeqNum.toString()),
           }).where(eq(schema.v0_6_daos.daoAddr, event.dao.toString()));
 
-          await trx.update(schema.v0_6_proposals).set({
-            launchedAt: new Date(event.timestampEnqueued.mul(new BN(1000)).toNumber()),
-          }).where(eq(schema.v0_6_proposals.proposalAddr, event.proposal.toString()));
+          // timestampEnqueued only exists in newer v0.6.1+ events
+          if ('timestampEnqueued' in event) {
+            await trx.update(schema.v0_6_proposals).set({
+              launchedAt: new Date((event as LaunchProposalEvent).timestampEnqueued.mul(new BN(1000)).toNumber()),
+            }).where(eq(schema.v0_6_proposals.proposalAddr, event.proposal.toString()));
+          }
 
         } catch (fetchError) {
           logger.warn(`Could not fetch AMM vault balances for DAO ${event.dao.toString()}: ${fetchError}`);
@@ -413,7 +433,7 @@ async function handleLaunchProposalEvent(event: LaunchProposalEvent, signature: 
   }
 }
 
-async function handleFinalizeProposalEvent(event: FinalizeProposalEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+async function handleFinalizeProposalEvent(event: FinalizeProposalEvent | v0_6_0_FinalizeProposalEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
     const proposalAcct = await futarchyClient.fetchProposal(event.proposal);
 
@@ -434,7 +454,7 @@ async function handleFinalizeProposalEvent(event: FinalizeProposalEvent, signatu
   }
 }
 
-async function handleSpotSwapEvent(event: SpotSwapEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+async function handleSpotSwapEvent(event: SpotSwapEvent | v0_6_0_SpotSwapEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
     await db.transaction(async (trx: DBTransaction) => {
       // Extract reserves from postAmmState
@@ -461,7 +481,7 @@ async function handleSpotSwapEvent(event: SpotSwapEvent, signature: string, tran
         seqNum: BigInt(event.common.daoSeqNum.toString()),
       }).where(eq(schema.v0_6_daos.daoAddr, event.dao.toString()));
 
-      const proposal = await getActiveProposalForDao(trx, event.dao.toString());
+      const proposal = await getActiveProposalForDao(trx, event.dao.toString(), 'event');
 
       if (proposal) {
         await insertIfNotExistsMarkets(trx, proposal.toString(), event.dao.toString())
@@ -475,7 +495,7 @@ async function handleSpotSwapEvent(event: SpotSwapEvent, signature: string, tran
   }
 }
 
-async function handleConditionalSwapEvent(event: ConditionalSwapEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+async function handleConditionalSwapEvent(event: ConditionalSwapEvent | v0_6_0_ConditionalSwapEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
     await db.transaction(async (trx: DBTransaction) => {
       // Extract reserves from postAmmState
@@ -518,7 +538,7 @@ async function handleConditionalSwapEvent(event: ConditionalSwapEvent, signature
   }
 }
 
-async function handleProvideLiquidityEvent(event: ProvideLiquidityEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+async function handleProvideLiquidityEvent(event: ProvideLiquidityEvent | v0_6_0_ProvideLiquidityEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
     await db.transaction(async (trx: DBTransaction) => {
       // Extract reserves from postAmmState
@@ -531,7 +551,48 @@ async function handleProvideLiquidityEvent(event: ProvideLiquidityEvent, signatu
         seqNum: BigInt(event.common.daoSeqNum.toString()),
       }).where(eq(schema.v0_6_daos.daoAddr, event.dao.toString()));
 
-      const proposal = await getActiveProposalForDao(trx, event.dao.toString());
+      // Derive ammPosition PDA - positionAuthority is available in ProvideLiquidityEvent
+      const [ammPositionPda] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("amm_position"),
+          event.dao.toBuffer(),
+          event.positionAuthority.toBuffer(),
+        ],
+        futarchyClient.futarchy.programId
+      );
+
+      // Upsert AmmPosition - only in RPC mode (gRPC handles via account streaming)
+      if (!isGeyser) {
+        const ammPositionAcct = await futarchyClient.futarchy.account.ammPosition.fetch(ammPositionPda);
+        await trx.insert(schema.v0_6_amm_positions).values({
+          ammPositionAddr: ammPositionPda.toString(),
+          daoAddr: event.dao.toString(),
+          positionAuthority: event.positionAuthority.toString(),
+          liquidity: ammPositionAcct.liquidity.toString(),
+          updatedAtSlot: BigInt(event.common.slot.toString()),
+        }).onConflictDoUpdate({
+          target: schema.v0_6_amm_positions.ammPositionAddr,
+          set: {
+            liquidity: ammPositionAcct.liquidity.toString(),
+            updatedAtSlot: sql`GREATEST(${BigInt(event.common.slot.toString())}, ${schema.v0_6_amm_positions.updatedAtSlot})`,
+          }
+        });
+      }
+
+      // Insert liquidity event
+      await trx.insert(schema.v0_6_liquidity_events).values({
+        ammPositionAddr: ammPositionPda.toString(),
+        daoAddr: event.dao.toString(),
+        txSignature: signature,
+        eventType: "provide",
+        baseAmount: BigInt(event.baseAmount.toString()),
+        quoteAmount: BigInt(event.quoteAmount.toString()),
+        liquidityDelta: event.liquidityMinted.toString(),
+        slot: BigInt(event.common.slot.toString()),
+        timestamp: new Date(event.common.unixTimestamp.mul(new BN(1000)).toNumber()),
+      }).onConflictDoNothing();
+
+      const proposal = await getActiveProposalForDao(trx, event.dao.toString(), 'event');
 
       if (proposal) {
         await insertIfNotExistsMarkets(trx, proposal.toString(), event.dao.toString())
@@ -545,7 +606,7 @@ async function handleProvideLiquidityEvent(event: ProvideLiquidityEvent, signatu
   }
 }
 
-async function handleWithdrawLiquidityEvent(event: WithdrawLiquidityEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+async function handleWithdrawLiquidityEvent(event: WithdrawLiquidityEvent | v0_6_0_WithdrawLiquidityEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
     await db.transaction(async (trx: DBTransaction) => {
       // Extract reserves from postAmmState
@@ -558,7 +619,39 @@ async function handleWithdrawLiquidityEvent(event: WithdrawLiquidityEvent, signa
         seqNum: BigInt(event.common.daoSeqNum.toString()),
       }).where(eq(schema.v0_6_daos.daoAddr, event.dao.toString()));
 
-      const proposal = await getActiveProposalForDao(trx, event.dao.toString());
+      // Derive ammPosition PDA - liquidityProvider IS positionAuthority (enforced by program)
+      const [ammPositionPda] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("amm_position"),
+          event.dao.toBuffer(),
+          event.liquidityProvider.toBuffer(),
+        ],
+        futarchyClient.futarchy.programId
+      );
+
+      // Update AmmPosition - only in RPC mode (gRPC handles via account streaming)
+      if (!isGeyser) {
+        const ammPositionAcct = await futarchyClient.futarchy.account.ammPosition.fetch(ammPositionPda);
+        await trx.update(schema.v0_6_amm_positions).set({
+          liquidity: ammPositionAcct.liquidity.toString(),
+          updatedAtSlot: sql`GREATEST(${BigInt(event.common.slot.toString())}, ${schema.v0_6_amm_positions.updatedAtSlot})`,
+        }).where(eq(schema.v0_6_amm_positions.ammPositionAddr, ammPositionPda.toString()));
+      }
+
+      // Insert liquidity event
+      await trx.insert(schema.v0_6_liquidity_events).values({
+        ammPositionAddr: ammPositionPda.toString(),
+        daoAddr: event.dao.toString(),
+        txSignature: signature,
+        eventType: "withdraw",
+        baseAmount: BigInt(event.baseAmount.toString()),
+        quoteAmount: BigInt(event.quoteAmount.toString()),
+        liquidityDelta: event.liquidityWithdrawn.toString(),
+        slot: BigInt(event.common.slot.toString()),
+        timestamp: new Date(event.common.unixTimestamp.mul(new BN(1000)).toNumber()),
+      }).onConflictDoNothing();
+
+      const proposal = await getActiveProposalForDao(trx, event.dao.toString(), 'event');
 
       if (proposal) {
         await insertIfNotExistsMarkets(trx, proposal.toString(), event.dao.toString())
@@ -572,7 +665,7 @@ async function handleWithdrawLiquidityEvent(event: WithdrawLiquidityEvent, signa
   }
 }
 
-async function handleCollectFeesEvent(event: CollectFeesEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
+async function handleCollectFeesEvent(event: CollectFeesEvent | v0_6_0_CollectFeesEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
     await db.transaction(async (trx: DBTransaction) => {
       // Extract reserves from postAmmState
@@ -604,6 +697,18 @@ async function handleCollectFeesEvent(event: CollectFeesEvent, signature: string
   }
 }
 
+async function handleSponsorProposalEvent(event: SponsorProposalEvent, _signature: string, _transactionResponse: VersionedTransactionResponse) {
+  try {
+    await db.update(schema.v0_6_proposals).set({
+      isTeamSponsored: true,
+    }).where(eq(schema.v0_6_proposals.proposalAddr, event.proposal.toString()));
+
+    logger.info(`Proposal ${event.proposal.toString()} sponsored by ${event.teamAddress.toString()}`);
+  } catch (error) {
+    logger.error(error, "Error in handleSponsorProposalEvent");
+  }
+}
+
 // Account update handlers
 export async function processFutarchyAccountUpdate(
   pubkey: string,
@@ -630,6 +735,21 @@ export async function processFutarchyAccountUpdate(
         totalStaked: accountData.amount.toString(),
         updatedAtSlot: slot,
       }).where(eq(schema.v0_6_staking_record.stakeAddr, pubkey));
+      break;
+    case 'ammPosition':
+      await db.insert(schema.v0_6_amm_positions).values({
+        ammPositionAddr: pubkey,
+        daoAddr: accountData.dao.toString(),
+        positionAuthority: accountData.positionAuthority.toString(),
+        liquidity: accountData.liquidity.toString(),
+        updatedAtSlot: slot,
+      }).onConflictDoUpdate({
+        target: schema.v0_6_amm_positions.ammPositionAddr,
+        set: {
+          liquidity: accountData.liquidity.toString(),
+          updatedAtSlot: sql`GREATEST(${slot}, ${schema.v0_6_amm_positions.updatedAtSlot})`,
+        },
+      });
       break;
     default:
       logger.debug({ pubkey, accountType }, "Unknown Futarchy account type in update");

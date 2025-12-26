@@ -12,7 +12,7 @@ import bs58 from 'bs58';
 import { getAllPrograms, getProgramByOwner, getRegisteredProgramIds, ProgramIndexer } from "./registry";
 import { decodeEventsFromGrpc, extractBlockTimeFromEvents } from "./eventDecoder";
 import { serializeForLogging } from "../indexers/shared/utils";
-import { subscribeAll, setRpcConnection } from "../txLogHandler";
+import { subscribeAll, setRpcConnection, unsubscribeAll } from "../txLogHandler";
 import { log } from "../logger/logger";
 import { db, schema } from "@metadaoproject/indexer-db";
 import {
@@ -103,7 +103,7 @@ class SubscriptionManager {
       GRPC_ENDPOINT: process.env.GRPC_ENDPOINT ? "SET" : "NOT SET",
       GRPC_TOKEN: process.env.GRPC_TOKEN ? "SET" : "NOT SET",
       BACKUP_GRPC_ENDPOINT: process.env.BACKUP_GRPC_ENDPOINT ? "SET" : "NOT SET",
-      BACKUP_GRPC_API_KEY: process.env.BACKUP_GRPC_API_KEY ? "SET" : "NOT SET",
+      BACKUP_GRPC_TOKEN: process.env.BACKUP_GRPC_TOKEN ? "SET" : "NOT SET",
       enableBackfill: this.enableBackfill,
       autoGapFill: this.autoGapFill,
     }, "Environment check");
@@ -115,10 +115,10 @@ class SubscriptionManager {
     }
 
     // Initialize backup gRPC provider if configured
-    if (process.env.BACKUP_GRPC_ENDPOINT && process.env.BACKUP_GRPC_API_KEY) {
+    if (process.env.BACKUP_GRPC_ENDPOINT && process.env.BACKUP_GRPC_TOKEN) {
       this.heliusProvider = new HeliusProvider(
         process.env.BACKUP_GRPC_ENDPOINT,
-        process.env.BACKUP_GRPC_API_KEY
+        process.env.BACKUP_GRPC_TOKEN
       );
       logger.info("Backup gRPC provider initialized");
     }
@@ -169,6 +169,9 @@ class SubscriptionManager {
 
     // Stop RPC subscriptions
     this.stopRpcSubscription();
+
+    // Stop backup gRPC
+    this.stopBackupGrpc();
 
     this.state = "INITIALIZING";
   }
@@ -601,12 +604,32 @@ class SubscriptionManager {
   }
 
   private handleGeyserError(error: Error): void {
-    logger.error({ error }, "gRPC stream error");
+    // Categorize gRPC errors - transient vs critical
+    const grpcError = error as any;
+    const code = grpcError?.code;
+    const details = grpcError?.details || '';
+
+    // Transient errors that trigger automatic recovery (log as warn, not error)
+    const isTransient =
+      code === 14 || // UNAVAILABLE - 503, connection dropped, etc.
+      code === 1 ||  // CANCELLED - call cancelled during failover/shutdown
+      code === 4 ||  // DEADLINE_EXCEEDED - timeout
+      code === 8 ||  // RESOURCE_EXHAUSTED - rate limiting
+      details.includes('503') ||
+      details.includes('Connection dropped') ||
+      details.includes('Call cancelled');
+
+    if (isTransient) {
+      logger.warn({ code, details }, "gRPC stream disconnected (transient), triggering failover");
+    } else {
+      logger.error({ error, code, details }, "gRPC stream error (unexpected)");
+    }
+
     this.triggerFailover();
   }
 
   private handleGeyserEnd(): void {
-    logger.warn("gRPC stream ended");
+    logger.info("gRPC stream ended, triggering failover");
     this.triggerFailover();
   }
 
@@ -629,9 +652,14 @@ class SubscriptionManager {
   }
 
   private stopRpcSubscription(): void {
-    // RPC subscriptions are managed by connection.onLogs
-    // They auto-reconnect, so we just update state
     logger.info("Stopping RPC subscription");
+    unsubscribeAll();
+  }
+
+  private stopBackupGrpc(): void {
+    if (this.heliusProvider) {
+      this.heliusProvider.stop();
+    }
   }
 
   // ==================== Failover Logic ====================
@@ -671,9 +699,15 @@ class SubscriptionManager {
       }
     }
 
+    // Clean up backup gRPC if it was active (transitioning from backup to RPC)
+    if (failingState === 'BACKUP_GRPC_ACTIVE') {
+      this.stopBackupGrpc();
+    }
+
     // Fall back to RPC
     logger.warn("Falling back to RPC subscription");
     await this.startRpcSubscription();
+    await this.handleSmartGapFill();
     this.scheduleGeyserReconnect();
   }
 
@@ -752,6 +786,7 @@ class SubscriptionManager {
       if (success) {
         logger.info("gRPC reconnected successfully");
         this.stopRpcSubscription();
+        this.stopBackupGrpc();
         this.reconnectAttempts = 0;
 
         // Trigger gap fill for any missed slots during disconnection

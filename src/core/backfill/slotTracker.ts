@@ -177,7 +177,7 @@ export async function resetIndexerProgress(indexerName: string): Promise<void> {
 export async function setIndexerSlot(indexerName: string, slot: bigint): Promise<void> {
   try {
     await db.update(schema.indexers)
-      .set({ latestSlotProcessed: slot.toString(), latestTxSigProcessed: null })
+      .set({ latestSlotProcessed: slot.toString() })
       .where(eq(schema.indexers.name, indexerName))
       .execute();
     logger.info({ indexerName, slot: slot.toString() }, "Set indexer slot");

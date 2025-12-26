@@ -52,7 +52,7 @@ export async function processVaultEvent(
       await handleResolveQuestionEvent(event.data as ResolveQuestionEvent, signature, transactionResponse);
       break;
     default:
-      logger.info("Unknown Vault event", event.name);
+      logger.info({ eventName: event.name }, "Unknown Vault event");
   }
 }
 
@@ -108,7 +108,7 @@ async function handleRedeemEvent(event: RedeemTokensEvent, signature: string, tr
 
 async function handleResolveQuestionEvent(event: ResolveQuestionEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
-    logger.info("Resolving question", event.question.toString());
+    logger.info({ question: event.question.toString() }, "Resolving question");
 
     let payoutDenominator = 0;
     for (const numerator of event.payoutNumerators) {
@@ -169,7 +169,7 @@ async function handleSplitEvent(event: SplitTokensEvent, signature: string, tran
       .limit(1);
 
     if (vault.length === 0) {
-      logger.warn("Warning: Referenced vault does not exist:", event.vault.toString());
+      logger.warn({ vault: event.vault.toString() }, "Referenced vault does not exist");
     }
 
     await db.insert(schema.v0_5_splits)

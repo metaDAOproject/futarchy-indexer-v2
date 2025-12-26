@@ -20,7 +20,8 @@ export async function snapshotFutarchyAccounts(): Promise<void> {
   await snapshotProposals();
 
   // Phase 3: Snapshot all stake accounts
-  await snapshotStakeAccounts();
+  // Disabled - don't want to override event-sourced staking records
+  // await snapshotStakeAccounts();
 
   logger.info("Futarchy account snapshot complete");
 }
@@ -29,7 +30,7 @@ async function snapshotDaos(): Promise<void> {
   logger.info("Snapshotting DAOs...");
 
   try {
-    const daos = await futarchyClient.autocrat.account.dao.all();
+    const daos = await futarchyClient.futarchy.account.dao.all();
     logger.info({ count: daos.length }, "Fetched DAOs from chain");
 
     for (const dao of daos) {
@@ -55,7 +56,7 @@ async function snapshotProposals(): Promise<void> {
   logger.info("Snapshotting proposals...");
 
   try {
-    const proposals = await futarchyClient.autocrat.account.proposal.all();
+    const proposals = await futarchyClient.futarchy.account.proposal.all();
     logger.info({ count: proposals.length }, "Fetched proposals from chain");
 
     for (const proposal of proposals) {
@@ -83,7 +84,7 @@ async function snapshotStakeAccounts(): Promise<void> {
   logger.info("Snapshotting stake accounts...");
 
   try {
-    const stakeAccounts = await futarchyClient.autocrat.account.stakeAccount.all();
+    const stakeAccounts = await futarchyClient.futarchy.account.stakeAccount.all();
     logger.info({ count: stakeAccounts.length }, "Fetched stake accounts from chain");
 
     for (const stake of stakeAccounts) {

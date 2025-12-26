@@ -1,8 +1,30 @@
 import { PublicKey } from "@solana/web3.js";
 import type { VersionedTransactionResponse } from "@solana/web3.js";
 import { log } from "../logger/logger";
+import vm from "node:vm";
 
 const logger = log.child({ module: "registry" });
+
+// Timeout for event decoding to prevent Anchor's infinite loop bug
+const DECODE_TIMEOUT_MS = 20;
+
+/**
+ * Safely decode with timeout protection against Anchor's infinite loop bug.
+ * Uses vm.Script with timeout to kill runaway decoding.
+ */
+function decodeWithTimeout(
+  decoder: (data: string) => { name: string; data: any } | null,
+  eventData: string,
+  timeoutMs: number = DECODE_TIMEOUT_MS
+): { name: string; data: any } | null {
+  const context = { decoder, eventData, result: null as { name: string; data: any } | null };
+  vm.createContext(context);
+
+  const script = new vm.Script('result = decoder(eventData)');
+  script.runInContext(context, { timeout: timeoutMs });
+
+  return context.result;
+}
 
 /**
  * Configuration for backfill operations
@@ -60,24 +82,31 @@ export function getRegisteredProgramIds(): string[] {
 }
 
 /**
+ * Program coder interface for decoding events and accounts
+ */
+export interface ProgramCoder {
+  coder: {
+    accounts: {
+      memcmp: (accountType: string) => { bytes: string };
+      decode: (accountType: string, data: Buffer) => any;
+    };
+    events: {
+      decode: (data: string) => { name: string; data: any } | null;
+    };
+  };
+}
+
+/**
  * Factory configuration for creating a program indexer
  */
 export interface ProgramIndexerConfig {
   programId: PublicKey;
   name: string;
-  // The Anchor program with coder (e.g., futarchyClient.autocrat, launchpadClient.launchpad)
-  program: {
-    coder: {
-      accounts: {
-        memcmp: (accountType: string) => { bytes: string };
-        decode: (accountType: string, data: Buffer) => any;
-      };
-      events: {
-        decode: (data: string) => { name: string; data: any } | null;
-      };
-    };
-  };
-  // Account types to generate discriminators for
+  // Array of Anchor programs with coders, ordered newest → oldest
+  // Each has a different IDL but same programId
+  // The decoder tries each in order until one succeeds
+  programs: ProgramCoder[];
+  // Account types to generate discriminators for (uses first/newest program)
   accountTypes: string[];
   // Event processor
   processEvent: (event: { name: string; data: any }, signature: string, txResponse: VersionedTransactionResponse) => Promise<void>;
@@ -93,12 +122,15 @@ export interface ProgramIndexerConfig {
  * Factory function to create and register a program indexer with minimal boilerplate
  */
 export function createProgramIndexer(config: ProgramIndexerConfig): ProgramIndexer {
-  const { programId, name, program, accountTypes, processEvent, processAccountUpdate, snapshotAccounts, skipEvents } = config;
+  const { programId, name, programs, accountTypes, processEvent, processAccountUpdate, snapshotAccounts, skipEvents } = config;
 
-  // Generate discriminators from account types
+  // Use first (newest) program for discriminators
+  const primaryProgram = programs[0];
+
+  // Generate discriminators from account types using the primary program
   const discriminators: Record<string, string> = {};
   for (const accountType of accountTypes) {
-    discriminators[accountType] = program.coder.accounts.memcmp(accountType).bytes;
+    discriminators[accountType] = primaryProgram.coder.accounts.memcmp(accountType).bytes;
   }
 
   // Reverse lookup: discriminator -> account type
@@ -112,15 +144,25 @@ export function createProgramIndexer(config: ProgramIndexerConfig): ProgramIndex
     discriminators,
 
     decodeEvent(data: Buffer): { name: string; data: any } | null {
-      try {
-        // Skip first 8 bytes (discriminator), encode rest as base64
-        const eventData = Buffer.from(data.slice(8)).toString('base64');
-        const event = program.coder.events.decode(eventData);
-        if (event) {
-          return { name: event.name, data: event.data };
+      // Skip first 8 bytes (discriminator), encode rest as base64
+      const eventData = Buffer.from(data.slice(8)).toString('base64');
+
+      // Try each IDL version in order (newest → oldest)
+      for (const program of programs) {
+        try {
+          const event = decodeWithTimeout(
+            (d) => program.coder.events.decode(d),
+            eventData
+          );
+          if (event) return event; // First success wins
+        } catch (error) {
+          // Timeout errors will have code 'ERR_SCRIPT_EXECUTION_TIMEOUT'
+          if ((error as any)?.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT') {
+            logger.debug({ dataLength: data.length }, "Event decode timed out, trying next IDL");
+          }
+          // Try next IDL
+          continue;
         }
-      } catch {
-        // Not an event, expected
       }
       return null;
     },
@@ -134,12 +176,18 @@ export function createProgramIndexer(config: ProgramIndexerConfig): ProgramIndex
       if (!accountType) {
         return null;
       }
-      try {
-        const decoded = program.coder.accounts.decode(accountType, data);
-        return { type: accountType, data: decoded };
-      } catch {
-        return null;
+
+      // Try each IDL version in order (newest → oldest)
+      for (const program of programs) {
+        try {
+          const decoded = program.coder.accounts.decode(accountType, data);
+          return { type: accountType, data: decoded };
+        } catch {
+          // Try next IDL
+          continue;
+        }
       }
+      return null;
     },
 
     async processAccountUpdate(pubkey, accountType, accountData, slot) {

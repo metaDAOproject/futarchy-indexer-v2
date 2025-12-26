@@ -7,7 +7,7 @@ import { snapshotVaultAccounts } from "./snapshot";
 export const vaultIndexer = createProgramIndexer({
   programId: CONDITIONAL_VAULT_PROGRAM_ID,
   name: "conditional-vault-v0.4",
-  program: conditionalVaultClient.vaultProgram,
+  programs: [conditionalVaultClient.vaultProgram],
   accountTypes: ["conditionalVault", "question"],
   processEvent: processVaultEvent,
   processAccountUpdate: processVaultAccountUpdate,

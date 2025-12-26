@@ -9,7 +9,25 @@ import * as token from "@solana/spl-token";
 import { connection, conditionalVaultClient } from "../../connections/v0.6";
 import { log } from "../../logger/logger";
 import { BN } from "@coral-xyz/anchor";
-import { InitializeConditionalVaultEvent, FinalizeProposalEvent, LaunchProposalEvent, ProvideLiquidityEvent, WithdrawLiquidityEvent, ConditionalSwapEvent, SpotSwapEvent, InitializeProposalEvent, SplitTokensEvent, Dao, AmmMath } from "@metadaoproject/futarchy/v0.6";
+import {
+  InitializeConditionalVaultEvent,
+  FinalizeProposalEvent,
+  LaunchProposalEvent,
+  ProvideLiquidityEvent,
+  WithdrawLiquidityEvent,
+  ConditionalSwapEvent,
+  SpotSwapEvent,
+  InitializeProposalEvent,
+  SplitTokensEvent,
+  Dao,
+  AmmMath,
+  v0_6_0_FinalizeProposalEvent,
+  v0_6_0_LaunchProposalEvent,
+  v0_6_0_ProvideLiquidityEvent,
+  v0_6_0_WithdrawLiquidityEvent,
+  v0_6_0_ConditionalSwapEvent,
+  v0_6_0_SpotSwapEvent,
+} from "@metadaoproject/futarchy/v0.6";
 
 const logger = log.child({
   module: "shared-utils"
@@ -91,7 +109,7 @@ interface FutarchyState {
 type DBConnection = any; // TODO: Fix typing..
 
 // Helper function to get the active (Pending) proposal for a DAO
-export async function getActiveProposalForDao(db: DBConnection, daoAddr: string): Promise<string | null> {
+export async function getActiveProposalForDao(db: DBConnection, daoAddr: string, source?: string): Promise<string | null> {
   const activeProposal = await db.select()
     .from(schema.v0_6_proposals)
     .where(and(
@@ -101,7 +119,7 @@ export async function getActiveProposalForDao(db: DBConnection, daoAddr: string)
     .limit(1);
 
   if (activeProposal.length > 0) {
-    logger.debug(`Found active proposal ${activeProposal[0].proposalAddr} for DAO ${daoAddr}`);
+    logger.debug(`Found active proposal ${activeProposal[0].proposalAddr} for DAO ${daoAddr} (${source || 'unknown'})`);
     return activeProposal[0].proposalAddr;
   }
 
@@ -251,7 +269,7 @@ export async function insertTokenIfNotExists(db: DBConnection, mintAcct: PublicK
   try {
     const existingToken = await db.select().from(schema.tokens).where(eq(schema.tokens.mintAcct, mintAcct.toString())).limit(1);
     if (existingToken.length === 0) {
-      logger.info("Inserting token", mintAcct.toString());
+      logger.info({ mintAcct: mintAcct.toString() }, "Inserting token");
       const mint: token.Mint = await token.getMint(connection, mintAcct);
 
       // Use a transaction to ensure atomicity
@@ -288,7 +306,7 @@ export async function insertTokensIfNotExist(db: DBConnection, mintAccts: Public
       .from(schema.tokens)
       .where(or(...mintStrings.map(m => eq(schema.tokens.mintAcct, m))));
 
-    const existingMints = new Set(existingTokens.map(t => t.mintAcct));
+    const existingMints = new Set(existingTokens.map((t: { mintAcct: string }) => t.mintAcct));
     const missingMints = mintAccts.filter(m => !existingMints.has(m.toString()));
 
     if (missingMints.length === 0) return;
@@ -410,7 +428,7 @@ export function extractReservesFromAmmState(postAmmState: any): { baseReserves: 
       quoteReserves = BigInt(postAmmState.state.futarchy?.spot?.quoteReserves?.toString() || "0");
     }
   } catch (error) {
-    logger.warn("Error extracting reserves from AMM state:", error);
+    logger.warn({ error }, "Error extracting reserves from AMM state");
   }
 
   return { baseReserves, quoteReserves };
@@ -444,6 +462,7 @@ export async function upsertV06Proposal(proposalAcct: any, proposalAddr: PublicK
       failQuoteMint: proposalAcct.failQuoteMint.toString(),
       baseVaultAddr: proposalAcct.baseVault.toString(),
       quoteVaultAddr: proposalAcct.quoteVault.toString(),
+      isTeamSponsored: proposalAcct.isTeamSponsored,
     };
 
     if (existingProposal.length === 0) {
@@ -451,7 +470,9 @@ export async function upsertV06Proposal(proposalAcct: any, proposalAddr: PublicK
         ...baseProposalValues,
         createdAt: blockTime || new Date(),
       };
-      await trx.insert(schema.v0_6_proposals).values(insertValues);
+      await trx.insert(schema.v0_6_proposals)
+        .values(insertValues)
+        .onConflictDoNothing();  // Handle race condition - another process may have inserted
       logger.info(`Inserted proposal ${proposalAddr.toString()}`);
     } else {
       await trx.update(schema.v0_6_proposals)
@@ -505,6 +526,8 @@ export async function upsertV06Dao(daoAcct: any, daoAddr: PublicKey, trx: DBConn
       baseToStake: BigInt(daoAcct.baseToStake.toString()),
       seqNum: BigInt(daoAcct.seqNum.toString()),
       initialSpendingLimit: daoAcct.initialSpendingLimit ? JSON.stringify(daoAcct.initialSpendingLimit) : null,
+      teamSponsoredPassThresholdBps: daoAcct.teamSponsoredPassThresholdBps,
+      teamAddress: daoAcct.teamAddress.toString(),
       ammBaseAmount: BigInt(daoAcct.amm.state.spot?.baseReserves?.toString() || "0"),
       ammQuoteAmount: BigInt(daoAcct.amm.state.spot?.quoteReserves?.toString() || "0"),
       ammVaultAtaBase: ammBaseVaultAta.toString(),
@@ -512,7 +535,9 @@ export async function upsertV06Dao(daoAcct: any, daoAddr: PublicKey, trx: DBConn
     };
 
     if (existingDao.length === 0) {
-      await trx.insert(schema.v0_6_daos).values(daoValues);
+      await trx.insert(schema.v0_6_daos)
+        .values(daoValues)
+        .onConflictDoNothing();  // Handle race condition
       logger.info(`Inserted DAO ${daoAddr.toString()}`);
     } else {
       await trx.update(schema.v0_6_daos)
@@ -537,7 +562,7 @@ async function getTokenDecimals(db: DBConnection, mintAcct: string): Promise<num
 
     return tokenRecord.length > 0 ? tokenRecord[0].decimals : 0;
   } catch (error) {
-    logger.warn(`Error fetching decimals for token ${mintAcct}:`, error);
+    logger.warn({ error, mintAcct }, "Error fetching decimals for token");
     return 0;
   }
 }
@@ -624,7 +649,7 @@ export async function insertPricesFromAmmState(
 
     if ('futarchy' in ammState && ammState.futarchy) {
       const futarchyState = ammState.futarchy;
-      const activeProposalAddr = await getActiveProposalForDao(db, daoAddr);
+      const activeProposalAddr = await getActiveProposalForDao(db, daoAddr, 'account-update');
 
       if (futarchyState.spot) {
         const baseReserves = new BN(futarchyState.spot.baseReserves?.toString() || "0");
@@ -689,10 +714,11 @@ export async function insertPricesFromAmmState(
       logger.debug(`Inserted ${prices.length} prices from account update at slot ${prices[0].slot}`);
     }
   } catch (error) {
-    logger.error(`Error inserting prices from AMM state for DAO ${daoAddr}:`, {
+    logger.error({
       error: error instanceof Error ? error.message : error,
       stack: error instanceof Error ? error.stack : undefined,
-    });
+      daoAddr,
+    }, "Error inserting prices from AMM state for DAO");
   }
 }
 
@@ -733,7 +759,7 @@ export async function getVaultBalances(
 
     return { fromBalance, toBalance };
   } catch (error) {
-    logger.error("Error fetching vault balances:", error);
+    logger.error({ error }, "Error fetching vault balances");
     throw error;
   }
 }
@@ -790,12 +816,12 @@ export async function insertIfNotExistsMarkets(
     await db.insert(schema.futarchy_markets).values(markets).onConflictDoNothing();
     logger.debug(`Initialized markets for proposal ${proposalAddr}`);
   } catch (error) {
-    logger.error(`Error initializing markets for proposal ${proposalAddr}:`, {
+    logger.error({
       error: error instanceof Error ? error.message : error,
       stack: error instanceof Error ? error.stack : undefined,
       proposalAddr,
       daoAddr,
-    });
+    }, "Error initializing markets for proposal");
     throw error;
   }
 }
@@ -805,15 +831,19 @@ export async function insertIfNotExistsMarkets(
  */
 export async function insertIfNotExistsPrices(
   db: DBConnection,
-  event: LaunchProposalEvent | ConditionalSwapEvent | SpotSwapEvent | ProvideLiquidityEvent | WithdrawLiquidityEvent | FinalizeProposalEvent,
+  event: LaunchProposalEvent | ConditionalSwapEvent | SpotSwapEvent | ProvideLiquidityEvent | WithdrawLiquidityEvent | FinalizeProposalEvent |
+         v0_6_0_LaunchProposalEvent | v0_6_0_ConditionalSwapEvent | v0_6_0_SpotSwapEvent | v0_6_0_ProvideLiquidityEvent | v0_6_0_WithdrawLiquidityEvent | v0_6_0_FinalizeProposalEvent,
   proposalAddr: string,
   slot: BN,
   marketsToUpdate?: ('spot' | 'pass' | 'fail')[]
 ): Promise<void> {
   try {
     const futarchyState = event.postAmmState?.state?.futarchy as FutarchyState;
-    if (!futarchyState) {
-      logger.debug('AMM not in futarchy mode, skipping V6 price insertion');
+    const spotModeState = event.postAmmState?.state?.spot as { baseReserves: BN; quoteReserves: BN } | undefined;
+
+    // If neither futarchy nor spot mode state exists, skip
+    if (!futarchyState && !spotModeState) {
+      logger.debug('AMM has no futarchy or spot state, skipping V6 price insertion');
       return;
     }
 
@@ -828,52 +858,65 @@ export async function insertIfNotExistsPrices(
     const markets = marketsToUpdate || ['spot', 'pass', 'fail'];
     const prices = [];
 
-    if (markets.includes('spot') && futarchyState.spot) {
-      const spotBaseReserves = new BN(futarchyState.spot.baseReserves.toString());
-      const spotQuoteReserves = new BN(futarchyState.spot.quoteReserves.toString());
-      const spotPrice = calculatePriceWithDecimals(spotQuoteReserves, spotBaseReserves, quoteDecimals, baseDecimals);
+    if (markets.includes('spot')) {
+      const spotReserves = futarchyState?.spot || spotModeState;
+      const spotBase = spotReserves?.baseReserves;
+      const spotQuote = spotReserves?.quoteReserves;
+      if (spotBase && spotQuote) {
+        const spotBaseReserves = new BN(spotBase.toString());
+        const spotQuoteReserves = new BN(spotQuote.toString());
+        const spotPrice = calculatePriceWithDecimals(spotQuoteReserves, spotBaseReserves, quoteDecimals, baseDecimals);
 
-      prices.push({
-        daoAddr: event.dao.toString(),
-        proposalAddr: null,
-        marketType: 'spot',
-        slot: slot.toString(),
-        baseReserves: spotBaseReserves.toString(),
-        quoteReserves: spotQuoteReserves.toString(),
-        price: spotPrice.toString()
-      });
+        prices.push({
+          daoAddr: event.dao.toString(),
+          proposalAddr: null,
+          marketType: 'spot',
+          slot: slot.toString(),
+          baseReserves: spotBaseReserves.toString(),
+          quoteReserves: spotQuoteReserves.toString(),
+          price: spotPrice.toString()
+        });
+      }
     }
 
-    if (markets.includes('pass') && futarchyState.pass) {
-      const passBaseReserves = new BN(futarchyState.pass.baseReserves.toString());
-      const passQuoteReserves = new BN(futarchyState.pass.quoteReserves.toString());
-      const passPrice = calculatePriceWithDecimals(passQuoteReserves, passBaseReserves, quoteDecimals, baseDecimals);
+    if (markets.includes('pass')) {
+      const passBase = futarchyState?.pass?.baseReserves;
+      const passQuote = futarchyState?.pass?.quoteReserves;
+      if (passBase && passQuote) {
+        const passBaseReserves = new BN(passBase.toString());
+        const passQuoteReserves = new BN(passQuote.toString());
+        const passPrice = calculatePriceWithDecimals(passQuoteReserves, passBaseReserves, quoteDecimals, baseDecimals);
 
-      prices.push({
-        daoAddr: event.dao.toString(),
-        proposalAddr,
-        marketType: 'pass',
-        slot: slot.toString(),
-        baseReserves: passBaseReserves.toString(),
-        quoteReserves: passQuoteReserves.toString(),
-        price: passPrice.toString()
-      });
+        prices.push({
+          daoAddr: event.dao.toString(),
+          proposalAddr,
+          marketType: 'pass',
+          slot: slot.toString(),
+          baseReserves: passBaseReserves.toString(),
+          quoteReserves: passQuoteReserves.toString(),
+          price: passPrice.toString()
+        });
+      }
     }
 
-    if (markets.includes('fail') && futarchyState.fail) {
-      const failBaseReserves = new BN(futarchyState.fail.baseReserves.toString());
-      const failQuoteReserves = new BN(futarchyState.fail.quoteReserves.toString());
-      const failPrice = calculatePriceWithDecimals(failQuoteReserves, failBaseReserves, quoteDecimals, baseDecimals);
+    if (markets.includes('fail')) {
+      const failBase = futarchyState?.fail?.baseReserves;
+      const failQuote = futarchyState?.fail?.quoteReserves;
+      if (failBase && failQuote) {
+        const failBaseReserves = new BN(failBase.toString());
+        const failQuoteReserves = new BN(failQuote.toString());
+        const failPrice = calculatePriceWithDecimals(failQuoteReserves, failBaseReserves, quoteDecimals, baseDecimals);
 
-      prices.push({
-        daoAddr: event.dao.toString(),
-        proposalAddr,
-        marketType: 'fail',
-        slot: slot.toString(),
-        baseReserves: failBaseReserves.toString(),
-        quoteReserves: failQuoteReserves.toString(),
-        price: failPrice.toString()
-      });
+        prices.push({
+          daoAddr: event.dao.toString(),
+          proposalAddr,
+          marketType: 'fail',
+          slot: slot.toString(),
+          baseReserves: failBaseReserves.toString(),
+          quoteReserves: failQuoteReserves.toString(),
+          price: failPrice.toString()
+        });
+      }
     }
 
     if (prices.length > 0) {
@@ -881,14 +924,14 @@ export async function insertIfNotExistsPrices(
       logger.debug(`Inserted ${prices.length} prices for slot ${prices[0].slot}`);
     }
   } catch (error) {
-    logger.error(`Error inserting V6 prices for proposal ${proposalAddr}:`, {
+    logger.error({
       error: error instanceof Error ? error.message : error,
       stack: error instanceof Error ? error.stack : undefined,
       proposalAddr,
       marketsRequested: marketsToUpdate,
       baseMint: event.postAmmState.baseMint.toString(),
       quoteMint: event.postAmmState.quoteMint.toString()
-    });
+    }, "Error inserting V6 prices for proposal");
     throw error;
   }
 }
@@ -898,7 +941,8 @@ export async function insertIfNotExistsPrices(
  */
 export async function insertIfNotExistsTwaps(
   db: DBConnection,
-  event: ConditionalSwapEvent | ProvideLiquidityEvent | WithdrawLiquidityEvent | FinalizeProposalEvent,
+  event: ConditionalSwapEvent | ProvideLiquidityEvent | WithdrawLiquidityEvent | FinalizeProposalEvent |
+         v0_6_0_ConditionalSwapEvent | v0_6_0_ProvideLiquidityEvent | v0_6_0_WithdrawLiquidityEvent | v0_6_0_FinalizeProposalEvent,
   proposalAddr: string,
   slot: BN
 ): Promise<void> {
@@ -911,12 +955,12 @@ export async function insertIfNotExistsTwaps(
 
     const twaps = [];
 
-    if (futarchyState.pass?.oracle) {
-      const oracle = futarchyState.pass.oracle;
-      const aggregator = new BN(oracle.aggregator.toString());
-      const lastUpdatedTimestamp = new BN(oracle.lastUpdatedTimestamp.toString());
-      const createdAtTimestamp = new BN(oracle.createdAtTimestamp.toString());
-      const startDelaySeconds = new BN(oracle.startDelaySeconds.toString());
+    const passOracle = futarchyState.pass?.oracle;
+    if (passOracle?.aggregator && passOracle?.lastUpdatedTimestamp && passOracle?.createdAtTimestamp && passOracle?.startDelaySeconds) {
+      const aggregator = new BN(passOracle.aggregator.toString());
+      const lastUpdatedTimestamp = new BN(passOracle.lastUpdatedTimestamp.toString());
+      const createdAtTimestamp = new BN(passOracle.createdAtTimestamp.toString());
+      const startDelaySeconds = new BN(passOracle.startDelaySeconds.toString());
 
       const timeElapsed = lastUpdatedTimestamp.sub(createdAtTimestamp.add(startDelaySeconds));
 
@@ -929,20 +973,20 @@ export async function insertIfNotExistsTwaps(
           marketType: 'pass',
           slot: slot.toString(),
           aggregator: aggregator.toString(),
-          lastObservation: oracle.lastObservation.toString(),
-          lastPrice: oracle.lastPrice.toString(),
+          lastObservation: passOracle.lastObservation.toString(),
+          lastPrice: passOracle.lastPrice.toString(),
           twapValue: twapValue.toString(),
           timeElapsedSeconds: timeElapsed.toString()
         });
       }
     }
 
-    if (futarchyState.fail?.oracle) {
-      const oracle = futarchyState.fail.oracle;
-      const aggregator = new BN(oracle.aggregator.toString());
-      const lastUpdatedTimestamp = new BN(oracle.lastUpdatedTimestamp.toString());
-      const createdAtTimestamp = new BN(oracle.createdAtTimestamp.toString());
-      const startDelaySeconds = new BN(oracle.startDelaySeconds.toString());
+    const failOracle = futarchyState.fail?.oracle;
+    if (failOracle?.aggregator && failOracle?.lastUpdatedTimestamp && failOracle?.createdAtTimestamp && failOracle?.startDelaySeconds) {
+      const aggregator = new BN(failOracle.aggregator.toString());
+      const lastUpdatedTimestamp = new BN(failOracle.lastUpdatedTimestamp.toString());
+      const createdAtTimestamp = new BN(failOracle.createdAtTimestamp.toString());
+      const startDelaySeconds = new BN(failOracle.startDelaySeconds.toString());
 
       const timeElapsed = lastUpdatedTimestamp.sub(createdAtTimestamp.add(startDelaySeconds));
 
@@ -955,8 +999,8 @@ export async function insertIfNotExistsTwaps(
           marketType: 'fail',
           slot: slot.toString(),
           aggregator: aggregator.toString(),
-          lastObservation: oracle.lastObservation.toString(),
-          lastPrice: oracle.lastPrice.toString(),
+          lastObservation: failOracle.lastObservation.toString(),
+          lastPrice: failOracle.lastPrice.toString(),
           twapValue: twapValue.toString(),
           timeElapsedSeconds: timeElapsed.toString()
         });
@@ -968,6 +1012,6 @@ export async function insertIfNotExistsTwaps(
       logger.debug(`Inserted ${twaps.length} TWAP records for proposal ${proposalAddr} at slot ${twaps[0].slot}`);
     }
   } catch (error) {
-    logger.error(`Error inserting V6 TWAPs for proposal ${proposalAddr}:`, error);
+    logger.error({ error, proposalAddr }, "Error inserting V6 TWAPs for proposal");
   }
 }
