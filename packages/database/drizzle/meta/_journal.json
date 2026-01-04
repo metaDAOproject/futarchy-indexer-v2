@@ -470,6 +470,13 @@
       "when": 1766606586157,
       "tag": "0066_left_blonde_phantom",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1767564870191,
+      "tag": "0067_melted_prima",
+      "breakpoints": true
     }
   ]
 }
