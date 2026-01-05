@@ -1,5 +1,5 @@
 {
-  "id": "7fae5c4b-9ace-4a01-bf5c-6688be3fadb5",
+  "id": "2cb50f0f-ef38-4558-b29f-f37f9fc2b140",
   "prevId": "b5fa1cac-9bfd-450b-bcbe-f6ec51f9a74e",
   "version": "7",
   "dialect": "postgresql",
@@ -23,13 +23,13 @@
         },
         "risk": {
           "name": "risk",
-          "type": "varchar(20)",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
         "address_type": {
           "name": "address_type",
-          "type": "varchar(50)",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
@@ -47,7 +47,7 @@
         },
         "status": {
           "name": "status",
-          "type": "varchar(20)",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
@@ -128,13 +128,13 @@
         },
         "risk": {
           "name": "risk",
-          "type": "varchar(20)",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
         "address_type": {
           "name": "address_type",
-          "type": "varchar(50)",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
@@ -152,7 +152,7 @@
         },
         "status": {
           "name": "status",
-          "type": "varchar(20)",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
