@@ -1,0 +1,1 @@
+ALTER TABLE "draft_projects" ADD COLUMN "metalex_summary_url" text;
