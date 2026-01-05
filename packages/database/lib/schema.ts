@@ -2405,7 +2405,48 @@ export const organizations = pgTable("organizations", {
   uniqueId: unique("id_name_url").on(table.organizationId, table.url, table.name),
 })
 );
-  
+
+export const addressRiskAssessments = pgTable(
+  "address_risk_assessments",
+  {
+    address: pubkey("address").primaryKey(),
+    risk: text("risk"),
+    addressType: text("address_type"),
+    cluster: text("cluster"),
+    riskReason: text("risk_reason"),
+    status: text("status"),
+    addressIdentifications: jsonb("address_identifications"),
+    exposures: jsonb("exposures"),
+    triggers: jsonb("triggers"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`now()`),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(sql`now()`),
+  },
+  (table) => ({
+    riskIdx: index("address_risk_index").on(table.risk),
+    addressTypeIdx: index("address_type_index").on(table.addressType),
+  })
+);
+
+export const addressRiskAssessmentHistory = pgTable(
+  "address_risk_assessment_history",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    address: pubkey("address").notNull(),
+    risk: text("risk"),
+    addressType: text("address_type"),
+    cluster: text("cluster"),
+    riskReason: text("risk_reason"),
+    status: text("status"),
+    addressIdentifications: jsonb("address_identifications"),
+    exposures: jsonb("exposures"),
+    triggers: jsonb("triggers"),
+    assessedAt: timestamp("assessed_at", { withTimezone: true }).notNull().default(sql`now()`),
+  },
+  (table) => ({
+    addressIdx: index("risk_history_address_index").on(table.address),
+    assessedAtIdx: index("risk_history_assessed_at_index").on(table.assessedAt),
+  })
+);
 
 export type IndexerRecord = typeof indexers._.inferInsert;
 export type IndexerAccountDependencyReadRecord =
@@ -2424,3 +2465,5 @@ export type ProposalRecord = typeof proposals._.inferInsert;
 export type ConditionalVaultRecord = typeof conditionalVaults._.inferInsert;
 export type TokenAcctRecord = typeof tokenAccts._.inferInsert;
 export type UserPerformanceRecord = typeof userPerformance._.inferInsert;
+export type AddressRiskAssessmentRecord = typeof addressRiskAssessments._.inferInsert;
+export type AddressRiskAssessmentHistoryRecord = typeof addressRiskAssessmentHistory._.inferInsert;
