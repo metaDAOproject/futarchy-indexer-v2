@@ -2251,6 +2251,7 @@ export const draft_projects = pgTable("draft_projects", {
   legalTerms: text("legal_terms"),
   metalexTxHash: varchar("metalex_tx_hash", { length: 127 }),
   metalexStatus: pgEnum("metalex_status", MetalexStatus),
+  metalexSummaryUrl: text("metalex_summary_url"),
   termsOfServiceUrl: text("terms_of_service_url"),
   idealStartDate: date("ideal_start_date"),
   tokenAddress: pubkey("token_address"),
