@@ -43,7 +43,8 @@ import {
   insertIfNotExistsMarkets,
   insertIfNotExistsPrices,
   insertIfNotExistsTwaps,
-  insertPricesFromAmmState
+  insertPricesFromAmmState,
+  updateProposalDetailsTransactionIndex
 } from "../../shared/utils";
 import { log } from "../../../logger/logger";
 import { BN } from "@coral-xyz/anchor";
@@ -196,6 +197,8 @@ async function handleInitializeProposalEvent(event: InitializeProposalEvent | v0
       const blockTime = transactionResponse.blockTime ? new Date(transactionResponse.blockTime * 1000) : null;
       await upsertV06Proposal(proposalAcct, event.proposal, BigInt(event.common.slot.toString()), blockTime, trx);
       await insertIfNotExistsMarkets(trx, event.proposal.toString(), event.dao.toString());
+      // Update proposal_details with transaction index from Squads
+      await updateProposalDetailsTransactionIndex(event.dao.toString(), event.proposal.toString(), trx);
     });
   } catch (error) {
     logger.error(error, "Error in handleInitializeProposalEvent");

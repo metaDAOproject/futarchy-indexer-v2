@@ -857,6 +857,8 @@ export const proposalDetails = pgTable("proposal_details", {
   organizationId: bigint("organization_id", { mode: "bigint" })
     .references(() => organizations.organizationId),
   proposalIndex: bigint("proposal_index", { mode: "bigint" }).notNull().default(0 as unknown as bigint),
+  transactionIndex: bigint("transaction_index", { mode: "bigint" }),
+  isHidden: boolean("is_hidden").notNull().default(false),
 });
 
 export const programSystem = pgTable("program_system", {

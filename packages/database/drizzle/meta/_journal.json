@@ -484,6 +484,13 @@
       "when": 1767639955033,
       "tag": "0068_large_deadpool",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1768267769315,
+      "tag": "0069_freezing_firebird",
+      "breakpoints": true
     }
   ]
 }
