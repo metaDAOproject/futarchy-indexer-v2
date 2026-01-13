@@ -8,6 +8,7 @@ import { PricesType, TwapRecord, V06LaunchState, V06ProposalState, MarketType } 
 import * as token from "@solana/spl-token";
 import { connection, conditionalVaultClient } from "../../connections/v0.6";
 import { log } from "../../logger/logger";
+import { getSquadsTransactionIndex } from "../../utils/squads";
 import { BN } from "@coral-xyz/anchor";
 import {
   InitializeConditionalVaultEvent,
@@ -1013,5 +1014,52 @@ export async function insertIfNotExistsTwaps(
     }
   } catch (error) {
     logger.error({ error, proposalAddr }, "Error inserting V6 TWAPs for proposal");
+  }
+}
+
+/**
+ * Update proposal_details with transaction index from Squads multisig
+ */
+export async function updateProposalDetailsTransactionIndex(
+  daoAddr: string,
+  proposalAddr: string,
+  trx: DBTransaction
+) {
+  try {
+    // Fetch transaction index from Squads multisig
+    const transactionIndex = await getSquadsTransactionIndex(connection, daoAddr);
+
+    if (transactionIndex === null) {
+      logger.warn(
+        { daoAddr, proposalAddr },
+        "Could not fetch Squads transaction index, skipping update"
+      );
+      return;
+    }
+
+    // Update proposal_details table if entry exists
+    const result = await trx
+      .update(schema.proposalDetails)
+      .set({ transactionIndex })
+      .where(eq(schema.proposalDetails.proposalAcct, proposalAddr))
+      .returning({ proposalId: schema.proposalDetails.proposalId });
+
+    if (result.length === 0) {
+      logger.debug(
+        { proposalAddr },
+        "No proposal_details entry found for proposal, skipping transaction_index update"
+      );
+    } else {
+      logger.info(
+        { proposalAddr, transactionIndex: transactionIndex.toString() },
+        "Updated proposal_details with transaction_index"
+      );
+    }
+  } catch (error) {
+    logger.error(
+      { error, daoAddr, proposalAddr },
+      "Failed to update proposal_details transaction_index"
+    );
+    // Don't throw - this shouldn't block proposal creation
   }
 }
