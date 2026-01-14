@@ -52,6 +52,7 @@ let streamingLastHealthUpdate: Date | null = null;
 
 let backfillRunning = false;
 let gapfillRunning = false;
+let riskAssessmentRunning = false;
 
 // Reindex state (isolated from normal indexing)
 let reindexProcess: any = null;
@@ -73,6 +74,7 @@ let priceHandlerLastResult: { message: string; error: Error | undefined } | null
 let backfillCron: CronJob | null = null;
 let gapfillCron: CronJob | null = null;
 let pricesCron: CronJob | null = null;
+let riskAssessmentCron: CronJob | null = null;
 let httpServer: ReturnType<typeof http.createServer> | null = null;
 
 async function main() {
@@ -141,6 +143,19 @@ async function main() {
   });
   pricesCron.start();
   logger.info("Started Jupiter price updates cron (every minute)");
+
+  // Monthly risk assessment (1st of month at midnight UTC)
+  riskAssessmentCron = new CronJob(
+    "0 0 1 * *", // Cron: minute=0, hour=0, day=1, every month
+    async () => {
+      await runRiskAssessmentWorker();
+    },
+    null,
+    true,
+    "UTC"
+  );
+  riskAssessmentCron.start();
+  logger.info("Risk assessment cron job started (monthly on 1st at midnight UTC)");
 
   // Health server
   httpServer = http.createServer((req: any, res: any) => {
@@ -437,6 +452,71 @@ async function runBackfillWorker(
   }
 }
 
+/**
+ * Run risk assessment worker process
+ */
+async function runRiskAssessmentWorker(): Promise<void> {
+  if (riskAssessmentRunning) {
+    logger.info("Risk assessment already running, skipping");
+    return;
+  }
+
+  riskAssessmentRunning = true;
+  const start = new Date();
+
+  logger.info("Starting risk assessment worker");
+
+  const workerPath = path.join(__dirname, "workers", "filler.ts");
+
+  try {
+    const worker = Bun.spawn(["bun", workerPath, "riskassessment"], {
+      cwd: process.cwd(),
+      stdout: "inherit",
+      stderr: "inherit",
+      env: process.env,
+    });
+
+    const exitCode = await worker.exited;
+    const end = new Date();
+
+    if (exitCode === 0) {
+      healthMap.set("riskassessment", new CronRunResult(
+        "riskassessment",
+        "Completed successfully",
+        undefined,
+        start,
+        end,
+        healthMap.get("riskassessment")?.totalPreviousErrors || 0
+      ));
+      logger.info("Risk assessment worker completed successfully");
+    } else {
+      const error = new Error(`Worker exited with code ${exitCode}`);
+      healthMap.set("riskassessment", new CronRunResult(
+        "riskassessment",
+        `Failed with exit code ${exitCode}`,
+        error,
+        start,
+        end,
+        (healthMap.get("riskassessment")?.totalPreviousErrors || 0) + 1
+      ));
+      logger.error({ exitCode }, "Risk assessment worker failed");
+    }
+  } catch (error) {
+    const end = new Date();
+    healthMap.set("riskassessment", new CronRunResult(
+      "riskassessment",
+      `Error: ${error}`,
+      error as Error,
+      start,
+      end,
+      (healthMap.get("riskassessment")?.totalPreviousErrors || 0) + 1
+    ));
+    logger.error({ error }, "Risk assessment worker error");
+  } finally {
+    riskAssessmentRunning = false;
+  }
+}
+
 process.on('SIGTERM', () => {
   logger.info('Main process shutting down...');
 
@@ -452,6 +532,10 @@ process.on('SIGTERM', () => {
   if (pricesCron) {
     pricesCron.stop();
     logger.info('Stopped prices cron');
+  }
+  if (riskAssessmentCron) {
+    riskAssessmentCron.stop();
+    logger.info('Stopped risk assessment cron');
   }
 
   // Kill worker processes

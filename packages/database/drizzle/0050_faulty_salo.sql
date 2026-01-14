@@ -369,7 +369,7 @@ CREATE INDEX IF NOT EXISTS "v0_6_merges_user_index" ON "v0_6_merges" USING btree
 CREATE INDEX IF NOT EXISTS "v0_6_merges_signature_index" ON "v0_6_merges" USING btree ("signature");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "v0_6_proposals_dao_index" ON "v0_6_proposals" USING btree ("dao_addr");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "v0_6_proposals_proposer_index" ON "v0_6_proposals" USING btree ("proposer");--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "v0_6_proposals_question_index" ON "v0_6_proposals" USING btree ("question");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "v0_6_proposals_question_index" ON "v0_6_proposals" USING btree ("question_addr");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "v0_6_splits_vault_index" ON "v0_6_splits" USING btree ("vault_addr");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "v0_6_splits_user_index" ON "v0_6_splits" USING btree ("user_addr");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "v0_6_splits_signature_index" ON "v0_6_splits" USING btree ("signature");--> statement-breakpoint
