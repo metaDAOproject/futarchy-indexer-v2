@@ -130,6 +130,12 @@ export enum V06MarketType {
   Fail = "Fail",
 }
 
+export enum FeeCollectionType {
+  Internal = "Internal",
+  Meteora = "Meteora",
+  BidWall = "BidWall",
+}
+
 type NonEmptyList<E> = [E, ...E[]];
 
 function pgEnum<T extends string>(columnName: string, enumObj: Record<any, T>) {
@@ -2105,6 +2111,26 @@ export const v0_7_bid_wall_fee_collections = pgTable("v0_7_bid_wall_fee_collecti
   bidWallIdx: index("v0_7_bid_wall_fee_collections_bid_wall_index").on(table.bidWallAddr),
   txSignatureUnique: unique("v0_7_bid_wall_fee_collections_tx_signature_unique").on(table.txSignature),
 }));
+
+export const fee_collections = pgTable("fee_collections", {
+  id: bigserial("id", { mode: "bigint" }).primaryKey(),
+  daoAddr: pubkey("dao_addr"),  
+  bidWallAddr: pubkey("bid_wall_addr"),  
+  launchAddr: pubkey("launch_addr"),  
+  feeType: pgEnum("fee_type", FeeCollectionType).notNull(),
+  version: varchar("version", { length: 10 }).notNull(),  
+  txSignature: transaction("tx_signature").notNull(),
+  slot: slot("slot").notNull(),
+  timestamp: timestamp("timestamp", { withTimezone: true }).notNull(),
+  baseMint: pubkey("base_mint"),
+  quoteMint: pubkey("quote_mint"),
+  baseFeesCollected: bigint("base_fees_collected", { mode: "bigint" }),
+  quoteFeesCollected: bigint("quote_fees_collected", { mode: "bigint" }),
+  priceAtExecution: numeric("price_at_execution"),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .default(sql`now()`),
+});
 
 export const v0_6_performance_packages = pgTable("v0_6_performance_packages", {
   performancePackageAddr: pubkey("performance_package_addr").primaryKey(),
