@@ -19,7 +19,7 @@ import {
 import { schema, db, eq, and, sql, DBTransaction } from "@metadaoproject/indexer-db";
 import { PublicKey } from "@solana/web3.js";
 import type { VersionedTransactionResponse } from "@solana/web3.js";
-import { V06LaunchState } from "@metadaoproject/indexer-db/lib/schema";
+import { V06LaunchState, MarketType, PricesType } from "@metadaoproject/indexer-db/lib/schema";
 import * as token from "@solana/spl-token";
 import { futarchyClient, launchpadClient } from "../../../connections/v0.6";
 import { insertTokenIfNotExists } from "../../shared/utils";
@@ -204,6 +204,18 @@ async function handleLaunchCompletedEvent(event: LaunchCompletedEvent | v0_6_0_L
       }
 
       await trx.update(schema.v0_6_launches).set(launchUpdateData).where(eq(schema.v0_6_launches.launchAddr, event.launch.toString()));
+
+      // Insert launch price when complete using finalRaiseAmount
+      if (launchState === V06LaunchState.Complete && existingLaunch?.baseMintAcct && launchUpdateData.finalRaiseAmount) {
+        const launchPrice = Number(launchUpdateData.finalRaiseAmount.toString()) / 10_000_000;
+        await trx.insert(schema.prices).values({
+          marketAcct: existingLaunch.baseMintAcct,
+          price: launchPrice.toString(),
+          pricesType: PricesType.Spot,
+          createdBy: "launch-completion",
+          updatedSlot: event.common.slot.toString(),
+        }).onConflictDoNothing();
+      }
     });
   } catch (error) {
     logger.error(error, "Error in handleLaunchCompletedEvent");
@@ -316,6 +328,23 @@ async function handleLaunchInitializedEvent(event: LaunchInitializedEvent | v0_6
       }
 
       await insertTokenIfNotExists(trx, event.baseMint);
+      await insertTokenIfNotExists(trx, event.quoteMint);
+
+      // Insert spot market for price lookups
+      await trx.insert(schema.markets).values({
+        marketAcct: event.baseMint.toString(),
+        baseMintAcct: event.baseMint.toString(),
+        quoteMintAcct: event.quoteMint.toString(),
+        marketType: MarketType.JUPITER_QUOTE,
+        createTxSig: signature,
+        baseLotSize: "0",
+        quoteLotSize: "0",
+        quoteTickSize: "0",
+        baseMakerFee: 0,
+        baseTakerFee: 0,
+        quoteMakerFee: 0,
+        quoteTakerFee: 0,
+      }).onConflictDoNothing();
 
       // Check if this is the newer event format with additional fields
       const hasNewerFields = 'monthlySpendingLimitAmount' in event;

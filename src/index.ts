@@ -3,6 +3,7 @@ import { CronJob } from "cron";
 import http from "http";
 import path from "path";
 import { updatePrices } from "./priceHandler";
+import { FeeCollectorService } from "./services/feeCollector";
 
 // DRY_RUN: Log events without writing to DB (for testing)
 // set to false to write to DB
@@ -20,6 +21,10 @@ const ENABLE_GAPFILL = true;
 const ENABLE_REINDEXING = false;
 const REINDEX_FROM_SLOT: number | undefined = 371599949;
 const REINDEX_PROGRAM: string | undefined = "launchpad-v0.6";
+
+// Fee collection: Collect protocol fees from DAOs and bid walls
+// Runs daily at midnight UTC
+const ENABLE_FEE_COLLECTION = false;
 
 const appStartTime = new Date();
 
@@ -53,6 +58,7 @@ let streamingLastHealthUpdate: Date | null = null;
 let backfillRunning = false;
 let gapfillRunning = false;
 let riskAssessmentRunning = false;
+let feeCollectionRunning = false;
 
 // Reindex state (isolated from normal indexing)
 let reindexProcess: any = null;
@@ -75,6 +81,7 @@ let backfillCron: CronJob | null = null;
 let gapfillCron: CronJob | null = null;
 let pricesCron: CronJob | null = null;
 let riskAssessmentCron: CronJob | null = null;
+let feeCollectionCron: CronJob | null = null;
 let httpServer: ReturnType<typeof http.createServer> | null = null;
 
 async function main() {
@@ -86,6 +93,7 @@ async function main() {
     ENABLE_REINDEXING,
     REINDEX_FROM_SLOT,
     REINDEX_PROGRAM,
+    ENABLE_FEE_COLLECTION,
   }, "Configuration");
 
   // Spawn reindex worker in background (isolated from streaming)
@@ -156,6 +164,21 @@ async function main() {
   );
   riskAssessmentCron.start();
   logger.info("Risk assessment cron job started (monthly on 1st at midnight UTC)");
+
+  // Fee collection cron (daily at midnight UTC)
+  if (ENABLE_FEE_COLLECTION && !DRY_RUN) {
+    feeCollectionCron = new CronJob(
+      "0 0 * * *", // Daily at midnight UTC
+      async () => {
+        await runFeeCollectionWorker();
+      },
+      null,
+      true,
+      "UTC"
+    );
+    feeCollectionCron.start();
+    logger.info("Fee collection cron job started (daily at midnight UTC)");
+  }
 
   // Health server
   httpServer = http.createServer((req: any, res: any) => {
@@ -517,6 +540,69 @@ async function runRiskAssessmentWorker(): Promise<void> {
   }
 }
 
+/**
+ * Run fee collection service
+ */
+async function runFeeCollectionWorker(): Promise<void> {
+  if (feeCollectionRunning) {
+    logger.info("Fee collection already running, skipping");
+    return;
+  }
+
+  feeCollectionRunning = true;
+  const start = new Date();
+
+  logger.info("Starting fee collection worker");
+
+  try {
+    // Fee collection requires a funded keypair - load from env
+    const privateKey = process.env.FEE_COLLECTOR_PRIVATE_KEY;
+    if (!privateKey) {
+      throw new Error("FEE_COLLECTOR_PRIVATE_KEY environment variable required");
+    }
+
+    const keyArray = JSON.parse(privateKey);
+    if (!Array.isArray(keyArray) || keyArray.length !== 64) {
+      throw new Error("Private key must be a JSON array of 64 bytes");
+    }
+
+    const { Connection, Keypair } = await import("@solana/web3.js");
+    const anchor = await import("@coral-xyz/anchor");
+
+    const payer = Keypair.fromSecretKey(new Uint8Array(keyArray));
+    const connection = new Connection(process.env.RPC_URL || "", "confirmed");
+    const wallet = new anchor.Wallet(payer);
+    const provider = new anchor.AnchorProvider(connection, wallet, { commitment: "confirmed" });
+
+    const service = new FeeCollectorService(provider, payer);
+    await service.run();
+
+    const end = new Date();
+    healthMap.set("feecollection", new CronRunResult(
+      "feecollection",
+      "Completed successfully",
+      undefined,
+      start,
+      end,
+      healthMap.get("feecollection")?.totalPreviousErrors || 0
+    ));
+    logger.info("Fee collection worker completed successfully");
+  } catch (error) {
+    const end = new Date();
+    healthMap.set("feecollection", new CronRunResult(
+      "feecollection",
+      `Error: ${error}`,
+      error as Error,
+      start,
+      end,
+      (healthMap.get("feecollection")?.totalPreviousErrors || 0) + 1
+    ));
+    logger.error({ error }, "Fee collection worker error");
+  } finally {
+    feeCollectionRunning = false;
+  }
+}
+
 process.on('SIGTERM', () => {
   logger.info('Main process shutting down...');
 
@@ -536,6 +622,10 @@ process.on('SIGTERM', () => {
   if (riskAssessmentCron) {
     riskAssessmentCron.stop();
     logger.info('Stopped risk assessment cron');
+  }
+  if (feeCollectionCron) {
+    feeCollectionCron.stop();
+    logger.info('Stopped fee collection cron');
   }
 
   // Kill worker processes
