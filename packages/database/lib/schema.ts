@@ -1292,6 +1292,9 @@ export const launchDetails = pgTable("launch_details", {
   discordUrl: text("discord_url"),
   isFeatured: boolean('is_featured').default(false),
   isPermissionless: boolean('is_permissionless').default(false),
+  termsUrl: text("terms_url"),
+  investors: jsonb("investors"),
+  isLight: boolean("is_light"),
   organizationId: bigint("organization_id", { mode: "bigint" })
     .references(() => organizations.organizationId),
   createdAt: timestamp("created_at", { withTimezone: true })
