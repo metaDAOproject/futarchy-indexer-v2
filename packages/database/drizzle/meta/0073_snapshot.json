@@ -1789,7 +1789,7 @@
           "type": "boolean",
           "primaryKey": false,
           "notNull": false,
-          "default": false
+          "default": true
         },
         "terms_url": {
           "name": "terms_url",
