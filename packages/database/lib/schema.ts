@@ -1295,6 +1295,7 @@ export const launchDetails = pgTable("launch_details", {
   isFeatured: boolean('is_featured').default(false),
   isPermissionless: boolean('is_permissionless').default(false),
   isActive: boolean('is_active').default(true),
+  isHidden: boolean('is_hidden').default(false),
   termsUrl: text("terms_url"),
   investors: jsonb("investors"),
   isLight: boolean("is_light"),

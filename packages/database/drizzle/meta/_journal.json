@@ -512,6 +512,13 @@
       "when": 1769546838142,
       "tag": "0072_curious_lightspeed",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1769547329794,
+      "tag": "0073_neat_blue_blade",
+      "breakpoints": true
     }
   ]
 }
