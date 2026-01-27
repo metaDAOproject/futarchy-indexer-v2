@@ -576,6 +576,7 @@ export enum OrderSide {
 export const orders = pgTable(
   "orders",
   {
+    orderId: bigserial("order_id", { mode: "bigint" }),
     orderTxSig: transaction("order_tx_sig")
       .primaryKey()
       .references(() => transactions.txSig),
@@ -818,6 +819,7 @@ export const daoDetails = pgTable(
     lp_token_image_url: varchar("lp_token_image_url"),
     isHide: boolean("is_hide"),
     socials: jsonb("socials"),
+    colors: jsonb("colors"),
     organizationId: bigint("organization_id", { mode: "bigint" })
       .references(() => organizations.organizationId),
     baseMint: pubkey("base_mint"),
@@ -1292,6 +1294,7 @@ export const launchDetails = pgTable("launch_details", {
   discordUrl: text("discord_url"),
   isFeatured: boolean('is_featured').default(false),
   isPermissionless: boolean('is_permissionless').default(false),
+  isActive: boolean('is_active').default(true),
   termsUrl: text("terms_url"),
   investors: jsonb("investors"),
   isLight: boolean("is_light"),

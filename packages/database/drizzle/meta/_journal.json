@@ -505,6 +505,13 @@
       "when": 1769460181652,
       "tag": "0071_brief_ben_parker",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1769546838142,
+      "tag": "0072_curious_lightspeed",
+      "breakpoints": true
     }
   ]
 }
