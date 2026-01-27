@@ -399,7 +399,7 @@ async function handleLaunchCompletedEvent(event: LaunchCompletedEvent, signature
 
       // Insert launch price when complete
       if (launchState === V06LaunchState.Complete && existingLaunch?.baseMintAcct) {
-        const launchPrice = Number(event.totalApprovedAmount.toString()) / 10_000_000;
+        const launchPrice = Number(event.totalApprovedAmount.toString()) / 10_000_000_000_000;
         await trx.insert(schema.prices).values({
           marketAcct: existingLaunch.baseMintAcct,
           price: launchPrice.toString(),

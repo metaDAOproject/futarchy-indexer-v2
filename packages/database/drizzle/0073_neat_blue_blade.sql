@@ -1,0 +1,1 @@
+ALTER TABLE "launch_details" ADD COLUMN "is_hidden" boolean DEFAULT true;
