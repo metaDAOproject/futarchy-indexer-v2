@@ -519,6 +519,20 @@
       "when": 1769547329794,
       "tag": "0073_neat_blue_blade",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1769556299860,
+      "tag": "0074_flippant_post",
+      "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1769558686848,
+      "tag": "0075_great_the_renegades",
+      "breakpoints": true
     }
   ]
 }
