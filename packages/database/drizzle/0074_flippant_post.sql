@@ -1,0 +1,1 @@
+ALTER TABLE "v0_7_launches" ALTER COLUMN "is_hidden" SET DEFAULT false;

@@ -1299,6 +1299,7 @@ export const launchDetails = pgTable("launch_details", {
   termsUrl: text("terms_url"),
   investors: jsonb("investors"),
   isLight: boolean("is_light"),
+  isUncapped: boolean("is_uncapped").default(false),
   organizationId: bigint("organization_id", { mode: "bigint" })
     .references(() => organizations.organizationId),
   createdAt: timestamp("created_at", { withTimezone: true })
@@ -1968,7 +1969,7 @@ export const v0_7_launches = pgTable("v0_7_launches", {
     .notNull()
     .default(sql`now()`),
   updatedAtSlot: slot("updated_at_slot").default(sql`0`).notNull(),
-  isHidden: boolean("is_hidden").notNull().default(true),
+  isHidden: boolean("is_hidden").notNull().default(false),
 });
 
 export const v0_7_funding_records = pgTable("v0_7_funding_records", {
