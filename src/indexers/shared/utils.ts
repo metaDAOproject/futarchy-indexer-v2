@@ -11,6 +11,14 @@ import { log } from "../../logger/logger";
 import { getSquadsTransactionIndex } from "../../utils/squads";
 import { BN } from "@coral-xyz/anchor";
 import {
+  v0_6_0_FinalizeProposalEvent,
+  v0_6_0_LaunchProposalEvent,
+  v0_6_0_ProvideLiquidityEvent,
+  v0_6_0_WithdrawLiquidityEvent,
+  v0_6_0_ConditionalSwapEvent,
+  v0_6_0_SpotSwapEvent,
+} from "@metadaoproject/futarchy/v0.6";
+import {
   InitializeConditionalVaultEvent,
   FinalizeProposalEvent,
   LaunchProposalEvent,
@@ -22,13 +30,7 @@ import {
   SplitTokensEvent,
   Dao,
   AmmMath,
-  v0_6_0_FinalizeProposalEvent,
-  v0_6_0_LaunchProposalEvent,
-  v0_6_0_ProvideLiquidityEvent,
-  v0_6_0_WithdrawLiquidityEvent,
-  v0_6_0_ConditionalSwapEvent,
-  v0_6_0_SpotSwapEvent,
-} from "@metadaoproject/futarchy/v0.6";
+} from "@metadaoproject/futarchy/v0.7";
 
 const logger = log.child({
   module: "shared-utils"

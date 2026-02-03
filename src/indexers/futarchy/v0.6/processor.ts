@@ -14,6 +14,8 @@ import {
   CollectFeesEvent,
   SponsorProposalEvent,
   getStakeAddr,
+} from "@metadaoproject/futarchy/v0.7";
+import {
   v0_6_0_FutarchyEvent,
   v0_6_0_SpotSwapEvent,
   v0_6_0_ConditionalSwapEvent,
@@ -27,6 +29,7 @@ import {
   v0_6_0_LaunchProposalEvent,
   v0_6_0_FinalizeProposalEvent,
   v0_6_0_CollectFeesEvent,
+  // SponsorProposalEvent,
 } from "@metadaoproject/futarchy/v0.6";
 import { schema, db, eq, sql, DBTransaction } from "@metadaoproject/indexer-db";
 import { PublicKey } from "@solana/web3.js";
@@ -208,7 +211,7 @@ async function handleInitializeProposalEvent(event: InitializeProposalEvent | v0
 async function handleStakeToProposalEvent(event: StakeToProposalEvent | v0_6_0_StakeToProposalEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
     const [stakePda] = getStakeAddr(
-      futarchyClient.futarchy.programId,
+      futarchyClient.autocrat.programId,
       event.proposal,
       event.staker
     );
@@ -250,7 +253,7 @@ async function handleStakeToProposalEvent(event: StakeToProposalEvent | v0_6_0_S
 
       let actualStakedAmount: string;
       try {
-        const stakeAccountData = await futarchyClient.futarchy.account.stakeAccount.fetch(stakePda);
+        const stakeAccountData = await futarchyClient.autocrat.account.stakeAccount.fetch(stakePda);
         actualStakedAmount = stakeAccountData.amount.toString();
       } catch {
         actualStakedAmount = event.amount.toString();
@@ -291,7 +294,7 @@ async function handleStakeToProposalEvent(event: StakeToProposalEvent | v0_6_0_S
 async function handleUnstakeFromProposalEvent(event: UnstakeFromProposalEvent | v0_6_0_UnstakeFromProposalEvent, signature: string, transactionResponse: VersionedTransactionResponse) {
   try {
     const [stakePda] = getStakeAddr(
-      futarchyClient.futarchy.programId,
+      futarchyClient.autocrat.programId,
       event.proposal,
       event.staker
     );
@@ -333,7 +336,7 @@ async function handleUnstakeFromProposalEvent(event: UnstakeFromProposalEvent | 
 
       let actualStakedAmount: string;
       try {
-        const stakeAccountData = await futarchyClient.futarchy.account.stakeAccount.fetch(stakePda);
+        const stakeAccountData = await futarchyClient.autocrat.account.stakeAccount.fetch(stakePda);
         actualStakedAmount = stakeAccountData.amount.toString();
       } catch {
         actualStakedAmount = "0";
@@ -561,12 +564,12 @@ async function handleProvideLiquidityEvent(event: ProvideLiquidityEvent | v0_6_0
           event.dao.toBuffer(),
           event.positionAuthority.toBuffer(),
         ],
-        futarchyClient.futarchy.programId
+        futarchyClient.autocrat.programId
       );
 
       // Upsert AmmPosition - only in RPC mode (gRPC handles via account streaming)
       if (!isGeyser) {
-        const ammPositionAcct = await futarchyClient.futarchy.account.ammPosition.fetch(ammPositionPda);
+        const ammPositionAcct = await futarchyClient.autocrat.account.ammPosition.fetch(ammPositionPda);
         await trx.insert(schema.v0_6_amm_positions).values({
           ammPositionAddr: ammPositionPda.toString(),
           daoAddr: event.dao.toString(),
@@ -629,12 +632,12 @@ async function handleWithdrawLiquidityEvent(event: WithdrawLiquidityEvent | v0_6
           event.dao.toBuffer(),
           event.liquidityProvider.toBuffer(),
         ],
-        futarchyClient.futarchy.programId
+        futarchyClient.autocrat.programId
       );
 
       // Update AmmPosition - only in RPC mode (gRPC handles via account streaming)
       if (!isGeyser) {
-        const ammPositionAcct = await futarchyClient.futarchy.account.ammPosition.fetch(ammPositionPda);
+        const ammPositionAcct = await futarchyClient.autocrat.account.ammPosition.fetch(ammPositionPda);
         await trx.update(schema.v0_6_amm_positions).set({
           liquidity: ammPositionAcct.liquidity.toString(),
           updatedAtSlot: sql`GREATEST(${BigInt(event.common.slot.toString())}, ${schema.v0_6_amm_positions.updatedAtSlot})`,
