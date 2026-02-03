@@ -19,7 +19,7 @@ import { backfillHistorical, gapFill, detectGapFromDb, processGrpcTransaction, s
 import { HeliusProvider } from "../core/providers/helius";
 import { db, schema } from "@metadaoproject/indexer-db";
 import { eq } from "drizzle-orm";
-import { checkAddressRisk } from "../services/chainalysis";
+import { checkAddressRisk, AuthenticationError, RateLimitError } from "../services/chainalysis";
 
 // Import all program indexers (auto-registers via side effect)
 import "../indexers/futarchy/v0.6";
@@ -358,8 +358,17 @@ async function runRiskAssessment(): Promise<void> {
     let errorCount = 0;
 
     // Configurable rate limiting
-    const rateLimitMs = parseInt(process.env.CHAINALYSIS_RATE_LIMIT_MS || "1000");
-    const estimatedMs = currentAssessments.length * rateLimitMs;
+    const baseRateLimitMs = parseInt(process.env.CHAINALYSIS_RATE_LIMIT_MS || "2000"); // Default 2 seconds
+    const MAX_RATE_LIMIT_MS = 30000; // Cap at 30 seconds
+    let currentRateLimitMs = baseRateLimitMs;
+
+    // Circuit breaker configuration
+    const MAX_CONSECUTIVE_ERRORS = 5;
+    let consecutiveErrors = 0;
+    let circuitBroken = false;
+    let circuitBrokenReason = "";
+
+    const estimatedMs = currentAssessments.length * baseRateLimitMs;
     const estimatedMinutes = Math.round(estimatedMs / 60000);
     const estimatedHours = Math.floor(estimatedMinutes / 60);
     const remainingMinutes = estimatedMinutes % 60;
@@ -369,13 +378,20 @@ async function runRiskAssessment(): Promise<void> {
       : `${estimatedMinutes}m`;
 
     logger.info({
-      rateLimitMs,
+      baseRateLimitMs,
+      maxRateLimitMs: MAX_RATE_LIMIT_MS,
+      maxConsecutiveErrors: MAX_CONSECUTIVE_ERRORS,
       totalAddresses: currentAssessments.length,
       estimatedTime,
       estimatedMs
-    }, "Starting address checks");
+    }, "Starting address checks with circuit breaker");
 
     for (const assessment of currentAssessments) {
+      // Circuit breaker: stop if triggered
+      if (circuitBroken) {
+        logger.warn({ reason: circuitBrokenReason }, "Circuit breaker active - skipping remaining addresses");
+        break;
+      }
       try {
         const result = await checkAddressRisk(assessment.address);
 
@@ -413,8 +429,16 @@ async function runRiskAssessment(): Promise<void> {
           successCount++;
         }
 
-        // Rate limiting: configurable delay between requests (default 1 second)
-        await new Promise((resolve) => setTimeout(resolve, rateLimitMs));
+        // Reset consecutive errors on success
+        consecutiveErrors = 0;
+
+        // Slowly reduce rate limit back toward baseline on success
+        if (currentRateLimitMs > baseRateLimitMs) {
+          currentRateLimitMs = Math.max(Math.floor(currentRateLimitMs * 0.9), baseRateLimitMs);
+        }
+
+        // Rate limiting: adaptive delay between requests
+        await new Promise((resolve) => setTimeout(resolve, currentRateLimitMs));
 
         // Log progress every 10 addresses
         if ((successCount + errorCount) % 10 === 0) {
@@ -425,18 +449,60 @@ async function runRiskAssessment(): Promise<void> {
         }
       } catch (error) {
         errorCount++;
+
+        // Handle specific error types
+        if (error instanceof AuthenticationError) {
+          // 401/403 errors - Chainalysis is blocking us, stop immediately
+          logger.error(
+            { address: assessment.address, statusCode: error.statusCode },
+            "Chainalysis auth/rate limit error - triggering circuit breaker"
+          );
+          circuitBroken = true;
+          circuitBrokenReason = `Auth error (${error.statusCode}): ${error.message}`;
+          continue;
+        }
+
+        if (error instanceof RateLimitError) {
+          // 429 rate limit - back off globally and continue
+          logger.warn(
+            { address: assessment.address, retryAfterMs: error.retryAfterMs, currentRateLimitMs },
+            "Rate limited - increasing delay globally"
+          );
+          // Increase rate limit for all subsequent requests
+          currentRateLimitMs = Math.min(currentRateLimitMs * 2, MAX_RATE_LIMIT_MS);
+          // Wait the suggested time before continuing
+          await new Promise((resolve) => setTimeout(resolve, error.retryAfterMs));
+          consecutiveErrors = 0; // Rate limit isn't a "failure" per se
+          continue;
+        }
+
+        // Generic error - increment consecutive errors
+        consecutiveErrors++;
         logger.error(
           {
             error,
             errorMessage: error instanceof Error ? error.message : String(error),
             errorName: error instanceof Error ? error.name : undefined,
             errorStack: error instanceof Error ? error.stack : undefined,
-            errorDetails: JSON.stringify(error, Object.getOwnPropertyNames(error)),
-            address: assessment.address
+            address: assessment.address,
+            consecutiveErrors,
+            currentRateLimitMs
           },
           "Failed to check address risk"
         );
-        // Continue with next address
+
+        // Circuit breaker: stop after too many consecutive errors
+        if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+          circuitBroken = true;
+          circuitBrokenReason = `${consecutiveErrors} consecutive errors`;
+          logger.error(
+            { consecutiveErrors, maxConsecutiveErrors: MAX_CONSECUTIVE_ERRORS },
+            "Circuit breaker triggered - too many consecutive errors"
+          );
+        }
+
+        // Increase rate limit on errors
+        currentRateLimitMs = Math.min(currentRateLimitMs * 1.5, MAX_RATE_LIMIT_MS);
       }
     }
 
@@ -446,8 +512,16 @@ async function runRiskAssessment(): Promise<void> {
     const totalTimeSeconds = Math.floor((totalTimeMs % 60000) / 1000);
 
     logger.info(
-      { successCount, errorCount, highRiskCount: highRiskAddresses.length, totalTimeMs },
-      "Risk assessment complete"
+      {
+        successCount,
+        errorCount,
+        highRiskCount: highRiskAddresses.length,
+        totalTimeMs,
+        circuitBroken,
+        circuitBrokenReason: circuitBroken ? circuitBrokenReason : undefined,
+        skippedCount: circuitBroken ? currentAssessments.length - successCount - errorCount : 0
+      },
+      circuitBroken ? "Risk assessment stopped by circuit breaker" : "Risk assessment complete"
     );
 
     // Step 3: Send Telegram alert (always send summary, include high-risk addresses if any)
@@ -458,6 +532,8 @@ async function runRiskAssessment(): Promise<void> {
       errorCount,
       totalTimeMinutes,
       totalTimeSeconds,
+      circuitBroken,
+      circuitBrokenReason: circuitBroken ? circuitBrokenReason : undefined,
     });
 
   } catch (error) {
@@ -473,6 +549,8 @@ async function sendHighRiskAlert({
   errorCount,
   totalTimeMinutes,
   totalTimeSeconds,
+  circuitBroken,
+  circuitBrokenReason,
 }: {
   highRiskAddresses: Array<{ address: string; risk: string; riskReason: string }>;
   totalScanned: number;
@@ -480,6 +558,8 @@ async function sendHighRiskAlert({
   errorCount: number;
   totalTimeMinutes: number;
   totalTimeSeconds: number;
+  circuitBroken?: boolean;
+  circuitBrokenReason?: string;
 }) {
   const timeStr = totalTimeMinutes > 0
     ? `${totalTimeMinutes}m ${totalTimeSeconds}s`
@@ -496,28 +576,37 @@ Reason: ${escapeMarkdown(addr.riskReason)}
     }
   }
 
+  const skippedCount = totalScanned - successCount - errorCount;
+  const circuitBreakerSection = circuitBroken
+    ? `
+🛑 *Circuit Breaker Triggered*
+• Reason: ${escapeMarkdown(circuitBrokenReason || "Unknown")}
+• Skipped: ${skippedCount.toLocaleString()} addresses
+`
+    : '';
+
   const message = highRiskAddresses.length > 0
-    ? `⚠️ *Monthly Risk Assessment Complete*
+    ? `⚠️ *Monthly Risk Assessment ${circuitBroken ? 'Stopped' : 'Complete'}*
 
 📊 *Summary*
-• Total Scanned: ${totalScanned.toLocaleString()}
+• Total Addresses: ${totalScanned.toLocaleString()}
 • Successful: ${successCount.toLocaleString()}
 • Errors: ${errorCount.toLocaleString()}
 • Duration: ${timeStr}
 • High Risk Found: ${highRiskAddresses.length}
-
+${circuitBreakerSection}
 🚨 *High Risk Addresses*
 ${addressList}`
-    : `⚠️ *Monthly Risk Assessment Complete*
+    : `⚠️ *Monthly Risk Assessment ${circuitBroken ? 'Stopped' : 'Complete'}*
 
 📊 *Summary*
-• Total Scanned: ${totalScanned.toLocaleString()}
+• Total Addresses: ${totalScanned.toLocaleString()}
 • Successful: ${successCount.toLocaleString()}
 • Errors: ${errorCount.toLocaleString()}
 • Duration: ${timeStr}
 • High Risk Found: 0
-
-✅ No high\\-risk addresses detected`;
+${circuitBreakerSection}
+${circuitBroken ? '⚠️ Job stopped early \\- remaining addresses not checked' : '✅ No high\\-risk addresses detected'}`;
 
   // Log to console
   logger.info({ highRiskCount: highRiskAddresses.length }, "Sending risk assessment alert");
