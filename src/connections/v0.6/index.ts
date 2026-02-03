@@ -1,6 +1,7 @@
 import { Connection } from "@solana/web3.js";
 import { AnchorProvider, Wallet } from "@coral-xyz/anchor";
-import { ConditionalVaultClient, FutarchyClient, LaunchpadClient } from "@metadaoproject/futarchy/v0.6";
+import { ConditionalVaultClient, FutarchyClient } from "@metadaoproject/futarchy/v0.7";
+import { FutarchyClient as FutarchyClientV06, LaunchpadClient } from "@metadaoproject/futarchy/v0.6";
 import dns from 'dns';
 import { promisify } from 'util';
 
@@ -38,3 +39,4 @@ export const provider = new AnchorProvider(connection, readonlyWallet, {
 export const conditionalVaultClient = ConditionalVaultClient.createClient({ provider });
 export const launchpadClient = LaunchpadClient.createClient({ provider });
 export const futarchyClient = FutarchyClient.createClient({ provider });
+export const futarchyClientV06 = FutarchyClientV06.createClient({ provider });
