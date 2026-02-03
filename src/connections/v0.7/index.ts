@@ -1,6 +1,6 @@
 import { Connection } from "@solana/web3.js";
 import { AnchorProvider, Wallet } from "@coral-xyz/anchor";
-import { LaunchpadClient, BidWallClient, PriceBasedPerformancePackageClient } from "@metadaoproject/futarchy/v0.7";
+import { LaunchpadClient, BidWallClient, PriceBasedPerformancePackageClient, FutarchyClient } from "@metadaoproject/futarchy/v0.7";
 
 export const RPC_ENDPOINT = process.env.RPC_ENDPOINT ?? "";
 
@@ -23,3 +23,4 @@ export const provider = new AnchorProvider(connection, readonlyWallet, {
 export const launchpadV7Client = LaunchpadClient.createClient({ provider });
 export const bidWallClient = BidWallClient.createClient({ provider });
 export const priceBasedPerformancePackageClient = PriceBasedPerformancePackageClient.createClient({ provider });
+export const futarchyClient = FutarchyClient.createClient({ provider });

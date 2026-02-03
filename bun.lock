@@ -6,7 +6,7 @@
       "name": "futarchy-indexer-v2",
       "dependencies": {
         "@coral-xyz/anchor": "^0.29.0",
-        "@metadaoproject/futarchy": "^0.7.0-alpha.7",
+        "@metadaoproject/futarchy": "^0.7.0-alpha.11",
         "@metadaoproject/indexer-db": "file:./packages/database",
         "@metadaoproject/token-migrator": "0.1.0-alpha.5",
         "@meteora-ag/cp-amm-sdk": "^1.2.10",
@@ -168,7 +168,7 @@
 
     "@js-sdsl/ordered-map": ["@js-sdsl/ordered-map@4.4.2", "", {}, "sha512-iUKgm52T8HOE/makSxjqoWhe95ZJA1/G1sYsGev2JDKUSS14KAgg1LHb+Ba+IPow0xflbnSkOsZcO08C7w1gYw=="],
 
-    "@metadaoproject/futarchy": ["@metadaoproject/futarchy@0.7.0-alpha.7", "", { "dependencies": { "@coral-xyz/anchor": "^0.29.0", "@metaplex-foundation/umi": "^0.9.2", "@metaplex-foundation/umi-bundle-defaults": "^0.9.2", "@metaplex-foundation/umi-uploader-bundlr": "^0.9.2", "@noble/hashes": "^1.4.0", "@solana/spl-token": "^0.3.7", "@solana/web3.js": "^1.76.0", "@sqds/multisig": "^2.1.4", "bn.js": "^5.2.1", "decimal.js": "^10.4.3", "esbuild": "^0.17.15" } }, "sha512-uLgbxci6ARUYk/x3EVksu4CLZbVJqv0h8f10EkQjOL0uT/ed4Hpu2B0Cn/uZWocD/AGFhzWw/7fFiwUUQXXbXA=="],
+    "@metadaoproject/futarchy": ["@metadaoproject/futarchy@0.7.0-alpha.11", "", { "dependencies": { "@coral-xyz/anchor": "^0.29.0", "@metaplex-foundation/umi": "^0.9.2", "@metaplex-foundation/umi-bundle-defaults": "^0.9.2", "@metaplex-foundation/umi-uploader-bundlr": "^0.9.2", "@noble/hashes": "^1.4.0", "@solana/spl-token": "^0.3.7", "@solana/web3.js": "^1.76.0", "@sqds/multisig": "^2.1.4", "bn.js": "^5.2.1", "decimal.js": "^10.4.3", "esbuild": "^0.17.15" } }, "sha512-ewBL8ZXgKkZQhmdLtWzLzNvBymybALaUu8kzPH96sn1Iz7/HtGvBseRgW3Ljwd/o6lFos9AXYuSShWdVR9fdUg=="],
 
     "@metadaoproject/indexer-db": ["@metadaoproject/indexer-db@file:packages/database", { "dependencies": { "dotenv": "16.4.5", "drizzle-orm": "0.36.3", "pg": "^8.11.3" }, "devDependencies": { "@types/inquirer": "^9.0.7", "@types/node": "^20.10.6", "@types/pg": "^8.10.9", "ansicolor": "^2.0.1", "as-table": "^1.0.55", "drizzle-kit": "0.28.1", "inquirer": "^9.2.14" } }],
 

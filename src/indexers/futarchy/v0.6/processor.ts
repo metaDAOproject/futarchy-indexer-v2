@@ -194,7 +194,14 @@ async function handleInitializeProposalEvent(event: InitializeProposalEvent | v0
       await insertTokenIfNotExists(trx, proposalAcct.passQuoteMint);
       await insertTokenIfNotExists(trx, proposalAcct.failBaseMint);
       await insertTokenIfNotExists(trx, proposalAcct.failQuoteMint);
-      const blockTime = transactionResponse.blockTime ? new Date(transactionResponse.blockTime * 1000) : null;
+
+      // Prefer event timestamp (Surfpool returns blockTime incorrectly)
+      const blockTime = event.common.unixTimestamp
+        ? new Date(event.common.unixTimestamp.mul(new BN(1000)).toNumber())
+        : transactionResponse.blockTime
+          ? new Date(transactionResponse.blockTime * 1000)
+          : null;
+
       await upsertV06Proposal(proposalAcct, event.proposal, BigInt(event.common.slot.toString()), blockTime, trx);
       await insertIfNotExistsMarkets(trx, event.proposal.toString(), event.dao.toString());
       // Update proposal_details with transaction index from Squads

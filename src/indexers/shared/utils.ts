@@ -451,7 +451,8 @@ export async function upsertV06Proposal(proposalAcct: any, proposalAddr: PublicK
       state: proposalAcct.state.pending ? V06ProposalState.Pending :
              proposalAcct.state.draft ? V06ProposalState.Draft :
              proposalAcct.state.passed ? V06ProposalState.Passed :
-             proposalAcct.state.failed ? V06ProposalState.Failed : V06ProposalState.Pending,
+             proposalAcct.state.failed ? V06ProposalState.Failed :
+             proposalAcct.state.removed ? V06ProposalState.Removed : V06ProposalState.Pending,
       daoAddr: proposalAcct.dao.toString(),
       pdaBump: proposalAcct.pdaBump,
       questionAddr: proposalAcct.question.toString(),
