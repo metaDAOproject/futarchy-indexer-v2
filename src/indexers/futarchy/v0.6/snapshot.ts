@@ -1,5 +1,6 @@
 import { db, schema } from "@metadaoproject/indexer-db";
 import { futarchyClient } from "../../../connections/v0.6";
+import { futarchyClient as futarchyClientV7 } from "../../../connections/v0.7";
 import { upsertV06Dao, upsertV06Proposal, insertTokenIfNotExists } from "../../shared/utils";
 import { log } from "../../../logger/logger";
 
@@ -56,7 +57,8 @@ async function snapshotProposals(): Promise<void> {
   logger.info("Snapshotting proposals...");
 
   try {
-    const proposals = await futarchyClient.futarchy.account.proposal.all();
+    // Use v0.7 client which has updated IDL (handles new fields like 'removed' state)
+    const proposals = await futarchyClientV7.autocrat.account.proposal.all();
     logger.info({ count: proposals.length }, "Fetched proposals from chain");
 
     for (const proposal of proposals) {

@@ -194,7 +194,14 @@ async function handleInitializeProposalEvent(event: InitializeProposalEvent | v0
       await insertTokenIfNotExists(trx, proposalAcct.passQuoteMint);
       await insertTokenIfNotExists(trx, proposalAcct.failBaseMint);
       await insertTokenIfNotExists(trx, proposalAcct.failQuoteMint);
-      const blockTime = transactionResponse.blockTime ? new Date(transactionResponse.blockTime * 1000) : null;
+
+      // Fallback to event timestamp for Surfpool (returns incorrect blockTime)
+      const blockTime = transactionResponse.blockTime
+        ? new Date(transactionResponse.blockTime * 1000)
+        : event.common.unixTimestamp
+          ? new Date(event.common.unixTimestamp.mul(new BN(1000)).toNumber())
+          : null;
+
       await upsertV06Proposal(proposalAcct, event.proposal, BigInt(event.common.slot.toString()), blockTime, trx);
       await insertIfNotExistsMarkets(trx, event.proposal.toString(), event.dao.toString());
       // Update proposal_details with transaction index from Squads
@@ -412,9 +419,14 @@ async function handleLaunchProposalEvent(event: LaunchProposalEvent | v0_6_0_Lau
 
           // timestampEnqueued only exists in newer v0.6.1+ events
           if ('timestampEnqueued' in event) {
+            const timestampEnqueuedBN = (event as LaunchProposalEvent).timestampEnqueued;
+            const launchedAtMs = timestampEnqueuedBN.mul(new BN(1000)).toNumber();
+            const launchedAtDate = new Date(launchedAtMs);
             await trx.update(schema.v0_6_proposals).set({
-              launchedAt: new Date((event as LaunchProposalEvent).timestampEnqueued.mul(new BN(1000)).toNumber()),
+              launchedAt: launchedAtDate,
             }).where(eq(schema.v0_6_proposals.proposalAddr, event.proposal.toString()));
+          } else {
+
           }
 
         } catch (fetchError) {

@@ -122,6 +122,7 @@ export enum V06ProposalState {
   Pending = "Pending",
   Passed = "Passed",
   Failed = "Failed",
+  Removed = "Removed"
 }
 
 export enum V06MarketType {
