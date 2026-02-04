@@ -26,6 +26,25 @@ const logger = log.child({
   module: "launchpad-v0.7-processor"
 });
 
+// State machine: only allow forward transitions
+// Valid transitions:
+//   Initialized → Live
+//   Live → Refunding (failed at close - didn't raise minimum)
+//   Live → Closed (raised minimum)
+//   Closed → Refunding (failed at complete - didn't approve enough)
+//   Closed → Complete (success)
+const STATE_ORDER: Record<V06LaunchState, number> = {
+  [V06LaunchState.Initialized]: 0,
+  [V06LaunchState.Live]: 1,
+  [V06LaunchState.Closed]: 2,
+  [V06LaunchState.Refunding]: 3,
+  [V06LaunchState.Complete]: 3,
+};
+
+function isStateRegression(currentState: V06LaunchState, newState: V06LaunchState): boolean {
+  return STATE_ORDER[newState] < STATE_ORDER[currentState];
+}
+
 type DBConnection = any;
 
 export async function processLaunchpadV7Event(
@@ -79,6 +98,12 @@ async function handleLaunchInitializedEvent(event: LaunchInitializedEvent, signa
 
       if (existingLaunch && existingLaunch.updatedAtSlot > BigInt(event.common.slot.toString())) {
         logger.info(`Launch ${event.launch.toString()} already exists with last updated slot ${existingLaunch.updatedAtSlot.toString()}`);
+        return;
+      }
+
+      // State machine guard: don't regress state
+      if (existingLaunch && isStateRegression(existingLaunch.state, V06LaunchState.Initialized)) {
+        logger.info(`Launch ${event.launch.toString()} in state ${existingLaunch.state}, skipping InitializedEvent`);
         return;
       }
 
@@ -144,6 +169,12 @@ async function handleLaunchStartedEvent(event: LaunchStartedEvent, signature: st
 
       if (existingLaunch && existingLaunch.seqNum > BigInt(event.common.launchSeqNum.toString())) {
         logger.info(`Launch ${event.launch.toString()} already updated to seqNum ${existingLaunch.seqNum.toString()}`);
+        return;
+      }
+
+      // State machine guard: don't regress state
+      if (existingLaunch && isStateRegression(existingLaunch.state, V06LaunchState.Live)) {
+        logger.info(`Launch ${event.launch.toString()} in state ${existingLaunch.state}, skipping StartedEvent`);
         return;
       }
 
@@ -301,6 +332,12 @@ async function handleLaunchCompletedEvent(event: LaunchCompletedEvent, signature
 
       // Check if the launch is complete or refunding (Anchor enum variant check)
       const launchState = 'complete' in event.finalState ? V06LaunchState.Complete : V06LaunchState.Refunding;
+
+      // State machine guard: don't regress state
+      if (existingLaunch && isStateRegression(existingLaunch.state, launchState)) {
+        logger.info(`Launch ${event.launch.toString()} in state ${existingLaunch.state}, skipping CompletedEvent`);
+        return;
+      }
 
       if (launchState === V06LaunchState.Complete && event.dao) {
         // Delay to allow chain state to settle
@@ -499,6 +536,12 @@ async function handleLaunchCloseEvent(event: LaunchCloseEvent, signature: string
         mappedState = V06LaunchState.Refunding;
       } else {
         mappedState = V06LaunchState.Complete; // Default fallback
+      }
+
+      // State machine guard: don't regress state
+      if (existingLaunch && isStateRegression(existingLaunch.state, mappedState)) {
+        logger.info(`Launch ${event.launch.toString()} in state ${existingLaunch.state}, skipping CloseEvent`);
+        return;
       }
 
       await trx.update(schema.v0_7_launches).set({
