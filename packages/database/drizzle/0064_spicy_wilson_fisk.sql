@@ -1,0 +1,2 @@
+ALTER TABLE "v0_6_conditional_swaps" ADD CONSTRAINT "v0_6_conditional_swaps_signature_unique" UNIQUE("signature");--> statement-breakpoint
+ALTER TABLE "v0_6_spot_swaps" ADD CONSTRAINT "v0_6_spot_swaps_signature_unique" UNIQUE("signature");

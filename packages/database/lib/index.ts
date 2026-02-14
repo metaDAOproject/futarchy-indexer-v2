@@ -4,6 +4,7 @@ import { Pool, PoolClient } from "pg";
 import "dotenv/config";
 
 let connectionString = process.env.FUTARCHY_PG_URL;
+let maxDBConnections = process.env.MAX_DB_CONNECTIONS;
 
 // Add retry configuration
 const RETRY_ATTEMPTS = 12;
@@ -15,7 +16,7 @@ const ACQUIRE_TIMEOUT = 10000;   // 10 second timeout for acquiring connection
 const poolConfig = {
   connectionString: connectionString,
   min: 3,
-  max: 300, // Reduced from 1000 to a more reasonable number
+  max: Number(maxDBConnections),
   idleTimeoutMillis: 5 * 1000,
   connectionTimeoutMillis: 5 * 1000,
   acquireTimeoutMillis: 60 * 1000,

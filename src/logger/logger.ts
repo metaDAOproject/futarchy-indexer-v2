@@ -1,15 +1,14 @@
-import { pino } from "pino";
+import pino from "pino";
 
 const TELEGRAM_ALERT_CHAT_ID = process.env.TELEGRAM_ALERT_CHAT_ID ?? "";
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const DEPLOY_ENVIRONMENT = process.env.DEPLOY_ENVIRONMENT ?? "STAGING";
 const LOG_LEVEL = process.env.LOG_LEVEL ?? "error";
 
-const transports = [];
-const telegramTransport = {
+const transports: pino.TransportTargetOptions[] = [];
+const telegramTransport: pino.TransportTargetOptions = {
   target: 'pino-telegram-webhook',
   level: "error",
-
   options: {
     chatId: TELEGRAM_ALERT_CHAT_ID,
     botToken: TELEGRAM_BOT_TOKEN,
@@ -21,9 +20,9 @@ const telegramTransport = {
     timestamp: true
   },
 };
-const prettyTransport = {
+const prettyTransport: pino.TransportTargetOptions = {
   target: 'pino-pretty',
-  level:LOG_LEVEL,
+  level: LOG_LEVEL,
   options: {
     colorize: true,
     ignore: "pid,hostname",
@@ -31,7 +30,7 @@ const prettyTransport = {
     singleLine: true,
     sync: true
   }
-}
+};
 let level = LOG_LEVEL;
 if (DEPLOY_ENVIRONMENT === "PROD" || DEPLOY_ENVIRONMENT === "STAGING") {
   transports.push(telegramTransport);
@@ -40,14 +39,10 @@ if (DEPLOY_ENVIRONMENT === "PROD" || DEPLOY_ENVIRONMENT === "STAGING") {
   level = "debug";
   transports.push(prettyTransport);
 }
-export const log: pino.Logger = pino({
+export const log = pino({
   name: "indexer",
   level: level,
   transport: {
     targets: transports
   }
-}, 
-  pino.destination({
-    sync: true
-  })
-)
+})

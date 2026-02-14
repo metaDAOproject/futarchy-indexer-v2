@@ -3,9 +3,8 @@ import {
   PricesRecord,
   PricesType,
 } from "@metadaoproject/indexer-db/lib/schema";
-import { connection } from "./connection";
+import { connection } from "./connections/v0.6";
 import { log } from "./logger/logger";
-import env from "dotenv";
 
 const logger = log.child({
   module: "priceHandler",
@@ -18,10 +17,7 @@ interface PriceData {
   priceChange24h: number;
 }
 // Jupiter pro url if we want to use it in the future
-const baseUrl =
-  process.env.JUPITER_API_KEY && process.env.JUPITER_API_KEY.length > 0
-    ? "https://api.jup.ag/price/v3?ids="
-    : "https://lite-api.jup.ag/price/v3?ids=";
+const baseUrl = "https://api.jup.ag/price/v3?ids=";
 
 export async function updatePrices(): Promise<{
   message: string;
@@ -29,51 +25,6 @@ export async function updatePrices(): Promise<{
 }> {
   try {
     const startTime = performance.now();
-    //get all the daos that are not hidden
-    // const v3Query = db.$with("v3").as(
-    //   db
-    //     .select({
-    //       baseAcct: schema.daos.baseAcct,
-    //     })
-    //     .from(schema.daos)
-    //     .leftJoin(
-    //       schema.daoDetails,
-    //       eq(schema.daoDetails.daoId, schema.daos.daoId)
-    //     )
-    //     .where(eq(schema.daoDetails.isHide, false))
-    // );
-
-    const v4Query = db.$with("v4").as(
-      db
-        .select({
-          baseAcct: schema.v0_4_daos.tokenMintAcct,
-        })
-        .from(schema.v0_4_daos)
-        .leftJoin(
-          schema.organizations,
-          eq(
-            schema.v0_4_daos.organizationId,
-            schema.organizations.organizationId
-          )
-        )
-        .where(eq(schema.organizations.isHide, false))
-    );
-
-    const v5Query = db.$with("v5").as(
-      db
-        .select({
-          baseAcct: schema.v0_5_daos.baseMintAcct,
-        })
-        .from(schema.v0_5_daos)
-        .leftJoin(
-          schema.organizations,
-          eq(
-            schema.v0_5_daos.organizationId,
-            schema.organizations.organizationId
-          )
-        )
-        .where(eq(schema.organizations.isHide, false))
-    );
 
     const v6Query = db.$with("v6").as(
       db
@@ -92,11 +43,9 @@ export async function updatePrices(): Promise<{
     );
 
     const results = await db
-      .with(v4Query, v5Query, v6Query) 
+      .with(v6Query)
       .select()
-      .from(v4Query)
-      .union(db.with(v5Query).select().from(v5Query))
-      .union(db.with(v6Query).select().from(v6Query)) 
+      .from(v6Query)
       .execute();
 
     let ids = "";
@@ -110,7 +59,7 @@ export async function updatePrices(): Promise<{
     const headers: HeadersInit = {
       "Content-Type": "application/json",
     };
-    
+
     if (apiKey && apiKey.length > 0) {
       headers["x-api-key"] = apiKey;
     }
@@ -118,7 +67,7 @@ export async function updatePrices(): Promise<{
     const response = await fetch(url, {
       headers: headers,
     });
-    
+
     if (!response.ok) {
       logger.error(`Error fetching prices: ${response.statusText}`);
       return {
@@ -132,8 +81,7 @@ export async function updatePrices(): Promise<{
 
     let missingPrices = [];
     let errors = [];
-    
-    // v3 response structure is different - no nested data object
+
     for (const [tokenId, priceData] of Object.entries(data)) {
       if (priceData) {
         const pd = priceData as PriceData;
@@ -163,19 +111,24 @@ export async function updatePrices(): Promise<{
     }
 
     const endTime = performance.now();
-    const missingPricesMessage = missingPrices.filter(Boolean).join("<br>");
-    const message = `Updated prices in ${
-      (endTime - startTime) / 1000
-    }s missing <br>${missingPricesMessage}`;
-    logger.info(message);
-    let errorMessage = "";
-    for (const error of errors) {
-      errorMessage += error + "<br>";
+    const duration = ((endTime - startTime) / 1000).toFixed(2);
+    const updatedCount = Object.keys(data).length - missingPrices.length;
+
+    logger.info({
+      duration: `${duration}s`,
+      updated: updatedCount,
+      missing: missingPrices.length
+    }, "Jupiter price update complete");
+
+    if (missingPrices.length > 0) {
+      logger.warn({ tokens: missingPrices }, "Missing price data for tokens");
     }
 
+    const message = `Updated ${updatedCount} prices in ${duration}s${missingPrices.length > 0 ? `, ${missingPrices.length} missing` : ''}`;
+
     return {
-      message: message,
-      error: errorMessage ? new Error(errorMessage) : undefined,
+      message,
+      error: errors.length > 0 ? new Error(errors.join(", ")) : undefined,
     };
   } catch (error) {
     logger.error(`Error updating prices: ${error}`);
