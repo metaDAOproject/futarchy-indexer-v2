@@ -18,7 +18,11 @@ interface PriceData {
   priceChange24h: number;
 }
 // Jupiter pro url if we want to use it in the future
-const baseUrl = "https://lite-api.jup.ag/price/v3?ids=";
+const baseUrl = "https://api.jup.ag/price/v3?ids=";
+
+const apiKey = process.env.JUPITER_API_KEY;
+
+const excludedMints = process.env.EXCLUDED_MINTS ? process.env.EXCLUDED_MINTS.split(",") : [];
 
 export async function updatePrices(): Promise<{
   message: string;
@@ -26,35 +30,6 @@ export async function updatePrices(): Promise<{
 }> {
   try {
     const startTime = performance.now();
-    //get all the daos that are not hidden
-    const v3Query = db.$with("v3").as(
-      db
-        .select({
-          baseAcct: schema.daos.baseAcct,
-        })
-        .from(schema.daos)
-        .leftJoin(
-          schema.daoDetails,
-          eq(schema.daoDetails.daoId, schema.daos.daoId)
-        )
-        .where(eq(schema.daoDetails.isHide, false))
-    );
-
-    const v4Query = db.$with("v4").as(
-      db
-        .select({
-          baseAcct: schema.v0_4_daos.tokenMintAcct,
-        })
-        .from(schema.v0_4_daos)
-        .leftJoin(
-          schema.organizations,
-          eq(
-            schema.v0_4_daos.organizationId,
-            schema.organizations.organizationId
-          )
-        )
-        .where(eq(schema.organizations.isHide, false))
-    );
 
     const v5Query = db.$with("v5").as(
       db
@@ -74,21 +49,17 @@ export async function updatePrices(): Promise<{
 
 
     const results = await db
-      .with(v3Query, v4Query, v5Query) 
+      .with(v5Query) 
       .select()
-      .from(v3Query)
-      .union(db.with(v4Query).select().from(v4Query))
-      .union(db.with(v5Query).select().from(v5Query))
+      .from(v5Query)
       .execute();
 
 
-    let ids = "";
-    for (const res of results) {
-      ids += res.baseAcct + ",";
-    }
+    const allMints = results
+      .map((res) => res.baseAcct)
+      .filter((acct): acct is string => acct != null);
 
-    const url = baseUrl + ids;
-    const apiKey = process.env.JUPITER_API_KEY;
+    const filteredMints = allMints.filter((mint) => !excludedMints.includes(mint));
 
     const headers: HeadersInit = {
       "Content-Type": "application/json",
@@ -98,19 +69,25 @@ export async function updatePrices(): Promise<{
       headers["x-api-key"] = apiKey;
     }
 
-    const response = await fetch(url, {
-      headers: headers,
-    });
-    
-    if (!response.ok) {
-      logger.error(`Error fetching prices: ${response.statusText}`);
-      return {
-        message: `Error fetching prices: ${response.statusText}`,
-        error: new Error(response.statusText),
-      };
-    }
+    // Jupiter Price API V3 has a 50-id query limit
+    const BATCH_SIZE = 50;
+    let data: Record<string, unknown> = {};
 
-    const data = await response.json();
+    for (let i = 0; i < filteredMints.length; i += BATCH_SIZE) {
+      const batch = filteredMints.slice(i, i + BATCH_SIZE);
+      const url = baseUrl + batch.join(",");
+
+      const response = await fetch(url, {
+        headers: headers,
+      });
+
+      if (!response.ok) {
+        logger.error(`Error fetching prices (batch ${i / BATCH_SIZE + 1}): ${response.statusText}`);
+        continue;
+      }
+      const batchData = await response.json();
+      data = { ...data, ...batchData };
+    }
     const slot = await connection.getSlot();
 
     let missingPrices = [];
@@ -118,7 +95,7 @@ export async function updatePrices(): Promise<{
     
     // v3 response structure is different - no nested data object
     for (const [tokenId, priceData] of Object.entries(data)) {
-      if (priceData) {
+      if (priceData && typeof (priceData as PriceData).usdPrice === "number") {
         const pd = priceData as PriceData;
 
         const newPrice: PricesRecord = {
