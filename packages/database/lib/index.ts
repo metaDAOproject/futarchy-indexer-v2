@@ -3,7 +3,7 @@ import * as schemaDefs from "./schema";
 import { Pool, PoolClient } from "pg";
 import "dotenv/config";
 
-let connectionString = process.env.FUTARCHY_PG_URL;
+let connectionString = process.env.INDEXER_WRITER_PG_URL;
 
 // Add retry configuration
 const RETRY_ATTEMPTS = 12;

@@ -6,10 +6,10 @@ import { promisify } from 'util';
 
 const resolve4 = promisify(dns.resolve4);
 
-export const RPC_ENDPOINT = process.env.RPC_ENDPOINT ?? "";
+export const RPC_ENDPOINT = process.env.BELOW_V06_RPC_ENDPOINT ?? "";
 
 if (!RPC_ENDPOINT) {
-  throw new Error("RPC_ENDPOINT is not set");
+  throw new Error("BELOW_V06_RPC_ENDPOINT is not set");
 }
 
 export const connection: Connection = new Connection(RPC_ENDPOINT, "confirmed");
