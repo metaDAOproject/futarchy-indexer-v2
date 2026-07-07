@@ -16,6 +16,13 @@ const logger = log.child({
   module: "main"
 });
 
+// Historical signature backfill (v4/v5) re-walks each program's full signature
+// history every run; on high-volume program addresses that unbounded
+// getSignaturesForAddress scan times out server-side. It's a one-time operation,
+// so it's off by default — set ENABLE_BACKFILL=true to run it. Frontfill (gapFill),
+// the live path, always runs regardless.
+const backfillEnabled = process.env.ENABLE_BACKFILL === "true";
+
 interface cronFunction {
   (): Promise<{message:string, error: Error | undefined}>;
 }
@@ -330,10 +337,12 @@ async function backfillV3(): Promise<{ message:string, error: Error | undefined 
 }
 
 async function backfillV4(): Promise<{message:string, error: Error|undefined}> {
+  if (!backfillEnabled) return { message: "backfill disabled (set ENABLE_BACKFILL=true to run)", error: undefined };
   return await v4_backfill();
 }
 
 async function backfillV5(): Promise<{message:string, error: Error|undefined}> {
+  if (!backfillEnabled) return { message: "backfill disabled (set ENABLE_BACKFILL=true to run)", error: undefined };
   return await v5_backfill();
 }
 
